@@ -1,0 +1,22 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-page: #f5f6f8;
+}
+
+body {
+  background: var(--bg-page);
+  color: #1f2937;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+.answer-body :where(h1, h2, h3) { font-weight: 600; margin: 0.6em 0 0.3em; }
+.answer-body :where(h2) { font-size: 1.05rem; }
+.answer-body :where(h3) { font-size: 0.95rem; }
+.answer-body p { margin: 0.5em 0; line-height: 1.6; }
+.answer-body code { background: #f0f1f3; padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.85em; }
+.answer-body pre { background: #1e293b; color: #f1f5f9; padding: 0.75rem; border-radius: 0.5rem; overflow-x: auto; font-size: 0.85rem; }
+.answer-body pre code { background: transparent; padding: 0; color: inherit; }
+.answer-body blockquote { border-left: 3px solid #d1d5db; padding-left: 0.75rem; color: #6b7280; }

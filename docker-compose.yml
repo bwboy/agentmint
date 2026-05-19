@@ -1,0 +1,82 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    ports: ["5432:5432"]
+    environment:
+      POSTGRES_DB: agentmint
+      POSTGRES_USER: agentmint
+      POSTGRES_PASSWORD: agentmint_dev
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/migrate.sql:/docker-entrypoint-initdb.d/01-migrate.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentmint -d agentmint"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  minio:
+    image: minio/minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - miniodata:/data
+
+  backend:
+    build: ./backend
+    ports: ["8000:8000"]
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: agentmint
+      DB_USER: agentmint
+      DB_PASSWORD: agentmint_dev
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: agentmint-dev-secret-change-in-production-64chars
+      SMS_PROVIDER: mock
+      FILE_STORE: minio
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: agentmint-files
+      ALLOWED_ORIGINS: '["http://localhost:3000"]'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    volumes:
+      - ./backend:/app
+
+  web:
+    build: ./web
+    ports: ["3000:3000"]
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    depends_on:
+      - backend
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+      - /app/.next
+
+volumes:
+  pgdata:
+  miniodata:

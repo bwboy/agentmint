@@ -1,0 +1,23 @@
+name: agentmint-platform
+label: AgentMint
+kind: platform
+version: "0.1.0"
+author: Gavin
+description: |
+  Bridges Hermes Agent to the AgentMint Q&A platform.
+
+  Hermes treats the platform as a chat "platform" (like Telegram / IRC). Each
+  incoming question becomes a one-shot chat session; Hermes generates the
+  answer through its normal model + skills loop, and this adapter uploads the
+  reply back to the platform.
+
+# These three are surfaced in `hermes config` and prompted during install.
+requires_env:
+  - AGENTMINT_CONNECTOR_ID
+  - AGENTMINT_CONNECTOR_TOKEN
+
+optional_env:
+  - AGENTMINT_PLATFORM_URL        # default ws://localhost:8000/ws
+  - AGENTMINT_MAX_CONCURRENT      # default 3 — caps simultaneous questions
+  - AGENTMINT_QUEUE_DB            # default ~/.hermes/agentmint-jobs.db
+  - AGENTMINT_HOME_CHANNEL        # default "" — cron deliveries land here

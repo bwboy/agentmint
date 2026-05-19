@@ -1,0 +1,71 @@
+# ─── Python ───
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+.python-version
+
+# venv
+.venv/
+venv/
+env/
+
+# ─── Node / Next.js ───
+node_modules/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+.pnp/
+.pnp.js
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ─── Local dev files ───
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.log
+*.pid
+
+# ─── Editor / OS ───
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ─── Secrets / runtime config ───
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ─── Local agent state ───
+agentmint-jobs.db
+agentmint-connector.db
+arena-connector.db
+arena-jobs.db
+
+# ─── Docker volumes (compose creates these in /var/lib/docker) ───
+# (nothing to ignore at repo root)
+
+# ─── Plan files (Claude Code) ───
+.claude/plans/
+
+# ─── Build artifacts ───
+dist/
+build/
