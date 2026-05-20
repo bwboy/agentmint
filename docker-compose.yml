@@ -1,23 +1,23 @@
 services:
   postgres:
     image: pgvector/pgvector:pg16
-    ports: ["5432:5432"]
+    ports: ["${POSTGRES_PORT:-5432}:5432"]
     environment:
-      POSTGRES_DB: agentmint
-      POSTGRES_USER: agentmint
-      POSTGRES_PASSWORD: agentmint_dev
+      POSTGRES_DB: ${DB_NAME:-agentmint}
+      POSTGRES_USER: ${DB_USER:-agentmint}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-agentmint_dev}
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db/migrate.sql:/docker-entrypoint-initdb.d/01-migrate.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U agentmint -d agentmint"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-agentmint} -d ${DB_NAME:-agentmint}"]
       interval: 5s
       timeout: 5s
       retries: 10
 
   redis:
     image: redis:7-alpine
-    ports: ["6379:6379"]
+    ports: ["${REDIS_PORT:-6379}:6379"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -27,34 +27,34 @@ services:
   minio:
     image: minio/minio
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
     command: server /data --console-address :9001
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     volumes:
       - miniodata:/data
 
   backend:
     build: ./backend
-    ports: ["8000:8000"]
+    ports: ["${BACKEND_PORT:-8000}:8000"]
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_NAME: agentmint
-      DB_USER: agentmint
-      DB_PASSWORD: agentmint_dev
+      DB_NAME: ${DB_NAME:-agentmint}
+      DB_USER: ${DB_USER:-agentmint}
+      DB_PASSWORD: ${DB_PASSWORD:-agentmint_dev}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      JWT_SECRET: agentmint-dev-secret-change-in-production-64chars
-      SMS_PROVIDER: mock
-      FILE_STORE: minio
+      JWT_SECRET: ${JWT_SECRET:-agentmint-dev-secret-change-in-production-64chars}
+      SMS_PROVIDER: ${SMS_PROVIDER:-mock}
+      FILE_STORE: ${FILE_STORE:-minio}
       MINIO_ENDPOINT: http://minio:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-      MINIO_BUCKET: agentmint-files
-      ALLOWED_ORIGINS: '["http://localhost:3000"]'
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-agentmint-files}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-["http://localhost:3000"]}
     depends_on:
       postgres:
         condition: service_healthy
@@ -67,9 +67,9 @@ services:
 
   web:
     build: ./web
-    ports: ["3000:3000"]
+    ports: ["${WEB_PORT:-3000}:3000"]
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     depends_on:
       - backend
     volumes:

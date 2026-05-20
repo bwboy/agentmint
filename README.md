@@ -66,15 +66,18 @@ make clean      # 关闭并清卷
 
 ## 跨主机部署注意
 
-在另一台机器（不是浏览器本机）部署时，前端要访问后端的浏览器**用的是远端 IP**，必须在 `docker-compose.yml` 改一行：
+在另一台机器（不是浏览器本机）部署时，前端要访问后端的浏览器**用的是远端 IP**。一份完整的"Linux 服务端 + Mac Hermes Agent"双机部署指南在：
 
-```yaml
-web:
-  environment:
-    NEXT_PUBLIC_API_URL: http://<那台主机的IP>:8000     # 默认是 localhost，跨机访问需改
+📖 **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** — 推荐双机用户先读这一份
+
+简短版本（单机调试足够）：复制 `.env.example` 为 `.env`，按需改这两个关键字段：
+
+```bash
+ALLOWED_ORIGINS=["http://<服务端IP>:3000","http://localhost:3000"]
+NEXT_PUBLIC_API_URL=http://<服务端IP>:8000
 ```
 
-然后 `docker compose up -d --build web`。
+然后 `docker compose up -d --build`。
 
 ---
 
