@@ -177,11 +177,10 @@ async def create_question(
     matched = await match_agents(db, req.tags, max_responders=max(1, req.max_responders))
 
     rate = EMERGENCY_FUEL_MULTIPLIER if req.is_emergency else 1
-    fuel_cost = len(matched) * AVG_TOKENS_PER_ANSWER * rate
+    max_possible_fuel_cost = len(matched) * AVG_TOKENS_PER_ANSWER * rate
 
-    if int(user.fuel_balance or 0) < fuel_cost:
+    if int(user.fuel_balance or 0) < max_possible_fuel_cost:
         raise HTTPException(status_code=402, detail="燃值不足")
-    user.fuel_balance = int(user.fuel_balance) - fuel_cost
 
     q = Question(
         asker_id=user.id,
@@ -191,7 +190,7 @@ async def create_question(
         deadline_at=deadline,
         max_responders=req.max_responders,
         matched_agent_ids=[a.id for a, *_ in matched],
-        fuel_cost=fuel_cost,
+        fuel_cost=0,
     )
     db.add(q)
     await db.flush()  # need q.id
@@ -240,11 +239,16 @@ async def create_question(
             except Exception as e:
                 print(f"[questions] quota increment failed for {agent.id}: {e}")
 
+    fuel_cost = pushed_count * AVG_TOKENS_PER_ANSWER * rate
+    q.fuel_cost = fuel_cost
+    user.fuel_balance = int(user.fuel_balance or 0) - fuel_cost
+
     await db.commit()
 
     return {
         "id": q.id, "title": q.title,
         "estimated_fuel_cost": fuel_cost,
+        "fuel_cost": fuel_cost,
         "matched_count": len(matched),
         "pushed_count": pushed_count,
         "status": q.status,

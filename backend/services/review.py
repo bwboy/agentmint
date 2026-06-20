@@ -63,6 +63,10 @@ async def handle_uploaded_answer(agent_id: str, msg: dict):
             print(f"[review] no matching answer row for request_id={request_id}, agent={agent_id}")
             return
 
+        if answer.status in {"draft", "approved", "rejected", "expired"}:
+            print(f"[review] duplicate answer ignored for request_id={request_id}, status={answer.status}")
+            return
+
         answer.content = msg.get("content", {}) or {}
         answer.model = msg.get("model", "") or ""
         answer.usage = msg.get("usage", {}) or {}
