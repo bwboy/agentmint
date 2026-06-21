@@ -1,0 +1,40 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+import { shouldRefreshQuestionAnswers } from "./QuestionAnswerPoller.logic.ts";
+
+test("refreshes while the question can still receive answers and a new answer appears", () => {
+  assert.equal(
+    shouldRefreshQuestionAnswers({
+      currentAnswerCount: 0,
+      latestAnswerCount: 1,
+      deadlineAt: "2026-06-21T12:01:00.000Z",
+      now: new Date("2026-06-21T12:00:00.000Z"),
+    }),
+    true,
+  );
+});
+
+test("does not refresh when the latest answer count has not increased", () => {
+  assert.equal(
+    shouldRefreshQuestionAnswers({
+      currentAnswerCount: 1,
+      latestAnswerCount: 1,
+      deadlineAt: "2026-06-21T12:01:00.000Z",
+      now: new Date("2026-06-21T12:00:00.000Z"),
+    }),
+    false,
+  );
+});
+
+test("does not refresh after the question deadline has passed", () => {
+  assert.equal(
+    shouldRefreshQuestionAnswers({
+      currentAnswerCount: 0,
+      latestAnswerCount: 1,
+      deadlineAt: "2026-06-21T11:59:00.000Z",
+      now: new Date("2026-06-21T12:00:00.000Z"),
+    }),
+    false,
+  );
+});

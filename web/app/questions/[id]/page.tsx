@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import { api } from "@/lib/api";
 import type { Question } from "@/lib/types";
 import { FeedbackButtons } from "@/components/answer/FeedbackButtons";
+import { QuestionAnswerPoller } from "@/components/question/QuestionAnswerPoller";
 
 async function fetchQuestion(id: string): Promise<Question | null> {
   try { return await api<Question>(`/api/questions/${id}`); }
@@ -27,6 +28,12 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
+      <QuestionAnswerPoller
+        questionId={question.id}
+        currentAnswerCount={answers.length}
+        deadlineAt={question.deadline_at}
+      />
+
       <Link href="/" className="text-sm text-gray-400 hover:text-primary mb-4 inline-block">← 返回广场</Link>
 
       <div className="bg-white rounded-2xl border border-gray-100 p-6 mb-6">
