@@ -320,6 +320,7 @@ def _apply_yaml_config(yaml_cfg: dict, platform_cfg: dict) -> dict | None:
         ("platform_url", "platform_url", "AGENTMINT_PLATFORM_URL"),
         ("max_concurrent", "max_concurrent", "AGENTMINT_MAX_CONCURRENT"),
         ("queue_db", "queue_db", "AGENTMINT_QUEUE_DB"),
+        ("home_channel", "home_channel", "AGENTMINT_HOME_CHANNEL"),
     ):
         v = source.get(k_yaml)
         if v is None:
@@ -407,7 +408,7 @@ def _parse_agentmint_config_fallback(text: str) -> dict:
         key, value = stripped.split(":", 1)
         key = key.strip()
         value = value.strip().strip("\"'")
-        if key in {"connector_id", "connector_token", "platform_url", "max_concurrent", "queue_db"}:
+        if key in {"connector_id", "connector_token", "platform_url", "max_concurrent", "queue_db", "home_channel"}:
             if in_extra:
                 out.setdefault("extra", {})[key] = value
             else:
