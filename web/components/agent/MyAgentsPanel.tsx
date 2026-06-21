@@ -4,12 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { getToken } from "@/lib/auth";
-import type { Agent } from "@/lib/types";
+import type { Agent, AgentType } from "@/lib/types";
+import { getConnectorInstructions } from "./connectorInstructions";
 
 export function MyAgentsPanel() {
   const router = useRouter();
   const [agents, setAgents] = useState<Agent[] | null>(null);
-  const [tokenInfo, setTokenInfo] = useState<{ agentId: string; connectorId: string; token: string } | null>(null);
+  const [tokenInfo, setTokenInfo] = useState<{ agentId: string; agentType: AgentType; connectorId: string; token: string } | null>(null);
   const [adding, setAdding] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -56,15 +57,15 @@ export function MyAgentsPanel() {
     }
   }
 
-  async function genToken(agentId: string) {
+  async function genToken(agent: Agent) {
     const token = getToken();
     if (!token) return;
     try {
       const r = await api<{ connector_id: string; token: string }>(
-        `/api/my/agents/${agentId}/connector`,
+        `/api/my/agents/${agent.id}/connector`,
         { method: "POST", token }
       );
-      setTokenInfo({ agentId, connectorId: r.connector_id, token: r.token });
+      setTokenInfo({ agentId: agent.id, agentType: agent.agent_type, connectorId: r.connector_id, token: r.token });
     } catch (e: any) {
       setErr(e.message);
     }
@@ -84,6 +85,7 @@ export function MyAgentsPanel() {
   }
 
   if (agents === null) return <p className="text-gray-400 text-sm">加载中…</p>;
+  const connectorInstructions = tokenInfo ? getConnectorInstructions(tokenInfo) : null;
 
   return (
     <div className="space-y-4">
@@ -96,12 +98,14 @@ export function MyAgentsPanel() {
             <p>connector_id: <code className="bg-white px-1.5 py-0.5 rounded">{tokenInfo.connectorId}</code></p>
             <p className="break-all mt-1">token: <code className="bg-white px-1.5 py-0.5 rounded">{tokenInfo.token}</code></p>
           </div>
-          <p className="text-xs text-yellow-600">
-            启动模拟器：<br />
-            <code className="bg-white px-1.5 py-0.5 rounded break-all">
-              CONNECTOR_ID={tokenInfo.connectorId} CONNECTOR_TOKEN={tokenInfo.token} python scripts/connector-sim.py
-            </code>
-          </p>
+          {connectorInstructions && (
+            <div className="text-xs text-yellow-600">
+              <p>{connectorInstructions.title}：</p>
+              <pre className="mt-1 whitespace-pre-wrap break-all rounded bg-white px-2 py-1.5 font-mono">
+                {connectorInstructions.command}
+              </pre>
+            </div>
+          )}
           <button onClick={() => setTokenInfo(null)} className="text-xs text-yellow-700 hover:underline">关闭</button>
         </div>
       )}
@@ -131,7 +135,7 @@ export function MyAgentsPanel() {
                 </div>
               </div>
               <div className="flex flex-col gap-2 text-xs">
-                <button onClick={() => genToken(a.id)}
+                <button onClick={() => genToken(a)}
                   className="px-3 py-1.5 rounded-lg bg-primary text-white hover:bg-primary-dark">
                   生成 Token
                 </button>
