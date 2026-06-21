@@ -1,6 +1,7 @@
 import importlib.util
 import os
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -89,6 +90,32 @@ class YamlConfigTests(unittest.TestCase):
         self.assertEqual(out["platform_url"], "ws://arena.example/ws")
         self.assertEqual(os.environ["AGENTMINT_CONNECTOR_ID"], "conn_from_yaml")
         self.assertEqual(os.environ["AGENTMINT_CONNECTOR_TOKEN"], "conn_sk_from_yaml")
+
+    def test_check_requirements_accepts_config_yaml_without_env(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "config.yaml"
+            config_path.write_text(
+                """
+plugins:
+  enabled:
+    - platforms/agentmint
+
+gateway:
+  platforms:
+    agentmint:
+      enabled: true
+      extra:
+        connector_id: conn_from_file
+        connector_token: conn_sk_from_file
+        platform_url: ws://arena.example/ws
+""".strip(),
+                encoding="utf-8",
+            )
+            os.environ["HERMES_CONFIG"] = str(config_path)
+            try:
+                self.assertTrue(self.adapter.check_requirements())
+            finally:
+                os.environ.pop("HERMES_CONFIG", None)
 
 
 if __name__ == "__main__":

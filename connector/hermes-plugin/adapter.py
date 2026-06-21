@@ -272,7 +272,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
 
 def check_requirements() -> bool:
     """`hermes plugins list` uses this to gate the green/red badge."""
-    return bool(os.getenv("AGENTMINT_CONNECTOR_ID")) and bool(os.getenv("AGENTMINT_CONNECTOR_TOKEN"))
+    return bool(_configured_connector_id()) and bool(_configured_connector_token())
 
 
 def validate_config(config) -> bool:
@@ -289,11 +289,14 @@ def _env_enablement() -> dict | None:
     Hermes calls this during gateway startup; returning None keeps the platform
     dormant. Returning a dict seeds `PlatformConfig.extra`.
     """
-    if not check_requirements():
+    connector_id = _configured_connector_id()
+    connector_token = _configured_connector_token()
+    if not connector_id or not connector_token:
         return None
     extra: dict[str, Any] = {
-        "connector_id": os.getenv("AGENTMINT_CONNECTOR_ID", ""),
-        "platform_url": os.getenv("AGENTMINT_PLATFORM_URL", DEFAULT_PLATFORM_URL),
+        "connector_id": connector_id,
+        "connector_token": connector_token,
+        "platform_url": _configured_platform_url(),
     }
     home = os.getenv("AGENTMINT_HOME_CHANNEL", "").strip()
     if home:
@@ -324,6 +327,92 @@ def _apply_yaml_config(yaml_cfg: dict, platform_cfg: dict) -> dict | None:
         out[k_extra] = v
         os.environ.setdefault(env, str(v))
     return out or None
+
+
+def _configured_connector_id() -> str:
+    return os.getenv("AGENTMINT_CONNECTOR_ID") or _agentmint_config_value("connector_id")
+
+
+def _configured_connector_token() -> str:
+    return os.getenv("AGENTMINT_CONNECTOR_TOKEN") or _agentmint_config_value("connector_token")
+
+
+def _configured_platform_url() -> str:
+    return os.getenv("AGENTMINT_PLATFORM_URL") or _agentmint_config_value("platform_url") or DEFAULT_PLATFORM_URL
+
+
+def _agentmint_config_value(key: str) -> str:
+    cfg = _load_agentmint_yaml_config()
+    if not isinstance(cfg, dict):
+        return ""
+    extra = cfg.get("extra")
+    if isinstance(extra, dict) and extra.get(key) is not None:
+        return str(extra.get(key) or "")
+    if cfg.get(key) is not None:
+        return str(cfg.get(key) or "")
+    return ""
+
+
+def _load_agentmint_yaml_config() -> dict:
+    path = Path(os.getenv("HERMES_CONFIG", "~/.hermes/config.yaml")).expanduser()
+    if not path.exists():
+        return {}
+    text = path.read_text(encoding="utf-8")
+
+    try:
+        import yaml  # type: ignore
+        parsed = yaml.safe_load(text) or {}
+        return (((parsed.get("gateway") or {}).get("platforms") or {}).get("agentmint") or {})
+    except Exception:
+        return _parse_agentmint_config_fallback(text)
+
+
+def _parse_agentmint_config_fallback(text: str) -> dict:
+    out: dict[str, Any] = {}
+    in_agentmint = False
+    agentmint_indent = 0
+    in_extra = False
+    extra_indent = 0
+
+    for raw in text.splitlines():
+        line = raw.split("#", 1)[0].rstrip()
+        if not line.strip():
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        stripped = line.strip()
+
+        if stripped == "agentmint:":
+            in_agentmint = True
+            agentmint_indent = indent
+            in_extra = False
+            continue
+
+        if in_agentmint and indent <= agentmint_indent:
+            in_agentmint = False
+            in_extra = False
+        if not in_agentmint:
+            continue
+
+        if stripped == "extra:":
+            out.setdefault("extra", {})
+            in_extra = True
+            extra_indent = indent
+            continue
+
+        if in_extra and indent <= extra_indent:
+            in_extra = False
+
+        if ":" not in stripped:
+            continue
+        key, value = stripped.split(":", 1)
+        key = key.strip()
+        value = value.strip().strip("\"'")
+        if key in {"connector_id", "connector_token", "platform_url", "max_concurrent", "queue_db"}:
+            if in_extra:
+                out.setdefault("extra", {})[key] = value
+            else:
+                out[key] = value
+    return out
 
 
 async def _standalone_send(pconfig, chat_id, message, *, thread_id=None,
