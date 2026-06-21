@@ -32,8 +32,7 @@ export function LoginForm() {
         { method: "POST", json: { phone, code } }
       );
       setTokens(r.token, r.refresh_token);
-      router.push("/");
-      router.refresh();
+      window.location.href = "/";
     } catch (e: any) {
       setErr(e instanceof ApiError ? e.message : "登录失败");
     } finally {
