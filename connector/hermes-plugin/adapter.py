@@ -208,12 +208,14 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         """Hermes finished a turn — upload the answer to Arena.
 
         `chat_id` is the request_id (we set it that way in `_on_question`).
-        `metadata` may carry `model` / `usage` from the LLM; we pull what we can.
+        `metadata` may carry `model` / token usage from the LLM; we pull what
+        we can while tolerating Hermes versions that only pass thread routing
+        metadata to platform adapters.
         """
         request_id = str(chat_id)
         meta = metadata or {}
-        model = meta.get("model") or "hermes"
-        usage = meta.get("usage") or {}
+        model = meta.get("model") or meta.get("active_model") or "hermes"
+        usage = _extract_usage(meta)
         capability = meta.get("capability") or _capability_hint(model)
 
         started = self._job_started_at.pop(request_id, None)
@@ -303,6 +305,11 @@ def _apply_yaml_config(yaml_cfg: dict, platform_cfg: dict) -> dict | None:
     """Map `gateway.platforms.agentmint` keys from config.yaml into env / extras."""
     if not isinstance(yaml_cfg, dict):
         return None
+    source = yaml_cfg
+    nested_extra = yaml_cfg.get("extra")
+    if isinstance(nested_extra, dict):
+        source = {**yaml_cfg, **nested_extra}
+
     out: dict[str, Any] = {}
     for k_yaml, k_extra, env in (
         ("connector_id", "connector_id", "AGENTMINT_CONNECTOR_ID"),
@@ -311,7 +318,7 @@ def _apply_yaml_config(yaml_cfg: dict, platform_cfg: dict) -> dict | None:
         ("max_concurrent", "max_concurrent", "AGENTMINT_MAX_CONCURRENT"),
         ("queue_db", "queue_db", "AGENTMINT_QUEUE_DB"),
     ):
-        v = yaml_cfg.get(k_yaml)
+        v = source.get(k_yaml)
         if v is None:
             continue
         out[k_extra] = v
@@ -395,6 +402,51 @@ def _capability_hint(model: str) -> dict:
         "tools": [],
         "mcp_servers": [],
     }
+
+
+def _extract_usage(metadata: dict | None) -> dict:
+    """Extract token usage from known Hermes metadata/result shapes.
+
+    Current Hermes platform delivery usually passes thread-routing metadata
+    only. Newer or locally patched gateways may pass either `usage` directly or
+    the full run_conversation result containing prompt/completion totals.
+    """
+    if not isinstance(metadata, dict):
+        return {}
+
+    usage = metadata.get("usage") or metadata.get("token_usage")
+    if usage:
+        normalized = _normalize_usage_obj(usage)
+        if normalized:
+            return normalized
+
+    return _normalize_usage_obj(metadata)
+
+
+def _normalize_usage_obj(value: Any) -> dict:
+    if not value:
+        return {}
+
+    def _field(name: str) -> int:
+        raw = value.get(name) if isinstance(value, dict) else getattr(value, name, 0)
+        try:
+            return int(raw or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    prompt = _field("prompt_tokens")
+    completion = _field("completion_tokens")
+    total = _field("total_tokens") or prompt + completion
+    cached = _field("cached_tokens") or _field("cache_read_tokens")
+
+    out = {
+        "prompt_tokens": prompt,
+        "completion_tokens": completion,
+        "total_tokens": total,
+    }
+    if cached:
+        out["cached_tokens"] = cached
+    return out if any(out.values()) else {}
 
 
 # ════════════════════════════════════════════════════════════════
