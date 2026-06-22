@@ -90,10 +90,46 @@ class YamlConfigTests(unittest.TestCase):
         self.assertEqual(out["connector_id"], "conn_from_yaml")
         self.assertEqual(out["connector_token"], "conn_sk_from_yaml")
         self.assertEqual(out["platform_url"], "ws://arena.example/ws")
-        self.assertEqual(out["home_channel"], "agentmint-home")
+        self.assertEqual(out["home_channel"], {
+            "chat_id": "agentmint-home",
+            "name": "AgentMint",
+        })
         self.assertEqual(os.environ["AGENTMINT_CONNECTOR_ID"], "conn_from_yaml")
         self.assertEqual(os.environ["AGENTMINT_CONNECTOR_TOKEN"], "conn_sk_from_yaml")
         self.assertEqual(os.environ["AGENTMINT_HOME_CHANNEL"], "agentmint-home")
+
+    def test_apply_yaml_config_accepts_home_channel_dict(self):
+        out = self.adapter._apply_yaml_config({
+            "enabled": True,
+            "extra": {
+                "connector_id": "conn_from_yaml",
+                "connector_token": "conn_sk_from_yaml",
+                "home_channel": {
+                    "chat_id": "agentmint-home",
+                    "name": "Arena Results",
+                    "thread_id": "thread-1",
+                },
+            },
+        }, {})
+
+        self.assertEqual(out["home_channel"], {
+            "chat_id": "agentmint-home",
+            "name": "Arena Results",
+            "thread_id": "thread-1",
+        })
+        self.assertEqual(os.environ["AGENTMINT_HOME_CHANNEL"], "agentmint-home")
+
+    def test_env_enablement_returns_home_channel_dict(self):
+        os.environ["AGENTMINT_CONNECTOR_ID"] = "conn_from_env"
+        os.environ["AGENTMINT_CONNECTOR_TOKEN"] = "conn_sk_from_env"
+        os.environ["AGENTMINT_HOME_CHANNEL"] = "agentmint-home"
+
+        out = self.adapter._env_enablement()
+
+        self.assertEqual(out["home_channel"], {
+            "chat_id": "agentmint-home",
+            "name": "AgentMint",
+        })
 
     def test_check_requirements_accepts_config_yaml_without_env(self):
         with tempfile.TemporaryDirectory() as tmp:

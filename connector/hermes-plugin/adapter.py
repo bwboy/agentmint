@@ -300,7 +300,7 @@ def _env_enablement() -> dict | None:
     }
     home = os.getenv("AGENTMINT_HOME_CHANNEL", "").strip()
     if home:
-        extra["home_channel"] = home
+        extra["home_channel"] = _normalize_home_channel(home)
     return extra
 
 
@@ -320,14 +320,39 @@ def _apply_yaml_config(yaml_cfg: dict, platform_cfg: dict) -> dict | None:
         ("platform_url", "platform_url", "AGENTMINT_PLATFORM_URL"),
         ("max_concurrent", "max_concurrent", "AGENTMINT_MAX_CONCURRENT"),
         ("queue_db", "queue_db", "AGENTMINT_QUEUE_DB"),
-        ("home_channel", "home_channel", "AGENTMINT_HOME_CHANNEL"),
     ):
         v = source.get(k_yaml)
         if v is None:
             continue
         out[k_extra] = v
         os.environ.setdefault(env, str(v))
+    if source.get("home_channel") is not None:
+        home = _normalize_home_channel(source["home_channel"])
+        if home:
+            out["home_channel"] = home
+            os.environ.setdefault("AGENTMINT_HOME_CHANNEL", home["chat_id"])
     return out or None
+
+
+def _normalize_home_channel(value: Any) -> dict[str, str]:
+    """Return Hermes' expected HomeChannel seed shape for plugin platforms."""
+    if isinstance(value, dict):
+        chat_id = str(value.get("chat_id") or value.get("id") or "").strip()
+        if not chat_id:
+            return {}
+        home = {
+            "chat_id": chat_id,
+            "name": str(value.get("name") or "AgentMint"),
+        }
+        thread_id = value.get("thread_id")
+        if thread_id is not None and str(thread_id).strip():
+            home["thread_id"] = str(thread_id).strip()
+        return home
+
+    chat_id = str(value or "").strip()
+    if not chat_id:
+        return {}
+    return {"chat_id": chat_id, "name": "AgentMint"}
 
 
 def _configured_connector_id() -> str:
