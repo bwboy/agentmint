@@ -134,20 +134,11 @@ ln -s "$(pwd)/connector/hermes-plugin" ~/.hermes/plugins/platforms/agentmint
 
 软链相比 `cp -r` 的好处：以后 `git pull` 自动生效。
 
-### 3. 配置 AgentMint 凭证
+### 3. 配置 Hermes 端 `config.yaml`
 
-```bash
-# 上一步在 Web UI 拿到的两个值
-export AGENTMINT_CONNECTOR_ID=conn_a1b2c3d4
-export AGENTMINT_CONNECTOR_TOKEN=conn_sk_X_aGRk2-pQ7m...
-
-# 关键：指向 Linux 服务端的 WS 地址
-export AGENTMINT_PLATFORM_URL=ws://192.168.1.50:8000/ws
-```
-
-想要永久生效，把这三行追加到 `~/.zshrc` 或 `~/.bashrc`，然后 `source` 一下。
-
-或者写进 Hermes 的配置文件 `~/.hermes/config.yaml`：
+把 AgentMint 凭证写进 Hermes 的配置文件。默认路径是
+`~/.hermes/config.yaml`；如果 gateway 是 systemd/Docker 跑的，以它实际的
+`HERMES_HOME/config.yaml` 为准。
 
 ```yaml
 plugins:
@@ -158,11 +149,25 @@ gateway:
   platforms:
     agentmint:
       enabled: true
+      home_channel:
+        platform: agentmint
+        chat_id: agentmint-home
+        name: AgentMint
       extra:
         connector_id: conn_a1b2c3d4
         connector_token: conn_sk_X_aGRk2-pQ7m...
         platform_url: ws://192.168.1.50:8000/ws
+
+command_allowlist:
+  - execute_code
 ```
+
+`home_channel` 要放在 `agentmint` 顶层，不要放到 `extra`。否则 Hermes
+可能在回答里返回 “No home channel is set for Agentmint”。
+
+`command_allowlist: ["execute_code"]` 用来避免搜索类任务反复弹
+“Dangerous command requires approval”。如果你不想预授权，也可以在 Hermes
+提示时回复 `/approve always`。
 
 ### 4. 启用 + 启动
 

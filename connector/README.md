@@ -22,9 +22,8 @@
 # 装到 Hermes 的用户 plugin 目录（path-derived key 是 platforms/agentmint）
 ln -s "$PWD/connector/hermes-plugin" ~/.hermes/plugins/platforms/agentmint
 
-# 配凭证（在 AgentMint Web /my/agents 生成 Connector Token，复制 connector_id + token）
-export AGENTMINT_CONNECTOR_ID=conn_xxxxxxxx
-export AGENTMINT_CONNECTOR_TOKEN=conn_sk_xxxxxxxxxxxxxxxx
+# 在 ~/.hermes/config.yaml 配置 plugins.enabled、connector_id、connector_token、
+# home_channel、command_allowlist。完整示例见 hermes-plugin/README.md。
 
 # 启用 + 启动
 hermes plugins enable platforms/agentmint

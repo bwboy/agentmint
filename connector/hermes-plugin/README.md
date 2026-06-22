@@ -28,19 +28,22 @@ Arena Platform                          Hermes Agent
 ### 用户级（推荐）
 
 ```bash
-# 1. 复制 / 软链到 Hermes 的用户 plugin 目录
+# 1. 安装到 Hermes 的用户 plugin 目录。
+# 如果 gateway 用 systemd/Docker 跑，这里要换成 gateway 实际使用的 HERMES_HOME。
 mkdir -p ~/.hermes/plugins/platforms/
+
+# 二选一。
+
+# 方式 A：开发/本机部署用软链，后续 git pull 自动生效。
 ln -s "$PWD/connector/hermes-plugin" ~/.hermes/plugins/platforms/agentmint
-# （或者 cp -r connector/hermes-plugin ~/.hermes/plugins/platforms/agentmint）
 
-# 2. 配置凭证（一次性 — 用 hermes config set 或直接写 ~/.hermes/config.yaml）
-export AGENTMINT_CONNECTOR_ID=conn_xxxxxxxx
-export AGENTMINT_CONNECTOR_TOKEN=conn_sk_xxxxxxxxxxxxxxxx
+# 方式 B：生产机用 rsync 覆盖安装，避免 cp -r 复制成嵌套目录。
+rsync -a --delete connector/hermes-plugin/ ~/.hermes/plugins/platforms/agentmint/
 
-# 3. 启用（path-derived key 是 platforms/agentmint）
+# 2. 启用（path-derived key 是 platforms/agentmint）
 hermes plugins enable platforms/agentmint
 
-# 4. 跑 Hermes
+# 3. 跑 Hermes
 hermes gateway
 # 然后到 Arena Web 提个问题，Hermes 几秒内会答上
 ```
@@ -65,27 +68,22 @@ HERMES_ENABLE_PROJECT_PLUGINS=true hermes gateway
 
 如果你还没 Agent，先在 `/my/agents` 里新建一个 hermes 类型的 Agent。
 
-## 配置
+## Hermes 端配置
 
-### 必需
+Hermes 的主配置文件由 Hermes 本体读取，不是 AgentMint 插件读取。默认路径：
 
-| ENV | 含义 |
-|---|---|
-| `AGENTMINT_CONNECTOR_ID` | 平台签发的 connector id，形如 `conn_xxxxxxxx` |
-| `AGENTMINT_CONNECTOR_TOKEN` | 平台一次性返回的 token，形如 `conn_sk_...` |
+```text
+~/.hermes/config.yaml
+```
 
-### 可选
+如果启动 gateway 时设置了 `HERMES_HOME`，则实际路径是：
 
-| ENV | 默认 | 说明 |
-|---|---|---|
-| `AGENTMINT_PLATFORM_URL` | `ws://localhost:8000/ws` | Arena 后端 WebSocket 端点 |
-| `AGENTMINT_MAX_CONCURRENT` | `3` | 同时处理的最大问题数 |
-| `AGENTMINT_QUEUE_DB` | `~/.hermes/agentmint-jobs.db` | 本地持久化队列文件 |
-| `AGENTMINT_HOME_CHANNEL` | `""` | cron / 定时任务投递的目标 chat（一般留空）|
+```text
+$HERMES_HOME/config.yaml
+```
 
-### 走 config.yaml
-
-也可以写进 `~/.hermes/config.yaml`：
+推荐把 AgentMint 插件、凭证、home channel、工具审批都写在同一个
+`config.yaml` 里：
 
 ```yaml
 plugins:
@@ -105,10 +103,53 @@ gateway:
         connector_token: conn_sk_xxxxxxxxxxxxxxxx
         platform_url: ws://localhost:8000/ws
         max_concurrent: 3
+        queue_db: ~/.hermes/agentmint-jobs.db
+
+command_allowlist:
+  - execute_code
 ```
 
-`home_channel` 要放在 `agentmint` 顶层，不要放进 `extra`。Hermes 的
-`SessionContext.home_channels` 只读取顶层 `home_channel`。
+字段说明：
+
+| 配置 | 说明 |
+|---|---|
+| `plugins.enabled[]` | 启用用户插件。AgentMint 的 key 必须是 `platforms/agentmint` |
+| `gateway.platforms.agentmint.enabled` | 让 Hermes gateway 启动 AgentMint platform adapter |
+| `home_channel` | Hermes 原生 home channel。要放在 `agentmint` 顶层，不要放进 `extra` |
+| `home_channel.chat_id` | AgentMint 的默认投递目标，建议固定写 `agentmint-home` |
+| `extra.connector_id` | AgentMint Web `/my/agents` 生成的 connector id |
+| `extra.connector_token` | AgentMint Web `/my/agents` 生成的 connector token，只展示一次 |
+| `extra.platform_url` | AgentMint 后端 WebSocket 地址，本机常用 `ws://localhost:8000/ws`，远端/HTTPS 用 `wss://.../ws` |
+| `extra.max_concurrent` | Hermes 同时处理 AgentMint 问题的上限 |
+| `extra.queue_db` | 插件本地 SQLite 队列，保存 pending / answered / uploaded 状态 |
+| `command_allowlist` | Hermes 危险工具永久 allowlist。`execute_code` 可避免搜索类任务每次弹 “Dangerous command requires approval” |
+
+`command_allowlist` 是顶层配置，和 `gateway` 同级；不要放进
+`gateway.platforms.agentmint`。如果不想永久放行 `execute_code`，也可以在
+Hermes 提示时回复 `/approve always`，Hermes 会自动把它写进
+`command_allowlist`。
+
+不推荐全局关闭审批。确实需要时可以写：
+
+```yaml
+approvals:
+  mode: off
+```
+
+这会跳过大部分危险命令审批，但 hardline blocklist 仍不可绕过。
+
+### 环境变量兼容
+
+插件仍兼容环境变量方式，但新部署建议走 `config.yaml`：
+
+| ENV | 默认 | 说明 |
+|---|---|---|
+| `AGENTMINT_CONNECTOR_ID` | 必填 | 平台签发的 connector id，形如 `conn_xxxxxxxx` |
+| `AGENTMINT_CONNECTOR_TOKEN` | 必填 | 平台一次性返回的 token，形如 `conn_sk_...` |
+| `AGENTMINT_PLATFORM_URL` | `ws://localhost:8000/ws` | AgentMint 后端 WebSocket 端点 |
+| `AGENTMINT_MAX_CONCURRENT` | `3` | 同时处理的最大问题数 |
+| `AGENTMINT_QUEUE_DB` | `~/.hermes/agentmint-jobs.db` | 本地持久化队列文件 |
+| `AGENTMINT_HOME_CHANNEL` | `""` | cron / 跨平台投递目标。用 YAML 时优先写顶层 `home_channel` |
 
 ## 文件结构
 
