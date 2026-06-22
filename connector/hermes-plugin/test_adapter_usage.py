@@ -1,4 +1,5 @@
 import importlib.util
+import asyncio
 import os
 import sys
 import tempfile
@@ -57,6 +58,107 @@ class UsageExtractionTests(unittest.TestCase):
             "prompt_tokens": 12,
             "completion_tokens": 23,
             "total_tokens": 35,
+        })
+
+    def test_extract_usage_from_hermes_gateway_result_tokens(self):
+        self.assertEqual(self.adapter._extract_usage({
+            "input_tokens": 13,
+            "output_tokens": 24,
+            "cache_read_tokens": 5,
+        }), {
+            "prompt_tokens": 13,
+            "completion_tokens": 24,
+            "total_tokens": 37,
+            "cached_tokens": 5,
+        })
+
+    def test_capture_handler_result_usage_by_chat_id(self):
+        adapter_mod = self.adapter
+
+        class TestAdapter(adapter_mod.ArenaAdapter):
+            def __init__(self):
+                self._last_turn_metadata = {}
+
+            def build_source(self, **kwargs):
+                return SimpleNamespace(**kwargs)
+
+        async def run_case():
+            adapter = TestAdapter()
+
+            async def handler(event):
+                return {
+                    "final_response": "ok",
+                    "input_tokens": 14,
+                    "output_tokens": 25,
+                    "model": "test-model",
+                }
+
+            adapter.set_message_handler(handler)
+            event = SimpleNamespace(source=SimpleNamespace(chat_id="req_1"))
+            await adapter._message_handler(event)
+            return adapter._last_turn_metadata["req_1"]
+
+        self.assertEqual(asyncio.run(run_case()), {
+            "prompt_tokens": 14,
+            "completion_tokens": 25,
+            "total_tokens": 39,
+            "model": "test-model",
+        })
+
+    def test_send_uploads_usage_captured_from_handler_result(self):
+        adapter_mod = self.adapter
+
+        class FakeQueue:
+            def __init__(self):
+                self.marked = []
+
+            def mark(self, request_id, status, **kwargs):
+                self.marked.append((request_id, status, kwargs))
+
+        class FakeClient:
+            def __init__(self):
+                self.sent = None
+
+            async def send_answer(self, request_id, **kwargs):
+                self.sent = (request_id, kwargs)
+                return True
+
+        class TestAdapter(adapter_mod.ArenaAdapter):
+            def __init__(self):
+                self._last_turn_metadata = {
+                    "req_2": {
+                        "prompt_tokens": 10,
+                        "completion_tokens": 15,
+                        "total_tokens": 25,
+                        "model": "test-model",
+                    }
+                }
+                self._job_started_at = {}
+                self._queue = FakeQueue()
+                self._client = FakeClient()
+
+        async def run_case():
+            adapter = TestAdapter()
+            original_send_result = adapter_mod.SendResult
+            adapter_mod.SendResult = lambda **kwargs: SimpleNamespace(**kwargs)
+            try:
+                await adapter.send("req_2", "answer text", metadata={"notify": True})
+            finally:
+                adapter_mod.SendResult = original_send_result
+            return adapter._client.sent, adapter._queue.marked
+
+        sent, marked = asyncio.run(run_case())
+        self.assertEqual(sent[0], "req_2")
+        self.assertEqual(sent[1]["model"], "test-model")
+        self.assertEqual(sent[1]["usage"], {
+            "prompt_tokens": 10,
+            "completion_tokens": 15,
+            "total_tokens": 25,
+        })
+        self.assertEqual(marked[0][2]["answer"]["usage"], {
+            "prompt_tokens": 10,
+            "completion_tokens": 15,
+            "total_tokens": 25,
         })
 
 

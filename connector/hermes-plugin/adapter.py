@@ -77,6 +77,36 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         self._start_time = 0.0
         # Per-job timing for `duration_ms` reporting on the answer payload
         self._job_started_at: dict[str, float] = {}
+        # Hermes' platform send metadata currently carries thread routing, not
+        # the full run result. Capture the handler result by request/chat id so
+        # send() can upload the exact token usage when Hermes exposes it there.
+        self._last_turn_metadata: dict[str, dict[str, Any]] = {}
+
+    def set_message_handler(self, handler):  # type: ignore[override]
+        async def _wrapped(event):
+            result = await handler(event)
+            self._capture_turn_metadata(event, result)
+            return result
+
+        self._message_handler = _wrapped
+
+    def _capture_turn_metadata(self, event, result) -> None:
+        if not isinstance(result, dict):
+            return
+        source = getattr(event, "source", None)
+        chat_id = getattr(source, "chat_id", None)
+        if not chat_id:
+            return
+        usage = _extract_usage(result)
+        model = result.get("model") or result.get("active_model")
+        if not usage and not model:
+            return
+        captured: dict[str, Any] = {}
+        if usage:
+            captured.update(usage)
+        if model:
+            captured["model"] = model
+        self._last_turn_metadata[str(chat_id)] = captured
 
     # ─── Lifecycle ───
 
@@ -214,8 +244,9 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         """
         request_id = str(chat_id)
         meta = metadata or {}
-        model = meta.get("model") or meta.get("active_model") or "hermes"
-        usage = _extract_usage(meta)
+        turn_meta = self._last_turn_metadata.pop(request_id, {})
+        model = meta.get("model") or meta.get("active_model") or turn_meta.get("model") or "hermes"
+        usage = _extract_usage(meta) or _extract_usage(turn_meta)
         capability = meta.get("capability") or _capability_hint(model)
 
         started = self._job_started_at.pop(request_id, None)
@@ -551,10 +582,10 @@ def _normalize_usage_obj(value: Any) -> dict:
         except (TypeError, ValueError):
             return 0
 
-    prompt = _field("prompt_tokens")
-    completion = _field("completion_tokens")
+    prompt = _field("prompt_tokens") or _field("input_tokens")
+    completion = _field("completion_tokens") or _field("output_tokens")
     total = _field("total_tokens") or prompt + completion
-    cached = _field("cached_tokens") or _field("cache_read_tokens")
+    cached = _field("cached_tokens") or _field("cache_read_tokens") or _field("cache_write_tokens")
 
     out = {
         "prompt_tokens": prompt,

@@ -138,6 +138,23 @@ approvals:
 
 这会跳过大部分危险命令审批，但 hardline blocklist 仍不可绕过。
 
+## Token usage 回传
+
+AgentMint 插件会在 Hermes 处理完消息后捕获 gateway runner 返回的计量字段，并在上传答案时写入：
+
+```json
+{
+  "usage": {
+    "prompt_tokens": 123,
+    "completion_tokens": 456,
+    "total_tokens": 579,
+    "cached_tokens": 0
+  }
+}
+```
+
+兼容的 Hermes 字段包括 `prompt_tokens` / `completion_tokens` / `total_tokens`，以及 Hermes gateway 常见的 `input_tokens` / `output_tokens`。如果当前 Hermes provider 或 gateway 版本没有返回 token 统计，插件会上传空的 `usage`，不会用估算值冒充真实计量。
+
 ### 环境变量兼容
 
 插件仍兼容环境变量方式，但新部署建议走 `config.yaml`：
@@ -206,7 +223,7 @@ hermes-plugin/
 
 ## 限制 / TODO
 
-- 当前 `send()` 收到 Hermes 回答后，`model` / `usage` 字段从 `metadata` 里读；如果 Hermes 没在 `metadata` 里挂这些字段，Plugin 就上传 `model="hermes"` 和空的 usage 字典。等 Hermes gateway runner 把 LLM 计量信息塞进 `metadata` 之后，这条会自动补全。
+- `usage` 只回传 Hermes 实际提供的 token 统计；如果底层 provider / gateway 没给计量字段，AgentMint 会显示为空。
 - `capability` 现在只能给出 `engine.provider="hermes"`，没法精确说出回答用了哪些 Skills / MCP / 知识库 — 这需要从 `ctx` 里读 Hermes 的当前能力清单，留作后续。
 - 富媒体（图片附件）：`send()` 收到的 `media_files` 参数还没接，回答里只回传文本。
 - 紧急配额（platform-side `emergency_reserve`）没消费。
