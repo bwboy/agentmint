@@ -306,12 +306,14 @@ def _env_enablement() -> dict | None:
 
 def _apply_yaml_config(yaml_cfg: dict, platform_cfg: dict) -> dict | None:
     """Map `gateway.platforms.agentmint` keys from config.yaml into env / extras."""
-    if not isinstance(yaml_cfg, dict):
+    if not isinstance(yaml_cfg, dict) and not isinstance(platform_cfg, dict):
         return None
-    source = yaml_cfg
-    nested_extra = yaml_cfg.get("extra")
+    source = platform_cfg if isinstance(platform_cfg, dict) and platform_cfg else yaml_cfg
+    nested_extra = yaml_cfg.get("extra") if isinstance(yaml_cfg, dict) else None
+    if isinstance(source, dict):
+        nested_extra = source.get("extra")
     if isinstance(nested_extra, dict):
-        source = {**yaml_cfg, **nested_extra}
+        source = {**source, **nested_extra}
 
     out: dict[str, Any] = {}
     for k_yaml, k_extra, env in (

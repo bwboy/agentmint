@@ -96,12 +96,19 @@ gateway:
   platforms:
     agentmint:
       enabled: true
+      home_channel:
+        platform: agentmint
+        chat_id: agentmint-home
+        name: AgentMint
       extra:
         connector_id: conn_xxxxxxxx
         connector_token: conn_sk_xxxxxxxxxxxxxxxx
         platform_url: ws://localhost:8000/ws
         max_concurrent: 3
 ```
+
+`home_channel` 要放在 `agentmint` 顶层，不要放进 `extra`。Hermes 的
+`SessionContext.home_channels` 只读取顶层 `home_channel`。
 
 ## 文件结构
 

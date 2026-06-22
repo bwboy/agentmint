@@ -119,6 +119,33 @@ class YamlConfigTests(unittest.TestCase):
         })
         self.assertEqual(os.environ["AGENTMINT_HOME_CHANNEL"], "agentmint-home")
 
+    def test_apply_yaml_config_uses_platform_cfg_argument_from_hermes(self):
+        full_yaml_cfg = {
+            "gateway": {
+                "platforms": {
+                    "agentmint": {
+                        "enabled": True,
+                        "extra": {
+                            "connector_id": "conn_from_platform_arg",
+                            "connector_token": "conn_sk_from_platform_arg",
+                            "platform_url": "ws://arena.example/ws",
+                            "home_channel": "agentmint-home",
+                        },
+                    },
+                },
+            },
+        }
+        platform_cfg = full_yaml_cfg["gateway"]["platforms"]["agentmint"]
+
+        out = self.adapter._apply_yaml_config(full_yaml_cfg, platform_cfg)
+
+        self.assertEqual(out["connector_id"], "conn_from_platform_arg")
+        self.assertEqual(out["connector_token"], "conn_sk_from_platform_arg")
+        self.assertEqual(out["home_channel"], {
+            "chat_id": "agentmint-home",
+            "name": "AgentMint",
+        })
+
     def test_env_enablement_returns_home_channel_dict(self):
         os.environ["AGENTMINT_CONNECTOR_ID"] = "conn_from_env"
         os.environ["AGENTMINT_CONNECTOR_TOKEN"] = "conn_sk_from_env"
