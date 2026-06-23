@@ -28,6 +28,12 @@ class UsageExtractionTests(unittest.TestCase):
     def setUpClass(cls):
         cls.adapter = load_adapter_module()
 
+    def test_platform_hint_discourages_approval_triggering_commands(self):
+        hint = self.adapter.AGENTMINT_PLATFORM_HINT
+        self.assertIn("curl ... | python", hint)
+        self.assertIn("do not request approval", hint)
+        self.assertIn("safer alternative", hint)
+
     def test_extract_usage_from_direct_usage_metadata(self):
         self.assertEqual(self.adapter._extract_usage({
             "usage": {

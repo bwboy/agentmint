@@ -82,8 +82,7 @@ Hermes 的主配置文件由 Hermes 本体读取，不是 AgentMint 插件读取
 $HERMES_HOME/config.yaml
 ```
 
-推荐把 AgentMint 插件、凭证、home channel、工具审批都写在同一个
-`config.yaml` 里：
+推荐把 AgentMint 插件、凭证、home channel 都写在同一个 `config.yaml` 里：
 
 ```yaml
 plugins:
@@ -104,9 +103,6 @@ gateway:
         platform_url: ws://localhost:8000/ws
         max_concurrent: 3
         queue_db: ~/.hermes/agentmint-jobs.db
-
-command_allowlist:
-  - execute_code
 ```
 
 字段说明：
@@ -122,12 +118,21 @@ command_allowlist:
 | `extra.platform_url` | AgentMint 后端 WebSocket 地址，本机常用 `ws://localhost:8000/ws`，远端/HTTPS 用 `wss://.../ws` |
 | `extra.max_concurrent` | Hermes 同时处理 AgentMint 问题的上限 |
 | `extra.queue_db` | 插件本地 SQLite 队列，保存 pending / answered / uploaded 状态 |
-| `command_allowlist` | Hermes 危险工具永久 allowlist。`execute_code` 可避免搜索类任务每次弹 “Dangerous command requires approval” |
 
+### 工具审批策略
+
+AgentMint 插件默认会提示 Hermes 使用安全、非交互式的工具调用方式，避免
+`curl ... | python`、下载代码后执行、`eval` 远端内容这类容易触发安全审批的模式。
+如果某个任务只能靠危险命令完成，Hermes 应该换安全方案或说明限制，而不是请求你授权。
+
+不建议为了省事配置 `command_allowlist` 或关闭审批。确实要预授权某类命令时，
 `command_allowlist` 是顶层配置，和 `gateway` 同级；不要放进
-`gateway.platforms.agentmint`。如果不想永久放行 `execute_code`，也可以在
-Hermes 提示时回复 `/approve always`，Hermes 会自动把它写进
-`command_allowlist`。
+`gateway.platforms.agentmint`。例如：
+
+```yaml
+command_allowlist:
+  - some_safe_command
+```
 
 不推荐全局关闭审批。确实需要时可以写：
 

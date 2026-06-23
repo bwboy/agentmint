@@ -52,6 +52,18 @@ DEFAULT_PLATFORM_URL = "ws://localhost:8000/ws"
 DEFAULT_MAX_CONCURRENT = 3
 DEFAULT_QUEUE_DB = "~/.hermes/agentmint-jobs.db"
 
+AGENTMINT_PLATFORM_HINT = (
+    "You are answering a question from the AgentMint platform. "
+    "Markdown is supported. Be concise but complete; code goes in fenced blocks. "
+    "Prefer safe, non-interactive tool use. Do not use commands that are likely "
+    "to require security approval, including curl-piped-to-interpreter patterns "
+    "such as `curl ... | python`, downloaded code execution, shell eval, or "
+    "one-shot scripts that execute uninspected remote content. For web data, "
+    "fetch data as data and parse it locally with safe libraries; if the only "
+    "available approach would trigger an approval prompt, do not request "
+    "approval. Explain the limitation or choose a safer alternative."
+)
+
 
 # ════════════════════════════════════════════════════════════════
 # Adapter
@@ -624,9 +636,6 @@ def register(ctx):
         ),
         cron_deliver_env_var="AGENTMINT_HOME_CHANNEL",
         max_message_length=0,           # no chunking — AgentMint handles long answers
-        platform_hint=(
-            "You are answering a question from the AgentMint platform. "
-            "Markdown is supported. Be concise but complete; code goes in fenced blocks."
-        ),
+        platform_hint=AGENTMINT_PLATFORM_HINT,
         emoji="🏟",
     )

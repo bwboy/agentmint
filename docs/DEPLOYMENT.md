@@ -157,17 +157,14 @@ gateway:
         connector_id: conn_a1b2c3d4
         connector_token: conn_sk_X_aGRk2-pQ7m...
         platform_url: ws://192.168.1.50:8000/ws
-
-command_allowlist:
-  - execute_code
 ```
 
 `home_channel` 要放在 `agentmint` 顶层，不要放到 `extra`。否则 Hermes
 可能在回答里返回 “No home channel is set for Agentmint”。
 
-`command_allowlist: ["execute_code"]` 用来避免搜索类任务反复弹
-“Dangerous command requires approval”。如果你不想预授权，也可以在 Hermes
-提示时回复 `/approve always`。
+AgentMint 插件会提示 Hermes 优先使用不会触发审批的安全工具方式。不要为了省事
+默认配置 `command_allowlist: ["execute_code"]` 或全局关闭审批；如果某个任务只能
+靠危险命令完成，应让 Hermes 换安全方案或说明限制。
 
 ### 4. 启用 + 启动
 
