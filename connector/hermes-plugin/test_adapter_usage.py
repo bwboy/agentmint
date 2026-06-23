@@ -131,6 +131,9 @@ class UsageExtractionTests(unittest.TestCase):
                 self.marked.append((request_id, status, kwargs))
                 return True
 
+            def by_request_id(self, request_id):
+                return None
+
         class FakeClient:
             def __init__(self):
                 self.sent = None
@@ -277,6 +280,58 @@ class UsageExtractionTests(unittest.TestCase):
         self.assertEqual(marked[1][1], "answered")
         self.assertEqual(marked[2][1], "uploaded")
         self.assertEqual(sent[0], "req_missing")
+
+    def test_send_ignores_duplicate_answer_after_upload(self):
+        adapter_mod = self.adapter
+
+        class FakeQueue:
+            def __init__(self):
+                self.marked = []
+
+            def by_request_id(self, request_id):
+                return {
+                    "request_id": request_id,
+                    "status": "uploaded",
+                    "answer": {
+                        "text": "first answer",
+                        "usage": {"prompt_tokens": 70, "completion_tokens": 816, "total_tokens": 886},
+                    },
+                }
+
+            def mark(self, request_id, status, **kwargs):
+                self.marked.append((request_id, status, kwargs))
+                return True
+
+        class FakeClient:
+            def __init__(self):
+                self.sent = None
+
+            async def send_answer(self, request_id, **kwargs):
+                self.sent = (request_id, kwargs)
+                return True
+
+        class TestAdapter(adapter_mod.ArenaAdapter):
+            def __init__(self):
+                self._last_turn_metadata = {}
+                self._prompt_text_by_request = {"req_4": "Prompt text"}
+                self._job_started_at = {}
+                self._queue = FakeQueue()
+                self._client = FakeClient()
+
+        async def run_case():
+            adapter = TestAdapter()
+            original_send_result = adapter_mod.SendResult
+            adapter_mod.SendResult = lambda **kwargs: SimpleNamespace(**kwargs)
+            try:
+                result = await adapter.send("req_4", "later self-improvement message", metadata={})
+            finally:
+                adapter_mod.SendResult = original_send_result
+            return result, adapter._queue.marked, adapter._client.sent
+
+        result, marked, sent = asyncio.run(run_case())
+        self.assertTrue(result.success)
+        self.assertEqual(marked, [])
+        self.assertIsNone(sent)
 
 
 class YamlConfigTests(unittest.TestCase):

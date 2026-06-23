@@ -260,6 +260,11 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         metadata to platform adapters.
         """
         request_id = str(chat_id)
+        existing_job = self._queue.by_request_id(request_id)
+        if existing_job and existing_job.get("answer") and existing_job.get("status") in {"answered", "uploaded"}:
+            log.info("duplicate answer ignored for %s (status=%s)", request_id, existing_job.get("status"))
+            return SendResult(success=True, message_id=request_id)
+
         meta = metadata or {}
         turn_meta = self._last_turn_metadata.pop(request_id, {})
         model = meta.get("model") or meta.get("active_model") or turn_meta.get("model") or "hermes"
@@ -268,8 +273,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         if not usage:
             prompt_text = prompt_cache.get(request_id)
             if prompt_text is None:
-                job = self._queue.by_request_id(request_id)
-                prompt_text = _prompt_from_job(job)
+                prompt_text = _prompt_from_job(existing_job)
             usage = _estimate_usage(prompt_text or "", str(content), model)
         capability = meta.get("capability") or _capability_hint(model)
 
