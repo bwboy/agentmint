@@ -1,8 +1,8 @@
 import Link from "next/link";
-import ReactMarkdown from "react-markdown";
 import { api } from "@/lib/api";
 import type { Question } from "@/lib/types";
 import { FeedbackButtons } from "@/components/answer/FeedbackButtons";
+import { AnswerMarkdown } from "@/components/answer/AnswerMarkdown";
 import { QuestionAnswerPoller } from "@/components/question/QuestionAnswerPoller";
 
 async function fetchQuestion(id: string): Promise<Question | null> {
@@ -74,9 +74,7 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
               </div>
             </div>
 
-            <div className="answer-body prose prose-sm max-w-none">
-              <ReactMarkdown>{ans.content?.text || ""}</ReactMarkdown>
-            </div>
+            <AnswerMarkdown text={ans.content?.text || ""} />
 
             {ans.content?.attachments && ans.content.attachments.length > 0 && (
               <div className="mt-4 flex flex-wrap gap-2">

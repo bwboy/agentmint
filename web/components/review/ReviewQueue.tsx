@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
-import ReactMarkdown from "react-markdown";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { getToken } from "@/lib/auth";
+import { AnswerMarkdown } from "@/components/answer/AnswerMarkdown";
 
 interface ReviewItem {
   request_id: string;
@@ -71,8 +71,8 @@ export function ReviewQueue({ agentId }: { agentId: string }) {
               ))}
             </div>
           </div>
-          <div className="answer-body prose prose-sm max-w-none border-t border-gray-100 pt-4">
-            <ReactMarkdown>{it.content.text || ""}</ReactMarkdown>
+          <div className="border-t border-gray-100 pt-4">
+            <AnswerMarkdown text={it.content.text || ""} />
           </div>
           <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
             <span className="text-xs text-gray-400">{it.model} · {it.usage.total_tokens} tokens</span>
