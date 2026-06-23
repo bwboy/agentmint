@@ -84,6 +84,10 @@ AgentMint tool policy:
 class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
     """Bridges Hermes ↔ AgentMint platform via a persistent WebSocket."""
 
+    SUPPORTS_MESSAGE_EDITING = True
+    REQUIRES_EDIT_FINALIZE = True
+    MAX_MESSAGE_LENGTH = 1_000_000
+
     def __init__(self, config: "PlatformConfig"):  # noqa: F821
         super().__init__(config, Platform("agentmint"))
         extra = (getattr(config, "extra", None) or {}) if config else {}
@@ -110,6 +114,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         self._turn_metadata_events: dict[str, asyncio.Event] = {}
         self._pending_answer_uploads: set[str] = set()
         self._background_upload_tasks: set[asyncio.Task] = set()
+        self._streaming_answers: dict[str, dict[str, Any]] = {}
         # Keep the prompt text around so the plugin can still report an
         # explicitly-estimated usage value when Hermes/provider gives no usage.
         self._prompt_text_by_request: dict[str, str] = {}
@@ -304,6 +309,31 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
             return SendResult(success=True, message_id=request_id)
 
         meta = metadata or {}
+        if meta.get("expect_edits"):
+            if meta.get("notify"):
+                final_meta = dict(meta)
+                final_meta.pop("expect_edits", None)
+                return await self.send(
+                    chat_id=request_id,
+                    content=str(content),
+                    reply_to=reply_to,
+                    metadata=final_meta,
+                )
+            self._streaming_answers[request_id] = {
+                "content": str(content),
+                "metadata": dict(meta),
+                "reply_to": reply_to,
+                "updated_at": time.monotonic(),
+            }
+            if getattr(self, "debug_usage", False):
+                log.info(
+                    "agentmint streaming preview cached request_id=%s metadata=%s chars=%d",
+                    request_id,
+                    _metadata_debug_summary(meta),
+                    len(str(content)),
+                )
+            return SendResult(success=True, message_id=request_id)
+
         turn_meta = self._last_turn_metadata.get(request_id, {})
         model = meta.get("model") or meta.get("active_model") or turn_meta.get("model") or "hermes"
         usage = _extract_usage(meta) or _extract_usage(turn_meta)
@@ -405,6 +435,54 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         finally:
             self._pending_answer_uploads.discard(request_id)
             self._turn_metadata_events.pop(request_id, None)
+
+    async def edit_message(
+        self,
+        chat_id: str,
+        message_id: str,
+        content: str,
+        *,
+        finalize: bool = False,
+        metadata: dict | None = None,
+    ):
+        """Capture Hermes streaming edits and upload only the finalized answer.
+
+        Hermes sends stream previews via `send(..., expect_edits=True)` before
+        the agent run has returned usage. AgentMint is a job/result platform,
+        not a live chat surface, so previews stay local and only the final edit
+        is uploaded through the normal answer pipeline.
+        """
+        request_id = str(chat_id)
+        meta = metadata or {}
+        stream_state = self._streaming_answers.setdefault(request_id, {})
+        stream_state.update({
+            "content": str(content),
+            "metadata": dict(meta),
+            "message_id": str(message_id),
+            "updated_at": time.monotonic(),
+        })
+        if getattr(self, "debug_usage", False):
+            log.info(
+                "agentmint streaming edit cached request_id=%s finalize=%s metadata=%s chars=%d",
+                request_id,
+                finalize,
+                _metadata_debug_summary(meta),
+                len(str(content)),
+            )
+        if not finalize:
+            return SendResult(success=True, message_id=request_id)
+
+        final_metadata = dict(meta)
+        final_metadata.pop("expect_edits", None)
+        if "notify" not in final_metadata:
+            final_metadata["notify"] = True
+        self._streaming_answers.pop(request_id, None)
+        return await self.send(
+            chat_id=request_id,
+            content=str(content),
+            reply_to=None,
+            metadata=final_metadata,
+        )
 
     async def _upload_answer(
         self,

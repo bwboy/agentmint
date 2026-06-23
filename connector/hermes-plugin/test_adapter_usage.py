@@ -28,6 +28,11 @@ class UsageExtractionTests(unittest.TestCase):
     def setUpClass(cls):
         cls.adapter = load_adapter_module()
 
+    def test_adapter_requires_finalize_for_streaming_upload(self):
+        self.assertTrue(self.adapter.ArenaAdapter.SUPPORTS_MESSAGE_EDITING)
+        self.assertTrue(self.adapter.ArenaAdapter.REQUIRES_EDIT_FINALIZE)
+        self.assertGreater(self.adapter.ArenaAdapter.MAX_MESSAGE_LENGTH, 100_000)
+
     def test_platform_hint_discourages_approval_triggering_commands(self):
         hint = self.adapter.AGENTMINT_PLATFORM_HINT
         self.assertIn("curl ... | python", hint)
@@ -325,6 +330,168 @@ class UsageExtractionTests(unittest.TestCase):
             "prompt_tokens": 14,
             "completion_tokens": 25,
             "total_tokens": 39,
+        })
+        self.assertFalse(sent[1]["usage"].get("estimated", False))
+        self.assertEqual(marked[0][2]["answer"]["usage"], sent[1]["usage"])
+
+    def test_streaming_preview_waits_for_finalize_and_handler_usage(self):
+        adapter_mod = self.adapter
+
+        class FakeQueue:
+            def __init__(self):
+                self.marked = []
+
+            def mark(self, request_id, status, **kwargs):
+                self.marked.append((request_id, status, kwargs))
+                return True
+
+            def by_request_id(self, request_id):
+                return {
+                    "request_id": request_id,
+                    "status": "pending",
+                    "question": {"title": "Question", "body": "", "tags": [], "asker": {"nickname": "tester"}},
+                    "answer": None,
+                }
+
+        class FakeClient:
+            def __init__(self):
+                self.sent = None
+
+            async def send_answer(self, request_id, **kwargs):
+                self.sent = (request_id, kwargs)
+                return True
+
+        class TestAdapter(adapter_mod.ArenaAdapter):
+            def __init__(self):
+                self._last_turn_metadata = {}
+                self._turn_metadata_events = {}
+                self._pending_answer_uploads = set()
+                self._background_upload_tasks = set()
+                self._streaming_answers = {}
+                self.usage_wait_seconds = 0.2
+                self._prompt_text_by_request = {"req_stream": "Question prompt text"}
+                self._job_started_at = {}
+                self._queue = FakeQueue()
+                self._client = FakeClient()
+
+        async def run_case():
+            adapter = TestAdapter()
+            original_send_result = adapter_mod.SendResult
+            adapter_mod.SendResult = lambda **kwargs: SimpleNamespace(**kwargs)
+            try:
+                preview = await adapter.send(
+                    "req_stream",
+                    "partial answer",
+                    metadata={"expect_edits": True},
+                )
+                self.assertTrue(preview.success)
+                self.assertEqual(preview.message_id, "req_stream")
+                self.assertIsNone(adapter._client.sent)
+                self.assertEqual(adapter._background_upload_tasks, set())
+                self.assertIn("req_stream", adapter._prompt_text_by_request)
+
+                final = await adapter.edit_message(
+                    chat_id="req_stream",
+                    message_id="req_stream",
+                    content="final answer",
+                    finalize=True,
+                    metadata={"expect_edits": True},
+                )
+                self.assertTrue(final.success)
+                self.assertIsNone(adapter._client.sent)
+
+                adapter._capture_turn_metadata(
+                    SimpleNamespace(source=SimpleNamespace(chat_id="req_stream")),
+                    {"input_tokens": 70, "output_tokens": 816, "model": "provider-model"},
+                )
+                await asyncio.wait_for(next(iter(adapter._background_upload_tasks)), timeout=1)
+            finally:
+                adapter_mod.SendResult = original_send_result
+            return adapter._client.sent, adapter._queue.marked, adapter._prompt_text_by_request
+
+        sent, marked, prompts = asyncio.run(run_case())
+        self.assertEqual(sent[0], "req_stream")
+        self.assertEqual(sent[1]["text"], "final answer")
+        self.assertEqual(sent[1]["model"], "provider-model")
+        self.assertEqual(sent[1]["usage"], {
+            "prompt_tokens": 70,
+            "completion_tokens": 816,
+            "total_tokens": 886,
+        })
+        self.assertFalse(sent[1]["usage"].get("estimated", False))
+        self.assertEqual(marked[0][2]["answer"]["text"], "final answer")
+        self.assertEqual(marked[0][2]["answer"]["usage"], sent[1]["usage"])
+        self.assertNotIn("req_stream", prompts)
+
+    def test_streaming_final_send_waits_for_handler_usage(self):
+        adapter_mod = self.adapter
+
+        class FakeQueue:
+            def __init__(self):
+                self.marked = []
+
+            def mark(self, request_id, status, **kwargs):
+                self.marked.append((request_id, status, kwargs))
+                return True
+
+            def by_request_id(self, request_id):
+                return {
+                    "request_id": request_id,
+                    "status": "pending",
+                    "question": {"title": "Question", "body": "", "tags": [], "asker": {"nickname": "tester"}},
+                    "answer": None,
+                }
+
+        class FakeClient:
+            def __init__(self):
+                self.sent = None
+
+            async def send_answer(self, request_id, **kwargs):
+                self.sent = (request_id, kwargs)
+                return True
+
+        class TestAdapter(adapter_mod.ArenaAdapter):
+            def __init__(self):
+                self._last_turn_metadata = {}
+                self._turn_metadata_events = {}
+                self._pending_answer_uploads = set()
+                self._background_upload_tasks = set()
+                self._streaming_answers = {}
+                self.usage_wait_seconds = 0.2
+                self._prompt_text_by_request = {"req_stream_final": "Question prompt text"}
+                self._job_started_at = {}
+                self._queue = FakeQueue()
+                self._client = FakeClient()
+
+        async def run_case():
+            adapter = TestAdapter()
+            original_send_result = adapter_mod.SendResult
+            adapter_mod.SendResult = lambda **kwargs: SimpleNamespace(**kwargs)
+            try:
+                final = await adapter.send(
+                    "req_stream_final",
+                    "final answer",
+                    metadata={"expect_edits": True, "notify": True},
+                )
+                self.assertTrue(final.success)
+                self.assertIsNone(adapter._client.sent)
+
+                adapter._capture_turn_metadata(
+                    SimpleNamespace(source=SimpleNamespace(chat_id="req_stream_final")),
+                    {"input_tokens": 11, "output_tokens": 22, "model": "provider-model"},
+                )
+                await asyncio.wait_for(next(iter(adapter._background_upload_tasks)), timeout=1)
+            finally:
+                adapter_mod.SendResult = original_send_result
+            return adapter._client.sent, adapter._queue.marked
+
+        sent, marked = asyncio.run(run_case())
+        self.assertEqual(sent[0], "req_stream_final")
+        self.assertEqual(sent[1]["text"], "final answer")
+        self.assertEqual(sent[1]["usage"], {
+            "prompt_tokens": 11,
+            "completion_tokens": 22,
+            "total_tokens": 33,
         })
         self.assertFalse(sent[1]["usage"].get("estimated", False))
         self.assertEqual(marked[0][2]["answer"]["usage"], sent[1]["usage"])
