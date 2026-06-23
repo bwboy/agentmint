@@ -53,6 +53,7 @@ DEFAULT_PLATFORM_URL = "ws://localhost:8000/ws"
 DEFAULT_MAX_CONCURRENT = 3
 DEFAULT_QUEUE_DB = "~/.hermes/agentmint-jobs.db"
 DEFAULT_USAGE_WAIT_SECONDS = 1.0
+TRUE_VALUES = {"1", "true", "yes", "on"}
 
 AGENTMINT_PLATFORM_HINT = (
     "You are answering a question from the AgentMint platform. "
@@ -85,6 +86,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         self.max_concurrent = int(os.getenv("AGENTMINT_MAX_CONCURRENT", extra.get("max_concurrent", DEFAULT_MAX_CONCURRENT)))
         self.queue_db = os.getenv("AGENTMINT_QUEUE_DB", extra.get("queue_db", DEFAULT_QUEUE_DB))
         self.usage_wait_seconds = float(os.getenv("AGENTMINT_USAGE_WAIT_SECONDS", extra.get("usage_wait_seconds", DEFAULT_USAGE_WAIT_SECONDS)))
+        self.debug_usage = _truthy(os.getenv("AGENTMINT_DEBUG_USAGE", extra.get("debug_usage", "")))
 
         # Local state
         self._queue = JobQueue(self.queue_db)
@@ -112,14 +114,29 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         self._message_handler = _wrapped
 
     def _capture_turn_metadata(self, event, result) -> None:
-        if not isinstance(result, dict):
-            return
+        debug_usage = getattr(self, "debug_usage", False)
         source = getattr(event, "source", None)
         chat_id = getattr(source, "chat_id", None)
-        if not chat_id:
+        if not isinstance(result, dict):
+            if debug_usage:
+                log.info(
+                    "agentmint usage capture skipped chat_id=%s result=%s",
+                    chat_id or "missing",
+                    _metadata_debug_summary(result),
+                )
             return
         usage = _extract_usage(result)
         model = result.get("model") or result.get("active_model")
+        if debug_usage:
+            log.info(
+                "agentmint usage capture chat_id=%s result=%s extracted=%s model=%s",
+                chat_id or "missing",
+                _metadata_debug_summary(result),
+                _usage_log_label(usage),
+                model or "",
+            )
+        if not chat_id:
+            return
         if not usage and not model:
             return
         captured: dict[str, Any] = {}
@@ -294,6 +311,13 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         if not usage:
             self._pending_answer_uploads.add(request_id)
             event = self._turn_metadata_events.setdefault(request_id, asyncio.Event())
+            if getattr(self, "debug_usage", False):
+                log.info(
+                    "agentmint usage wait scheduled request_id=%s metadata=%s timeout=%.3fs",
+                    request_id,
+                    _metadata_debug_summary(meta),
+                    self.usage_wait_seconds,
+                )
             task = asyncio.create_task(
                 self._upload_answer_after_usage_wait(
                     request_id=request_id,
@@ -334,16 +358,30 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         event: asyncio.Event,
     ) -> None:
         try:
+            timed_out = False
             try:
                 await asyncio.wait_for(event.wait(), timeout=max(0.0, self.usage_wait_seconds))
             except asyncio.TimeoutError:
-                pass
+                timed_out = True
 
             turn_meta = self._last_turn_metadata.pop(request_id, {})
             final_model = metadata.get("model") or metadata.get("active_model") or turn_meta.get("model") or model
             usage = _extract_usage(metadata) or _extract_usage(turn_meta)
+            real_usage = bool(usage)
             if not usage:
                 usage = _estimate_usage(prompt_text, content, final_model)
+            if getattr(self, "debug_usage", False):
+                log.info(
+                    "agentmint usage wait done request_id=%s timed_out=%s event_set=%s "
+                    "metadata=%s turn_meta=%s final_usage=%s real_usage=%s",
+                    request_id,
+                    timed_out,
+                    event.is_set(),
+                    _metadata_debug_summary(metadata),
+                    _metadata_debug_summary(turn_meta),
+                    _usage_log_label(usage),
+                    real_usage,
+                )
             final_capability = metadata.get("capability") or capability or _capability_hint(final_model)
             await self._upload_answer(
                 request_id=request_id,
@@ -482,6 +520,8 @@ def _apply_yaml_config(yaml_cfg: dict, platform_cfg: dict) -> dict | None:
         ("platform_url", "platform_url", "AGENTMINT_PLATFORM_URL"),
         ("max_concurrent", "max_concurrent", "AGENTMINT_MAX_CONCURRENT"),
         ("queue_db", "queue_db", "AGENTMINT_QUEUE_DB"),
+        ("usage_wait_seconds", "usage_wait_seconds", "AGENTMINT_USAGE_WAIT_SECONDS"),
+        ("debug_usage", "debug_usage", "AGENTMINT_DEBUG_USAGE"),
     ):
         v = source.get(k_yaml)
         if v is None:
@@ -595,7 +635,16 @@ def _parse_agentmint_config_fallback(text: str) -> dict:
         key, value = stripped.split(":", 1)
         key = key.strip()
         value = value.strip().strip("\"'")
-        if key in {"connector_id", "connector_token", "platform_url", "max_concurrent", "queue_db", "home_channel"}:
+        if key in {
+            "connector_id",
+            "connector_token",
+            "platform_url",
+            "max_concurrent",
+            "queue_db",
+            "home_channel",
+            "usage_wait_seconds",
+            "debug_usage",
+        }:
             if in_extra:
                 out.setdefault("extra", {})[key] = value
             else:
@@ -756,6 +805,49 @@ def _usage_log_label(usage: dict | None) -> str:
     total = usage.get("total_tokens", 0)
     source = usage.get("source") or ("estimated" if usage.get("estimated") else "provider")
     return f"{total}:{source}"
+
+
+def _truthy(value: Any) -> bool:
+    return str(value or "").strip().lower() in TRUE_VALUES
+
+
+def _metadata_debug_summary(value: Any) -> str:
+    if not isinstance(value, dict):
+        return f"type={type(value).__name__}"
+
+    keys = sorted(str(k) for k in value.keys())
+    limited_keys = keys[:30]
+    if len(keys) > len(limited_keys):
+        limited_keys.append(f"...+{len(keys) - len(limited_keys)}")
+
+    token_fields: dict[str, Any] = {}
+    for key in (
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "input_tokens",
+        "output_tokens",
+        "last_prompt_tokens",
+        "last_completion_tokens",
+        "last_total_tokens",
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "cached_tokens",
+    ):
+        if key in value:
+            token_fields[key] = value.get(key)
+
+    usage = value.get("usage") or value.get("token_usage")
+    usage_keys: list[str] = []
+    if isinstance(usage, dict):
+        usage_keys = sorted(str(k) for k in usage.keys())
+    elif usage is not None:
+        usage_keys = [f"type:{type(usage).__name__}"]
+
+    return (
+        f"type=dict keys={limited_keys} token_fields={token_fields} "
+        f"usage_keys={usage_keys} extracted={_usage_log_label(_extract_usage(value))}"
+    )
 
 
 def _estimate_usage(prompt_text: str, completion_text: str, model: str = "hermes") -> dict:

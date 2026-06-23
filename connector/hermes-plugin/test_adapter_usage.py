@@ -87,6 +87,19 @@ class UsageExtractionTests(unittest.TestCase):
         self.assertTrue(usage["estimated"])
         self.assertEqual(usage["source"], "agentmint_plugin_estimate")
 
+    def test_metadata_debug_summary_omits_message_text(self):
+        summary = self.adapter._metadata_debug_summary({
+            "final_response": "secret answer body",
+            "input_tokens": 14,
+            "output_tokens": 25,
+            "model": "test-model",
+        })
+
+        self.assertIn("input_tokens", summary)
+        self.assertIn("output_tokens", summary)
+        self.assertIn("39:provider", summary)
+        self.assertNotIn("secret answer body", summary)
+
     def test_capture_handler_result_usage_by_chat_id(self):
         adapter_mod = self.adapter
 
@@ -431,6 +444,8 @@ class YamlConfigTests(unittest.TestCase):
             "AGENTMINT_MAX_CONCURRENT",
             "AGENTMINT_QUEUE_DB",
             "AGENTMINT_HOME_CHANNEL",
+            "AGENTMINT_USAGE_WAIT_SECONDS",
+            "AGENTMINT_DEBUG_USAGE",
         ):
             os.environ.pop(key, None)
 
@@ -442,6 +457,8 @@ class YamlConfigTests(unittest.TestCase):
                 "connector_token": "conn_sk_from_yaml",
                 "platform_url": "ws://arena.example/ws",
                 "home_channel": "agentmint-home",
+                "usage_wait_seconds": 2.5,
+                "debug_usage": True,
             },
         }, {})
 
@@ -452,9 +469,13 @@ class YamlConfigTests(unittest.TestCase):
             "chat_id": "agentmint-home",
             "name": "AgentMint",
         })
+        self.assertEqual(out["usage_wait_seconds"], 2.5)
+        self.assertEqual(out["debug_usage"], True)
         self.assertEqual(os.environ["AGENTMINT_CONNECTOR_ID"], "conn_from_yaml")
         self.assertEqual(os.environ["AGENTMINT_CONNECTOR_TOKEN"], "conn_sk_from_yaml")
         self.assertEqual(os.environ["AGENTMINT_HOME_CHANNEL"], "agentmint-home")
+        self.assertEqual(os.environ["AGENTMINT_USAGE_WAIT_SECONDS"], "2.5")
+        self.assertEqual(os.environ["AGENTMINT_DEBUG_USAGE"], "True")
 
     def test_apply_yaml_config_accepts_home_channel_dict(self):
         out = self.adapter._apply_yaml_config({

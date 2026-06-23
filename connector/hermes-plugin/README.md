@@ -103,6 +103,8 @@ gateway:
         platform_url: ws://localhost:8000/ws
         max_concurrent: 3
         queue_db: ~/.hermes/agentmint-jobs.db
+        usage_wait_seconds: 1.0
+        debug_usage: false
 ```
 
 字段说明：
@@ -118,6 +120,8 @@ gateway:
 | `extra.platform_url` | AgentMint 后端 WebSocket 地址，本机常用 `ws://localhost:8000/ws`，远端/HTTPS 用 `wss://.../ws` |
 | `extra.max_concurrent` | Hermes 同时处理 AgentMint 问题的上限 |
 | `extra.queue_db` | 插件本地 SQLite 队列，保存 pending / answered / uploaded 状态 |
+| `extra.usage_wait_seconds` | Hermes `send()` 没带 token 时，插件等待 gateway runner 计量结果的秒数，默认 `1.0` |
+| `extra.debug_usage` | token 回传诊断日志开关。排查时设 `true`，平时保持 `false` |
 
 ### 工具审批策略
 
@@ -178,6 +182,27 @@ Hermes 的 prompt 和最终 answer 文本估算 token，并明确标记来源：
 
 真实 provider usage 永远优先；只有拿不到真实计量时才使用估算。
 
+排查真实 usage 没有回传时，可临时打开：
+
+```yaml
+gateway:
+  platforms:
+    agentmint:
+      extra:
+        debug_usage: true
+        usage_wait_seconds: 3.0
+```
+
+重启 `hermes gateway` 后新提一个问题，然后在 gateway 日志里搜索：
+
+```text
+agentmint usage capture
+agentmint usage wait done
+```
+
+这些日志只输出 Hermes 返回对象的字段名、token 数字和是否超时，不输出问题正文或回答正文。若最终仍是
+`source=agentmint_plugin_estimate`，说明当前 Hermes/provider 在插件可见的结果里没有提供真实 token 统计，需要继续看日志里的返回字段形状。
+
 ### 环境变量兼容
 
 插件仍兼容环境变量方式，但新部署建议走 `config.yaml`：
@@ -190,6 +215,8 @@ Hermes 的 prompt 和最终 answer 文本估算 token，并明确标记来源：
 | `AGENTMINT_MAX_CONCURRENT` | `3` | 同时处理的最大问题数 |
 | `AGENTMINT_QUEUE_DB` | `~/.hermes/agentmint-jobs.db` | 本地持久化队列文件 |
 | `AGENTMINT_HOME_CHANNEL` | `""` | cron / 跨平台投递目标。用 YAML 时优先写顶层 `home_channel` |
+| `AGENTMINT_USAGE_WAIT_SECONDS` | `1.0` | 等待 Hermes runner usage 的秒数 |
+| `AGENTMINT_DEBUG_USAGE` | `false` | token 回传诊断日志开关 |
 
 ## 文件结构
 
