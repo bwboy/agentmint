@@ -129,6 +129,7 @@ class UsageExtractionTests(unittest.TestCase):
 
             def mark(self, request_id, status, **kwargs):
                 self.marked.append((request_id, status, kwargs))
+                return True
 
         class FakeClient:
             def __init__(self):
@@ -185,6 +186,7 @@ class UsageExtractionTests(unittest.TestCase):
 
             def mark(self, request_id, status, **kwargs):
                 self.marked.append((request_id, status, kwargs))
+                return True
 
             def by_request_id(self, request_id):
                 return None
@@ -222,6 +224,59 @@ class UsageExtractionTests(unittest.TestCase):
         self.assertEqual(usage["source"], "agentmint_plugin_estimate")
         self.assertEqual(marked[0][2]["answer"]["usage"], usage)
         self.assertNotIn("req_3", prompts)
+
+    def test_send_creates_synthetic_queue_row_when_answer_has_no_job(self):
+        adapter_mod = self.adapter
+
+        class FakeQueue:
+            def __init__(self):
+                self.marked = []
+                self.inserted = []
+
+            def mark(self, request_id, status, **kwargs):
+                self.marked.append((request_id, status, kwargs))
+                return len(self.inserted) > 0
+
+            def by_request_id(self, request_id):
+                return None
+
+            def upsert_pending(self, request_id, chat_id, question):
+                self.inserted.append((request_id, chat_id, question))
+                return True
+
+        class FakeClient:
+            def __init__(self):
+                self.sent = None
+
+            async def send_answer(self, request_id, **kwargs):
+                self.sent = (request_id, kwargs)
+                return True
+
+        class TestAdapter(adapter_mod.ArenaAdapter):
+            def __init__(self):
+                self._last_turn_metadata = {}
+                self._prompt_text_by_request = {"req_missing": "Prompt text"}
+                self._job_started_at = {}
+                self._queue = FakeQueue()
+                self._client = FakeClient()
+
+        async def run_case():
+            adapter = TestAdapter()
+            original_send_result = adapter_mod.SendResult
+            adapter_mod.SendResult = lambda **kwargs: SimpleNamespace(**kwargs)
+            try:
+                await adapter.send("req_missing", "Answer text", metadata={})
+            finally:
+                adapter_mod.SendResult = original_send_result
+            return adapter._queue.inserted, adapter._queue.marked, adapter._client.sent
+
+        inserted, marked, sent = asyncio.run(run_case())
+        self.assertEqual(inserted[0][0], "req_missing")
+        self.assertTrue(inserted[0][2]["synthetic"])
+        self.assertEqual(marked[0][1], "answered")
+        self.assertEqual(marked[1][1], "answered")
+        self.assertEqual(marked[2][1], "uploaded")
+        self.assertEqual(sent[0], "req_missing")
 
 
 class YamlConfigTests(unittest.TestCase):
@@ -347,6 +402,25 @@ gateway:
                 self.assertTrue(self.adapter.check_requirements())
             finally:
                 os.environ.pop("HERMES_CONFIG", None)
+
+
+class QueueTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.adapter = load_adapter_module()
+
+    def test_mark_reports_whether_row_was_updated(self):
+        queue_mod = __import__(f"{self.adapter.__package__}.queue", fromlist=["JobQueue"])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            queue = queue_mod.JobQueue(str(Path(tmp) / "jobs.db"))
+            try:
+                self.assertFalse(queue.mark("missing", "answered", answer={"text": "no row"}))
+                self.assertTrue(queue.upsert_pending("req_1", "req_1", {"title": "Question"}))
+                self.assertTrue(queue.mark("req_1", "answered", answer={"text": "ok"}))
+                self.assertEqual(queue.by_request_id("req_1")["answer"], {"text": "ok"})
+            finally:
+                queue.close()
 
 
 if __name__ == "__main__":

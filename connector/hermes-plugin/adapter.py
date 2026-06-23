@@ -284,7 +284,19 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
             "capability": capability,
             "duration_ms": duration_ms,
         }
-        self._queue.mark(request_id, "answered", answer=answer_payload)
+        answer_saved = self._queue.mark(request_id, "answered", answer=answer_payload)
+        if not answer_saved:
+            log.warning(
+                "answer for %s had no local queue row; creating synthetic record (usage=%s)",
+                request_id,
+                _usage_log_label(usage),
+            )
+            self._queue.upsert_pending(
+                request_id,
+                chat_id=request_id,
+                question=_synthetic_question_record(request_id),
+            )
+            self._queue.mark(request_id, "answered", answer=answer_payload)
 
         if self._client is None:
             log.warning("no ws client; answer for %s sits in queue", request_id)
@@ -296,7 +308,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         )
         if ok:
             self._queue.mark(request_id, "uploaded")
-            log.info("uploaded %s (%dms)", request_id, duration_ms)
+            log.info("uploaded %s (%dms, usage=%s)", request_id, duration_ms, _usage_log_label(usage))
             return SendResult(success=True, message_id=request_id)
         # WS down — leave job at 'answered'; _on_reconnected will retry.
         return SendResult(success=False, message_id=request_id)
@@ -581,6 +593,17 @@ def _prompt_from_job(job: dict | None) -> str:
     )
 
 
+def _synthetic_question_record(request_id: str) -> dict:
+    return {
+        "title": f"AgentMint request {request_id}",
+        "body": "",
+        "tags": [],
+        "asker": {"nickname": "unknown", "trust_level": 1},
+        "deadline_at": None,
+        "synthetic": True,
+    }
+
+
 def _capability_hint(model: str) -> dict:
     return {
         "engine": {"provider": "hermes", "model": model or "hermes"},
@@ -633,6 +656,14 @@ def _normalize_usage_obj(value: Any) -> dict:
     if cached:
         out["cached_tokens"] = cached
     return out if any(out.values()) else {}
+
+
+def _usage_log_label(usage: dict | None) -> str:
+    if not isinstance(usage, dict) or not usage:
+        return "empty"
+    total = usage.get("total_tokens", 0)
+    source = usage.get("source") or ("estimated" if usage.get("estimated") else "provider")
+    return f"{total}:{source}"
 
 
 def _estimate_usage(prompt_text: str, completion_text: str, model: str = "hermes") -> dict:

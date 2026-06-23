@@ -71,10 +71,10 @@ class JobQueue:
         except sqlite3.IntegrityError:
             return False
 
-    def mark(self, request_id: str, status: str, *, answer: dict | None = None, error: str | None = None):
+    def mark(self, request_id: str, status: str, *, answer: dict | None = None, error: str | None = None) -> bool:
         now = time.time()
         with self._lock:
-            self._conn.execute(
+            cur = self._conn.execute(
                 "UPDATE jobs SET status=?, "
                 "answer_json=COALESCE(?, answer_json), "
                 "error=COALESCE(?, error), "
@@ -87,6 +87,7 @@ class JobQueue:
                     request_id,
                 ),
             )
+        return cur.rowcount > 0
 
     # ─── Lookups ───
 
