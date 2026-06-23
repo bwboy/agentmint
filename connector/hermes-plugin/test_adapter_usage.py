@@ -78,6 +78,15 @@ class UsageExtractionTests(unittest.TestCase):
             "cached_tokens": 5,
         })
 
+    def test_estimate_usage_marks_source_and_nonzero_total(self):
+        usage = self.adapter._estimate_usage("Explain Rust ownership", "Ownership controls moves and borrows.", "hermes")
+
+        self.assertGreater(usage["prompt_tokens"], 0)
+        self.assertGreater(usage["completion_tokens"], 0)
+        self.assertEqual(usage["total_tokens"], usage["prompt_tokens"] + usage["completion_tokens"])
+        self.assertTrue(usage["estimated"])
+        self.assertEqual(usage["source"], "agentmint_plugin_estimate")
+
     def test_capture_handler_result_usage_by_chat_id(self):
         adapter_mod = self.adapter
 
@@ -166,6 +175,53 @@ class UsageExtractionTests(unittest.TestCase):
             "completion_tokens": 15,
             "total_tokens": 25,
         })
+
+    def test_send_estimates_usage_when_hermes_provides_none(self):
+        adapter_mod = self.adapter
+
+        class FakeQueue:
+            def __init__(self):
+                self.marked = []
+
+            def mark(self, request_id, status, **kwargs):
+                self.marked.append((request_id, status, kwargs))
+
+            def by_request_id(self, request_id):
+                return None
+
+        class FakeClient:
+            def __init__(self):
+                self.sent = None
+
+            async def send_answer(self, request_id, **kwargs):
+                self.sent = (request_id, kwargs)
+                return True
+
+        class TestAdapter(adapter_mod.ArenaAdapter):
+            def __init__(self):
+                self._last_turn_metadata = {}
+                self._prompt_text_by_request = {"req_3": "Question prompt text"}
+                self._job_started_at = {}
+                self._queue = FakeQueue()
+                self._client = FakeClient()
+
+        async def run_case():
+            adapter = TestAdapter()
+            original_send_result = adapter_mod.SendResult
+            adapter_mod.SendResult = lambda **kwargs: SimpleNamespace(**kwargs)
+            try:
+                await adapter.send("req_3", "Answer text", metadata={"notify": True})
+            finally:
+                adapter_mod.SendResult = original_send_result
+            return adapter._client.sent, adapter._queue.marked, adapter._prompt_text_by_request
+
+        sent, marked, prompts = asyncio.run(run_case())
+        usage = sent[1]["usage"]
+        self.assertGreater(usage["total_tokens"], 0)
+        self.assertTrue(usage["estimated"])
+        self.assertEqual(usage["source"], "agentmint_plugin_estimate")
+        self.assertEqual(marked[0][2]["answer"]["usage"], usage)
+        self.assertNotIn("req_3", prompts)
 
 
 class YamlConfigTests(unittest.TestCase):

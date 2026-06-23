@@ -21,6 +21,7 @@ agentmint/backend/ws/hub.py for the protocol).
 """
 import asyncio
 import logging
+import math
 import os
 import time
 from pathlib import Path
@@ -93,6 +94,9 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         # the full run result. Capture the handler result by request/chat id so
         # send() can upload the exact token usage when Hermes exposes it there.
         self._last_turn_metadata: dict[str, dict[str, Any]] = {}
+        # Keep the prompt text around so the plugin can still report an
+        # explicitly-estimated usage value when Hermes/provider gives no usage.
+        self._prompt_text_by_request: dict[str, str] = {}
 
     def set_message_handler(self, handler):  # type: ignore[override]
         async def _wrapped(event):
@@ -197,6 +201,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
 
         # Build the conversational prompt Hermes will see.
         user_text = _format_prompt(title, body, tags, asker_nick)
+        self._prompt_text_by_request[request_id] = user_text
 
         source = self.build_source(
             chat_id=request_id,
@@ -259,9 +264,17 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         turn_meta = self._last_turn_metadata.pop(request_id, {})
         model = meta.get("model") or meta.get("active_model") or turn_meta.get("model") or "hermes"
         usage = _extract_usage(meta) or _extract_usage(turn_meta)
+        prompt_cache = getattr(self, "_prompt_text_by_request", {})
+        if not usage:
+            prompt_text = prompt_cache.get(request_id)
+            if prompt_text is None:
+                job = self._queue.by_request_id(request_id)
+                prompt_text = _prompt_from_job(job)
+            usage = _estimate_usage(prompt_text or "", str(content), model)
         capability = meta.get("capability") or _capability_hint(model)
 
         started = self._job_started_at.pop(request_id, None)
+        prompt_cache.pop(request_id, None)
         duration_ms = int((time.monotonic() - started) * 1000) if started else 0
 
         answer_payload = {
@@ -555,6 +568,19 @@ def _format_prompt(title: str, body: str, tags: list, asker_nick: str) -> str:
     return "\n".join(parts)
 
 
+def _prompt_from_job(job: dict | None) -> str:
+    if not job:
+        return ""
+    q = job.get("question") or {}
+    asker = q.get("asker") or {}
+    return _format_prompt(
+        q.get("title") or "",
+        (q.get("body") or "").strip(),
+        q.get("tags") or [],
+        asker.get("nickname", "anonymous"),
+    )
+
+
 def _capability_hint(model: str) -> dict:
     return {
         "engine": {"provider": "hermes", "model": model or "hermes"},
@@ -607,6 +633,60 @@ def _normalize_usage_obj(value: Any) -> dict:
     if cached:
         out["cached_tokens"] = cached
     return out if any(out.values()) else {}
+
+
+def _estimate_usage(prompt_text: str, completion_text: str, model: str = "hermes") -> dict:
+    prompt = _estimate_token_count(prompt_text, model)
+    completion = _estimate_token_count(completion_text, model)
+    total = prompt + completion
+    if total <= 0:
+        return {}
+    return {
+        "prompt_tokens": prompt,
+        "completion_tokens": completion,
+        "total_tokens": total,
+        "estimated": True,
+        "source": "agentmint_plugin_estimate",
+    }
+
+
+def _estimate_token_count(text: str, model: str = "hermes") -> int:
+    if not text:
+        return 0
+
+    try:
+        import tiktoken  # type: ignore
+
+        try:
+            encoding = tiktoken.encoding_for_model(model)
+        except Exception:
+            encoding = tiktoken.get_encoding("cl100k_base")
+        return len(encoding.encode(text))
+    except Exception:
+        pass
+
+    ascii_chars = 0
+    cjk_chars = 0
+    other_chars = 0
+    for ch in text:
+        code = ord(ch)
+        if ch.isspace():
+            continue
+        if (
+            0x4E00 <= code <= 0x9FFF
+            or 0x3400 <= code <= 0x4DBF
+            or 0x3040 <= code <= 0x30FF
+            or 0xAC00 <= code <= 0xD7AF
+        ):
+            cjk_chars += 1
+        elif code < 128:
+            ascii_chars += 1
+        else:
+            other_chars += 1
+
+    # Conservative dependency-free approximation:
+    # English/code averages near 4 chars/token; CJK is often close to 1 char/token.
+    return max(1, math.ceil(ascii_chars / 4) + cjk_chars + math.ceil(other_chars / 2))
 
 
 # ════════════════════════════════════════════════════════════════
