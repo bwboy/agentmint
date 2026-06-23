@@ -52,6 +52,7 @@ log = logging.getLogger(__name__)
 DEFAULT_PLATFORM_URL = "ws://localhost:8000/ws"
 DEFAULT_MAX_CONCURRENT = 3
 DEFAULT_QUEUE_DB = "~/.hermes/agentmint-jobs.db"
+DEFAULT_USAGE_WAIT_SECONDS = 1.0
 
 AGENTMINT_PLATFORM_HINT = (
     "You are answering a question from the AgentMint platform. "
@@ -83,6 +84,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         self.platform_url = os.getenv("AGENTMINT_PLATFORM_URL", extra.get("platform_url", DEFAULT_PLATFORM_URL))
         self.max_concurrent = int(os.getenv("AGENTMINT_MAX_CONCURRENT", extra.get("max_concurrent", DEFAULT_MAX_CONCURRENT)))
         self.queue_db = os.getenv("AGENTMINT_QUEUE_DB", extra.get("queue_db", DEFAULT_QUEUE_DB))
+        self.usage_wait_seconds = float(os.getenv("AGENTMINT_USAGE_WAIT_SECONDS", extra.get("usage_wait_seconds", DEFAULT_USAGE_WAIT_SECONDS)))
 
         # Local state
         self._queue = JobQueue(self.queue_db)
@@ -94,6 +96,9 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         # the full run result. Capture the handler result by request/chat id so
         # send() can upload the exact token usage when Hermes exposes it there.
         self._last_turn_metadata: dict[str, dict[str, Any]] = {}
+        self._turn_metadata_events: dict[str, asyncio.Event] = {}
+        self._pending_answer_uploads: set[str] = set()
+        self._background_upload_tasks: set[asyncio.Task] = set()
         # Keep the prompt text around so the plugin can still report an
         # explicitly-estimated usage value when Hermes/provider gives no usage.
         self._prompt_text_by_request: dict[str, str] = {}
@@ -123,6 +128,10 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         if model:
             captured["model"] = model
         self._last_turn_metadata[str(chat_id)] = captured
+        events = getattr(self, "_turn_metadata_events", {})
+        event = events.get(str(chat_id))
+        if event:
+            event.set()
 
     # ─── Lifecycle ───
 
@@ -264,25 +273,104 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         if existing_job and existing_job.get("answer") and existing_job.get("status") in {"answered", "uploaded"}:
             log.info("duplicate answer ignored for %s (status=%s)", request_id, existing_job.get("status"))
             return SendResult(success=True, message_id=request_id)
+        if request_id in getattr(self, "_pending_answer_uploads", set()):
+            log.info("duplicate answer ignored for %s (upload pending)", request_id)
+            return SendResult(success=True, message_id=request_id)
 
         meta = metadata or {}
-        turn_meta = self._last_turn_metadata.pop(request_id, {})
+        turn_meta = self._last_turn_metadata.get(request_id, {})
         model = meta.get("model") or meta.get("active_model") or turn_meta.get("model") or "hermes"
         usage = _extract_usage(meta) or _extract_usage(turn_meta)
         prompt_cache = getattr(self, "_prompt_text_by_request", {})
-        if not usage:
-            prompt_text = prompt_cache.get(request_id)
-            if prompt_text is None:
-                prompt_text = _prompt_from_job(existing_job)
-            usage = _estimate_usage(prompt_text or "", str(content), model)
+        prompt_text = prompt_cache.get(request_id)
+        if prompt_text is None:
+            prompt_text = _prompt_from_job(existing_job)
         capability = meta.get("capability") or _capability_hint(model)
 
         started = self._job_started_at.pop(request_id, None)
         prompt_cache.pop(request_id, None)
         duration_ms = int((time.monotonic() - started) * 1000) if started else 0
 
+        if not usage:
+            self._pending_answer_uploads.add(request_id)
+            event = self._turn_metadata_events.setdefault(request_id, asyncio.Event())
+            task = asyncio.create_task(
+                self._upload_answer_after_usage_wait(
+                    request_id=request_id,
+                    content=str(content),
+                    metadata=meta,
+                    model=model,
+                    capability=capability,
+                    duration_ms=duration_ms,
+                    prompt_text=prompt_text or "",
+                    event=event,
+                ),
+                name=f"agentmint-answer-upload-{request_id}",
+            )
+            self._background_upload_tasks.add(task)
+            task.add_done_callback(self._background_upload_tasks.discard)
+            return SendResult(success=True, message_id=request_id)
+
+        self._last_turn_metadata.pop(request_id, None)
+        return await self._upload_answer(
+            request_id=request_id,
+            content=str(content),
+            model=model,
+            usage=usage,
+            capability=capability,
+            duration_ms=duration_ms,
+        )
+
+    async def _upload_answer_after_usage_wait(
+        self,
+        *,
+        request_id: str,
+        content: str,
+        metadata: dict,
+        model: str,
+        capability: dict,
+        duration_ms: int,
+        prompt_text: str,
+        event: asyncio.Event,
+    ) -> None:
+        try:
+            try:
+                await asyncio.wait_for(event.wait(), timeout=max(0.0, self.usage_wait_seconds))
+            except asyncio.TimeoutError:
+                pass
+
+            turn_meta = self._last_turn_metadata.pop(request_id, {})
+            final_model = metadata.get("model") or metadata.get("active_model") or turn_meta.get("model") or model
+            usage = _extract_usage(metadata) or _extract_usage(turn_meta)
+            if not usage:
+                usage = _estimate_usage(prompt_text, content, final_model)
+            final_capability = metadata.get("capability") or capability or _capability_hint(final_model)
+            await self._upload_answer(
+                request_id=request_id,
+                content=content,
+                model=final_model,
+                usage=usage,
+                capability=final_capability,
+                duration_ms=duration_ms,
+            )
+        except Exception:
+            log.exception("delayed answer upload failed for %s", request_id)
+        finally:
+            self._pending_answer_uploads.discard(request_id)
+            self._turn_metadata_events.pop(request_id, None)
+
+    async def _upload_answer(
+        self,
+        *,
+        request_id: str,
+        content: str,
+        model: str,
+        usage: dict,
+        capability: dict,
+        duration_ms: int,
+    ):
         answer_payload = {
-            "text": str(content),
+            "text": content,
             "model": model,
             "usage": usage,
             "capability": capability,

@@ -152,6 +152,10 @@ class UsageExtractionTests(unittest.TestCase):
                         "model": "test-model",
                     }
                 }
+                self._turn_metadata_events = {}
+                self._pending_answer_uploads = set()
+                self._background_upload_tasks = set()
+                self.usage_wait_seconds = 0
                 self._job_started_at = {}
                 self._queue = FakeQueue()
                 self._client = FakeClient()
@@ -205,6 +209,10 @@ class UsageExtractionTests(unittest.TestCase):
         class TestAdapter(adapter_mod.ArenaAdapter):
             def __init__(self):
                 self._last_turn_metadata = {}
+                self._turn_metadata_events = {}
+                self._pending_answer_uploads = set()
+                self._background_upload_tasks = set()
+                self.usage_wait_seconds = 0
                 self._prompt_text_by_request = {"req_3": "Question prompt text"}
                 self._job_started_at = {}
                 self._queue = FakeQueue()
@@ -216,6 +224,7 @@ class UsageExtractionTests(unittest.TestCase):
             adapter_mod.SendResult = lambda **kwargs: SimpleNamespace(**kwargs)
             try:
                 await adapter.send("req_3", "Answer text", metadata={"notify": True})
+                await asyncio.wait_for(next(iter(adapter._background_upload_tasks)), timeout=1)
             finally:
                 adapter_mod.SendResult = original_send_result
             return adapter._client.sent, adapter._queue.marked, adapter._prompt_text_by_request
@@ -227,6 +236,72 @@ class UsageExtractionTests(unittest.TestCase):
         self.assertEqual(usage["source"], "agentmint_plugin_estimate")
         self.assertEqual(marked[0][2]["answer"]["usage"], usage)
         self.assertNotIn("req_3", prompts)
+
+    def test_send_waits_for_handler_result_usage_before_uploading(self):
+        adapter_mod = self.adapter
+
+        class FakeQueue:
+            def __init__(self):
+                self.marked = []
+
+            def mark(self, request_id, status, **kwargs):
+                self.marked.append((request_id, status, kwargs))
+                return True
+
+            def by_request_id(self, request_id):
+                return {
+                    "request_id": request_id,
+                    "status": "pending",
+                    "question": {"title": "Question", "body": "", "tags": [], "asker": {"nickname": "tester"}},
+                    "answer": None,
+                }
+
+        class FakeClient:
+            def __init__(self):
+                self.sent = None
+
+            async def send_answer(self, request_id, **kwargs):
+                self.sent = (request_id, kwargs)
+                return True
+
+        class TestAdapter(adapter_mod.ArenaAdapter):
+            def __init__(self):
+                self._last_turn_metadata = {}
+                self._turn_metadata_events = {}
+                self._pending_answer_uploads = set()
+                self._background_upload_tasks = set()
+                self.usage_wait_seconds = 0.2
+                self._prompt_text_by_request = {"req_late": "Question prompt text"}
+                self._job_started_at = {}
+                self._queue = FakeQueue()
+                self._client = FakeClient()
+
+        async def run_case():
+            adapter = TestAdapter()
+            original_send_result = adapter_mod.SendResult
+            adapter_mod.SendResult = lambda **kwargs: SimpleNamespace(**kwargs)
+            try:
+                result = await adapter.send("req_late", "Answer text", metadata={"notify": True})
+                self.assertTrue(result.success)
+                self.assertIsNone(adapter._client.sent)
+                adapter._capture_turn_metadata(
+                    SimpleNamespace(source=SimpleNamespace(chat_id="req_late")),
+                    {"input_tokens": 14, "output_tokens": 25, "model": "provider-model"},
+                )
+                await asyncio.wait_for(next(iter(adapter._background_upload_tasks)), timeout=1)
+            finally:
+                adapter_mod.SendResult = original_send_result
+            return adapter._client.sent, adapter._queue.marked
+
+        sent, marked = asyncio.run(run_case())
+        self.assertEqual(sent[1]["model"], "provider-model")
+        self.assertEqual(sent[1]["usage"], {
+            "prompt_tokens": 14,
+            "completion_tokens": 25,
+            "total_tokens": 39,
+        })
+        self.assertFalse(sent[1]["usage"].get("estimated", False))
+        self.assertEqual(marked[0][2]["answer"]["usage"], sent[1]["usage"])
 
     def test_send_creates_synthetic_queue_row_when_answer_has_no_job(self):
         adapter_mod = self.adapter
@@ -258,6 +333,10 @@ class UsageExtractionTests(unittest.TestCase):
         class TestAdapter(adapter_mod.ArenaAdapter):
             def __init__(self):
                 self._last_turn_metadata = {}
+                self._turn_metadata_events = {}
+                self._pending_answer_uploads = set()
+                self._background_upload_tasks = set()
+                self.usage_wait_seconds = 0
                 self._prompt_text_by_request = {"req_missing": "Prompt text"}
                 self._job_started_at = {}
                 self._queue = FakeQueue()
@@ -269,6 +348,7 @@ class UsageExtractionTests(unittest.TestCase):
             adapter_mod.SendResult = lambda **kwargs: SimpleNamespace(**kwargs)
             try:
                 await adapter.send("req_missing", "Answer text", metadata={})
+                await asyncio.wait_for(next(iter(adapter._background_upload_tasks)), timeout=1)
             finally:
                 adapter_mod.SendResult = original_send_result
             return adapter._queue.inserted, adapter._queue.marked, adapter._client.sent
@@ -313,6 +393,10 @@ class UsageExtractionTests(unittest.TestCase):
         class TestAdapter(adapter_mod.ArenaAdapter):
             def __init__(self):
                 self._last_turn_metadata = {}
+                self._turn_metadata_events = {}
+                self._pending_answer_uploads = set()
+                self._background_upload_tasks = set()
+                self.usage_wait_seconds = 0
                 self._prompt_text_by_request = {"req_4": "Prompt text"}
                 self._job_started_at = {}
                 self._queue = FakeQueue()
