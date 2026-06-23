@@ -34,6 +34,19 @@ class UsageExtractionTests(unittest.TestCase):
         self.assertIn("do not request approval", hint)
         self.assertIn("safer alternative", hint)
 
+    def test_formatted_prompt_includes_tool_policy(self):
+        prompt = self.adapter._format_prompt(
+            "Research question",
+            "Find current data",
+            ["wow"],
+            "tester",
+        )
+
+        self.assertIn("AgentMint tool policy", prompt)
+        self.assertIn("curl ... | python3", prompt)
+        self.assertIn("do not ask for approval", prompt)
+        self.assertIn("fetch it as data first", prompt)
+
     def test_extract_usage_from_direct_usage_metadata(self):
         self.assertEqual(self.adapter._extract_usage({
             "usage": {

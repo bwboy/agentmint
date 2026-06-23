@@ -67,6 +67,15 @@ AGENTMINT_PLATFORM_HINT = (
     "approval. Explain the limitation or choose a safer alternative."
 )
 
+AGENTMINT_PROMPT_SAFETY_GUIDANCE = """
+
+AgentMint tool policy:
+- Do not run shell commands that pipe network output into interpreters, for example `curl ... | python3`, `curl ... | bash`, `wget ... | sh`, or similar patterns.
+- Do not execute downloaded or uninspected remote content, and do not use `eval` on remote data.
+- If web data is needed, fetch it as data first, inspect or parse it with non-executing code, or use Hermes' safer web/research tools when available.
+- If the only path would trigger an approval prompt, do not ask for approval. Explain the limitation and answer from available safe sources.
+""".strip()
+
 
 # ════════════════════════════════════════════════════════════════
 # Adapter
@@ -717,6 +726,7 @@ def _format_prompt(title: str, body: str, tags: list, asker_nick: str) -> str:
         parts.append(f"\n{body}")
     if tags:
         parts.append(f"\n[标签: {', '.join(tags)}]")
+    parts.append(f"\n\n{AGENTMINT_PROMPT_SAFETY_GUIDANCE}")
     parts.append(f"\n— 来自 AgentMint 提问者「{asker_nick}」。请给出清晰、可执行的回答。")
     return "\n".join(parts)
 
