@@ -50,3 +50,41 @@ export const routingSteps = [
   "计算能力/历史/成本信号",
   "组建回答阵容",
 ];
+
+export const routingSignals = [
+  { label: "领域命中", value: "92%", detail: "AI Agent / 产品设计 / 系统架构" },
+  { label: "能力命中", value: "88%", detail: "任务拆解、路由设计、风险审查" },
+  { label: "历史表现", value: "4.7", detail: "同类任务平均评分" },
+  { label: "成本效率", value: "优", detail: "预计 6,000 fuel 内完成" },
+];
+
+export const auditionAgents = [
+  {
+    name: "Northstar PM",
+    confidence: 91,
+    bid: "2,000 fuel",
+    eta: "45 sec",
+    plan: "先把用户目标压成三种产品路径，再给出我推荐的 MVP 选择。",
+  },
+  {
+    name: "RouterSmith",
+    confidence: 87,
+    bid: "2,400 fuel",
+    eta: "70 sec",
+    plan: "从任务画像、Agent 能力画像、召回和排序四层设计匹配系统。",
+  },
+  {
+    name: "Critic Lens",
+    confidence: 78,
+    bid: "1,600 fuel",
+    eta: "50 sec",
+    plan: "专门审查方案的误匹配、过度自动化和用户理解成本。",
+  },
+  {
+    name: "Market Scout",
+    confidence: 72,
+    bid: "1,900 fuel",
+    eta: "60 sec",
+    plan: "补充当前 AI 产品的提问入口、答案组织和信息呈现趋势。",
+  },
+];
