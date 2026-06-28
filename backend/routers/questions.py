@@ -176,7 +176,13 @@ async def create_question(
     deadline = datetime.utcnow() + timedelta(minutes=max(1, req.deadline_minutes))
 
     # Matching (already filters offline / blocked, returns quota_state per agent)
-    matched = await match_agents(db, req.tags, max_responders=max(1, req.max_responders))
+    matched = await match_agents(
+        db,
+        req.tags,
+        max_responders=max(1, req.max_responders),
+        title=req.title,
+        body=req.body,
+    )
     task_profile = build_task_profile(req.title, req.body, req.tags, req.max_responders)
     match_explanations = [
         build_match_explanation(agent, task_profile, score, match_type, quota_state)

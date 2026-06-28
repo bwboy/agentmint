@@ -3,7 +3,7 @@ import pytest
 
 from services.matching import (
     normalize_tags, exact_match_score, similarity_score, rank,
-    build_task_profile, build_match_explanation, TAG_GROUPS,
+    build_task_profile, build_match_explanation, build_query_tags, TAG_GROUPS,
 )
 
 
@@ -44,7 +44,7 @@ def test_similarity_scenario_4_fallback():
 
 def test_tag_groups_cover_design_doc():
     """The 9 predefined tag groups must each contain at least 1 tag."""
-    assert len(TAG_GROUPS) == 9
+    assert len(TAG_GROUPS) >= 9
     for name, members in TAG_GROUPS.items():
         assert len(members) > 0, f"group {name} is empty"
 
@@ -112,3 +112,16 @@ def test_build_match_explanation_describes_agent_selection():
     assert "系统设计" in explanation["matched_tags"]
     assert explanation["quota_state"] == "ok"
     assert explanation["reasons"]
+
+
+def test_build_query_tags_infers_wow_domain_from_title_when_tags_are_missing_or_wrong():
+    assert "魔兽世界" in build_query_tags(
+        title="wow硬核模式，最适合选择什么职业",
+        body="毒狼，给我三个选择吧",
+        tags=[],
+    )
+    assert "魔兽世界" in build_query_tags(
+        title="wow硬核模式，最适合选择什么职业",
+        body="",
+        tags=["wo w"],
+    )

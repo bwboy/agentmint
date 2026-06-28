@@ -27,6 +27,13 @@ TAG_GROUPS: dict[str, set[str]] = {
     "安全":       {"网络安全", "渗透测试", "密码学"},
     "前端":       {"react", "typescript", "css", "web性能", "ui设计", "figma"},
     "架构":       {"系统设计", "分布式", "数据库"},
+    "游戏":       {"魔兽世界", "wow", "大秘境", "团本", "硬核模式"},
+}
+
+TEXT_TAG_ALIASES: dict[str, set[str]] = {
+    "魔兽世界": {"wow", "魔兽", "魔兽世界", "大秘境", "团本", "副本", "惩戒骑", "奶萨", "元素萨", "dk", "硬核模式"},
+    "系统设计": {"系统设计", "架构设计", "架构"},
+    "AI": {"ai", "agent", "llm", "大模型", "智能体"},
 }
 
 MIN_MATCH = 3
@@ -47,6 +54,19 @@ CAPABILITY_KEYWORDS: dict[str, set[str]] = {
 
 def normalize_tags(tags: list[str]) -> set[str]:
     return {t.strip().lower() for t in tags if t and t.strip()}
+
+
+def compact_text(value: str) -> str:
+    return "".join((value or "").lower().split())
+
+
+def build_query_tags(title: str = "", body: str = "", tags: list[str] | None = None) -> list[str]:
+    query = normalize_tags(tags or [])
+    text = compact_text(f"{title} {body} {' '.join(tags or [])}")
+    for canonical, aliases in TEXT_TAG_ALIASES.items():
+        if any(compact_text(alias) in text for alias in aliases):
+            query.add(canonical.lower())
+    return sorted(query)
 
 
 def _tag_groups_of(tags: set[str]) -> set[str]:
@@ -91,7 +111,7 @@ def build_task_profile(
     max_responders: int = 3,
 ) -> dict:
     tags = tags or []
-    normalized = normalize_tags(tags)
+    normalized = set(build_query_tags(title, body, tags))
     domain_tags = sorted(_tag_groups_of(normalized))
     capability_tags = infer_capability_tags(title, body, tags)
     intent = capability_tags[0] if capability_tags else "通用问答"
@@ -170,13 +190,15 @@ async def match_agents(
     db: AsyncSession,
     q_tags: list[str],
     max_responders: int = 5,
+    title: str = "",
+    body: str = "",
 ) -> list[tuple[Agent, float, str, str]]:
     """Return `(agent, match_score, match_type, quota_state)` for top matches.
 
     match_type ∈ {"exact", "similarity", "fallback"}.
     quota_state ∈ {"ok", "review_only"}; "blocked" agents are filtered out.
     """
-    q_tags_norm = normalize_tags(q_tags)
+    q_tags_norm = set(build_query_tags(title, body, q_tags))
 
     # Fetch all online + public agents (filter offline early)
     result = await db.execute(
