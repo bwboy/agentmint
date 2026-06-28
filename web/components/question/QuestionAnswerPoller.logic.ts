@@ -7,20 +7,27 @@ export function shouldPollQuestionAnswers({
   deadlineAt: string;
   now?: Date;
 }) {
-  return currentAnswerCount === 0 && new Date(deadlineAt) > now;
+  return new Date(deadlineAt) > now;
 }
 
 export function shouldRefreshQuestionAnswers({
   currentAnswerCount,
   latestAnswerCount,
+  currentUsageSignature = "",
+  latestUsageSignature = "",
   deadlineAt,
   now = new Date(),
 }: {
   currentAnswerCount: number;
   latestAnswerCount: number;
+  currentUsageSignature?: string;
+  latestUsageSignature?: string;
   deadlineAt: string;
   now?: Date;
 }) {
   return shouldPollQuestionAnswers({ currentAnswerCount, deadlineAt, now })
-    && latestAnswerCount > currentAnswerCount;
+    && (
+      latestAnswerCount > currentAnswerCount
+      || (latestUsageSignature !== "" && latestUsageSignature !== currentUsageSignature)
+    );
 }

@@ -153,6 +153,8 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
             return
         if not usage and not model:
             return
+        if usage:
+            self._schedule_usage_correction(str(chat_id), usage, model)
         captured: dict[str, Any] = {}
         if usage:
             captured.update(usage)
@@ -163,6 +165,65 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         event = events.get(str(chat_id))
         if event:
             event.set()
+
+    def _schedule_usage_correction(self, request_id: str, usage: dict, model: Any = None) -> None:
+        """Replace a previously-uploaded estimate when Hermes reports real usage late."""
+        if not usage or usage.get("estimated"):
+            return
+        if request_id in getattr(self, "_pending_answer_uploads", set()):
+            return
+
+        queue = getattr(self, "_queue", None)
+        client = getattr(self, "_client", None)
+        if queue is None or client is None:
+            return
+        job = queue.by_request_id(request_id)
+        if not job or job.get("status") not in {"answered", "uploaded"}:
+            return
+        answer = job.get("answer") or {}
+        current_usage = answer.get("usage") or {}
+        if not current_usage.get("estimated"):
+            return
+
+        task = asyncio.create_task(
+            self._send_usage_correction(request_id, usage, str(model or answer.get("model") or "hermes")),
+            name=f"agentmint-usage-correction-{request_id}",
+        )
+        self._background_upload_tasks.add(task)
+        task.add_done_callback(self._background_upload_tasks.discard)
+
+    async def _send_usage_correction(self, request_id: str, usage: dict, model: str) -> None:
+        job = self._queue.by_request_id(request_id)
+        if not job:
+            return
+        answer = job.get("answer") or {}
+        updated_answer = {
+            **answer,
+            "model": model or answer.get("model") or "hermes",
+            "usage": usage,
+        }
+        ok = await self._client.send_answer(
+            request_id,
+            text=updated_answer.get("text", ""),
+            model=updated_answer["model"],
+            usage=usage,
+            capability=updated_answer.get("capability"),
+            duration_ms=updated_answer.get("duration_ms", 0),
+            usage_correction=True,
+        )
+        if ok:
+            self._queue.mark(request_id, "uploaded", answer=updated_answer)
+            log.info("corrected usage for %s (usage=%s)", request_id, _usage_log_label(usage))
+        else:
+            log.warning("usage correction send failed for %s (usage=%s)", request_id, _usage_log_label(usage))
+
+    async def _correct_late_usage_if_available(self, request_id: str, fallback_model: str) -> None:
+        turn_meta = self._last_turn_metadata.pop(request_id, {})
+        usage = _extract_usage(turn_meta)
+        if not usage or usage.get("estimated"):
+            return
+        model = str(turn_meta.get("model") or fallback_model or "hermes")
+        await self._send_usage_correction(request_id, usage, model)
 
     # ─── Lifecycle ───
 
@@ -396,6 +457,8 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         prompt_text: str,
         event: asyncio.Event,
     ) -> None:
+        real_usage = False
+        final_model = model
         try:
             timed_out = False
             try:
@@ -430,11 +493,15 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
                 capability=final_capability,
                 duration_ms=duration_ms,
             )
+            if not real_usage:
+                await self._correct_late_usage_if_available(request_id, final_model)
         except Exception:
             log.exception("delayed answer upload failed for %s", request_id)
         finally:
             self._pending_answer_uploads.discard(request_id)
             self._turn_metadata_events.pop(request_id, None)
+            if not real_usage:
+                await self._correct_late_usage_if_available(request_id, final_model)
 
     async def edit_message(
         self,

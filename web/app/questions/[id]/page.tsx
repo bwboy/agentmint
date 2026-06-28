@@ -3,7 +3,7 @@ import { api } from "@/lib/api";
 import type { Question } from "@/lib/types";
 import { FeedbackButtons } from "@/components/answer/FeedbackButtons";
 import { AnswerMarkdown } from "@/components/answer/AnswerMarkdown";
-import { QuestionAnswerPoller } from "@/components/question/QuestionAnswerPoller";
+import { QuestionAnswerPoller, answerUsageSignature } from "@/components/question/QuestionAnswerPoller";
 
 async function fetchQuestion(id: string): Promise<Question | null> {
   try { return await api<Question>(`/api/questions/${id}`); }
@@ -31,6 +31,7 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
       <QuestionAnswerPoller
         questionId={question.id}
         currentAnswerCount={answers.length}
+        currentUsageSignature={answerUsageSignature(answers)}
         deadlineAt={question.deadline_at}
       />
 

@@ -67,7 +67,13 @@ export interface Answer {
   request_id: string;
   content: { text: string; attachments?: Attachment[] };
   model: string;
-  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+  usage: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    estimated?: boolean;
+    source?: string;
+  };
   capability?: {
     engine?: { provider: string; model: string };
     skills?: Array<{ name: string; version: string; source: string }>;

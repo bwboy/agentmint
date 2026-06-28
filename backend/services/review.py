@@ -64,6 +64,10 @@ async def handle_uploaded_answer(agent_id: str, msg: dict):
             return
 
         if answer.status in {"draft", "approved", "rejected", "expired"}:
+            if msg.get("usage_correction"):
+                await _apply_usage_correction(db, answer, msg)
+                print(f"[review] usage corrected for request_id={request_id}, status={answer.status}")
+                return
             print(f"[review] duplicate answer ignored for request_id={request_id}, status={answer.status}")
             return
 
@@ -107,6 +111,33 @@ async def reject_answer_by_id(db: AsyncSession, answer: Answer) -> None:
     answer.status = "rejected"
     answer.review_method = "review"
     answer.reviewed_at = datetime.utcnow()
+    await db.commit()
+
+
+async def _apply_usage_correction(db: AsyncSession, answer: Answer, msg: dict) -> None:
+    """Accept late real token usage without treating it as a second answer."""
+    new_usage = msg.get("usage", {}) or {}
+    if not new_usage:
+        return
+
+    old_usage = answer.usage or {}
+    old_tokens = int(old_usage.get("total_tokens") or 0)
+    new_tokens = int(new_usage.get("total_tokens") or 0)
+    answer.usage = new_usage
+    if msg.get("model"):
+        answer.model = msg.get("model", "") or answer.model
+    if msg.get("capability"):
+        answer.capability = msg.get("capability", {}) or answer.capability
+
+    if answer.status == "approved":
+        answer.fuel_earned = new_tokens
+        delta = new_tokens - old_tokens
+        if delta:
+            agent_result = await db.execute(select(Agent).where(Agent.id == answer.agent_id))
+            agent = agent_result.scalar_one_or_none()
+            if agent:
+                agent.fuel_earned = int(agent.fuel_earned or 0) + delta
+
     await db.commit()
 
 

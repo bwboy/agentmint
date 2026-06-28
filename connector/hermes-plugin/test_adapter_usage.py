@@ -610,6 +610,74 @@ class UsageExtractionTests(unittest.TestCase):
         self.assertEqual(marked, [])
         self.assertIsNone(sent)
 
+    def test_late_real_usage_corrects_previous_estimate(self):
+        adapter_mod = self.adapter
+
+        class FakeQueue:
+            def __init__(self):
+                self.marked = []
+
+            def by_request_id(self, request_id):
+                return {
+                    "request_id": request_id,
+                    "status": "uploaded",
+                    "answer": {
+                        "text": "answer text",
+                        "model": "hermes",
+                        "usage": {
+                            "prompt_tokens": 75,
+                            "completion_tokens": 990,
+                            "total_tokens": 1065,
+                            "estimated": True,
+                            "source": "agentmint_plugin_estimate",
+                        },
+                        "capability": {"engine": {"provider": "hermes", "model": "hermes"}},
+                        "duration_ms": 123,
+                    },
+                }
+
+            def mark(self, request_id, status, **kwargs):
+                self.marked.append((request_id, status, kwargs))
+                return True
+
+        class FakeClient:
+            def __init__(self):
+                self.sent = None
+
+            async def send_answer(self, request_id, **kwargs):
+                self.sent = (request_id, kwargs)
+                return True
+
+        class TestAdapter(adapter_mod.ArenaAdapter):
+            def __init__(self):
+                self._last_turn_metadata = {}
+                self._turn_metadata_events = {}
+                self._pending_answer_uploads = set()
+                self._background_upload_tasks = set()
+                self.debug_usage = False
+                self._queue = FakeQueue()
+                self._client = FakeClient()
+
+        async def run_case():
+            adapter = TestAdapter()
+            adapter._capture_turn_metadata(
+                SimpleNamespace(source=SimpleNamespace(chat_id="req_correct")),
+                {"input_tokens": 70, "output_tokens": 816, "model": "provider-model"},
+            )
+            await asyncio.wait_for(next(iter(adapter._background_upload_tasks)), timeout=1)
+            return adapter._client.sent, adapter._queue.marked
+
+        sent, marked = asyncio.run(run_case())
+        self.assertEqual(sent[0], "req_correct")
+        self.assertTrue(sent[1]["usage_correction"])
+        self.assertEqual(sent[1]["usage"], {
+            "prompt_tokens": 70,
+            "completion_tokens": 816,
+            "total_tokens": 886,
+        })
+        self.assertEqual(marked[0][1], "uploaded")
+        self.assertEqual(marked[0][2]["answer"]["usage"], sent[1]["usage"])
+
 
 class YamlConfigTests(unittest.TestCase):
     @classmethod

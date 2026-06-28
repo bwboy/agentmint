@@ -27,6 +27,20 @@ test("does not refresh when the latest answer count has not increased", () => {
   );
 });
 
+test("refreshes when answer usage changes before the deadline", () => {
+  assert.equal(
+    shouldRefreshQuestionAnswers({
+      currentAnswerCount: 1,
+      latestAnswerCount: 1,
+      currentUsageSignature: "ans_1:75:990:1065:estimated",
+      latestUsageSignature: "ans_1:70:816:886:provider",
+      deadlineAt: "2026-06-21T12:01:00.000Z",
+      now: new Date("2026-06-21T12:00:00.000Z"),
+    }),
+    true,
+  );
+});
+
 test("does not refresh after the question deadline has passed", () => {
   assert.equal(
     shouldRefreshQuestionAnswers({

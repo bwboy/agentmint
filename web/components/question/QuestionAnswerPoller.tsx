@@ -11,10 +11,12 @@ const POLL_INTERVAL_MS = 3000;
 export function QuestionAnswerPoller({
   questionId,
   currentAnswerCount,
+  currentUsageSignature,
   deadlineAt,
 }: {
   questionId: string;
   currentAnswerCount: number;
+  currentUsageSignature: string;
   deadlineAt: string;
 }) {
   const router = useRouter();
@@ -28,7 +30,14 @@ export function QuestionAnswerPoller({
       try {
         const latest = await api<Question>(`/api/questions/${questionId}`);
         const latestAnswerCount = latest.answers?.length ?? latest.answer_count ?? 0;
-        if (!cancelled && shouldRefreshQuestionAnswers({ currentAnswerCount, latestAnswerCount, deadlineAt })) {
+        const latestUsageSignature = answerUsageSignature(latest.answers || []);
+        if (!cancelled && shouldRefreshQuestionAnswers({
+          currentAnswerCount,
+          latestAnswerCount,
+          currentUsageSignature,
+          latestUsageSignature,
+          deadlineAt,
+        })) {
           router.refresh();
         }
       } catch {
@@ -43,7 +52,19 @@ export function QuestionAnswerPoller({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [currentAnswerCount, deadlineAt, questionId, router]);
+  }, [currentAnswerCount, currentUsageSignature, deadlineAt, questionId, router]);
 
   return null;
+}
+
+export function answerUsageSignature(answers: Question["answers"] = []) {
+  return answers
+    .map(answer => [
+      answer.id,
+      answer.usage?.prompt_tokens ?? 0,
+      answer.usage?.completion_tokens ?? 0,
+      answer.usage?.total_tokens ?? 0,
+      answer.usage?.estimated ? "estimated" : "provider",
+    ].join(":"))
+    .join("|");
 }

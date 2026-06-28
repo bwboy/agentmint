@@ -183,7 +183,11 @@ Hermes 的 prompt 和最终 answer 文本估算 token，并明确标记来源：
 }
 ```
 
-真实 provider usage 永远优先；只有拿不到真实计量时才使用估算。
+真实 provider usage 永远优先；只有拿不到真实计量时才使用估算。如果 Hermes 先完成消息发送、
+随后才把真实 provider usage 暴露给插件，插件会用同一个 `request_id` 发送
+`usage_correction: true` 的轻量更新。服务端只更新 `usage` / `model` / `capability`
+和已发放燃值，不覆盖回答正文，也不会把它当成第二份回答。问题详情页会继续轮询到
+deadline，发现 token 指纹变化后会自动刷新显示真实用量。
 
 排查真实 usage 没有回传时，可临时打开：
 

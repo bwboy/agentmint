@@ -72,3 +72,46 @@ async def test_duplicate_upload_does_not_overwrite_terminal_answer(monkeypatch):
     assert answer.usage == {"total_tokens": 10}
     assert answer.status == "approved"
     assert session.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_usage_correction_updates_terminal_answer_without_overwriting_content(monkeypatch):
+    answer = make_answer(status="approved")
+    agent = SimpleNamespace(id="a_test", fuel_earned=10)
+
+    class CorrectionSession(FakeSession):
+        async def execute(self, stmt):
+            self.executes += 1
+            if self.executes == 1:
+                return FakeExecuteResult(answer)
+            return FakeExecuteResult(agent)
+
+    session = CorrectionSession(answer)
+    monkeypatch.setattr(review, "AsyncSessionLocal", lambda: session)
+
+    await review.handle_uploaded_answer("a_test", {
+        "type": "answer",
+        "request_id": "req_test",
+        "status": "success",
+        "usage_correction": True,
+        "content": {"text": "second"},
+        "model": "model-real",
+        "usage": {
+            "prompt_tokens": 70,
+            "completion_tokens": 816,
+            "total_tokens": 886,
+        },
+        "capability": {"engine": {"provider": "hermes", "model": "model-real"}},
+    })
+
+    assert answer.content == {"text": "first"}
+    assert answer.model == "model-real"
+    assert answer.usage == {
+        "prompt_tokens": 70,
+        "completion_tokens": 816,
+        "total_tokens": 886,
+    }
+    assert answer.fuel_earned == 886
+    assert agent.fuel_earned == 886
+    assert answer.status == "approved"
+    assert session.commits == 1

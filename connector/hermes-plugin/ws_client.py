@@ -103,8 +103,9 @@ class ArenaWSClient:
 
     async def send_answer(self, request_id: str, *, text: str, model: str,
                           usage: dict, capability: dict | None = None,
-                          duration_ms: int = 0) -> bool:
-        return await self.send({
+                          duration_ms: int = 0,
+                          usage_correction: bool = False) -> bool:
+        payload = {
             "type": "answer",
             "request_id": request_id,
             "status": "success",
@@ -113,7 +114,10 @@ class ArenaWSClient:
             "usage": usage,
             "capability": capability or {},
             "duration_ms": duration_ms,
-        })
+        }
+        if usage_correction:
+            payload["usage_correction"] = True
+        return await self.send(payload)
 
     async def send_error(self, request_id: str, error: str, retryable: bool = False) -> bool:
         return await self.send({
