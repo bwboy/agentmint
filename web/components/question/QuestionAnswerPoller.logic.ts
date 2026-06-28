@@ -1,3 +1,5 @@
+import type { Question } from "@/lib/types";
+
 export function shouldPollQuestionAnswers({
   currentAnswerCount,
   deadlineAt,
@@ -30,4 +32,16 @@ export function shouldRefreshQuestionAnswers({
       latestAnswerCount > currentAnswerCount
       || (latestUsageSignature !== "" && latestUsageSignature !== currentUsageSignature)
     );
+}
+
+export function answerUsageSignature(answers: Question["answers"] = []) {
+  return answers
+    .map(answer => [
+      answer.id,
+      answer.usage?.prompt_tokens ?? 0,
+      answer.usage?.completion_tokens ?? 0,
+      answer.usage?.total_tokens ?? 0,
+      answer.usage?.estimated ? "estimated" : "provider",
+    ].join(":"))
+    .join("|");
 }

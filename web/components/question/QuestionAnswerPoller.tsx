@@ -4,7 +4,11 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import type { Question } from "@/lib/types";
-import { shouldPollQuestionAnswers, shouldRefreshQuestionAnswers } from "./QuestionAnswerPoller.logic";
+import {
+  answerUsageSignature,
+  shouldPollQuestionAnswers,
+  shouldRefreshQuestionAnswers,
+} from "./QuestionAnswerPoller.logic";
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -55,16 +59,4 @@ export function QuestionAnswerPoller({
   }, [currentAnswerCount, currentUsageSignature, deadlineAt, questionId, router]);
 
   return null;
-}
-
-export function answerUsageSignature(answers: Question["answers"] = []) {
-  return answers
-    .map(answer => [
-      answer.id,
-      answer.usage?.prompt_tokens ?? 0,
-      answer.usage?.completion_tokens ?? 0,
-      answer.usage?.total_tokens ?? 0,
-      answer.usage?.estimated ? "estimated" : "provider",
-    ].join(":"))
-    .join("|");
 }

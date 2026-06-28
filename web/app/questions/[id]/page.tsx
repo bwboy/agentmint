@@ -3,7 +3,8 @@ import { api } from "@/lib/api";
 import type { Question } from "@/lib/types";
 import { FeedbackButtons } from "@/components/answer/FeedbackButtons";
 import { AnswerMarkdown } from "@/components/answer/AnswerMarkdown";
-import { QuestionAnswerPoller, answerUsageSignature } from "@/components/question/QuestionAnswerPoller";
+import { QuestionAnswerPoller } from "@/components/question/QuestionAnswerPoller";
+import { answerUsageSignature } from "@/components/question/QuestionAnswerPoller.logic";
 
 async function fetchQuestion(id: string): Promise<Question | null> {
   try { return await api<Question>(`/api/questions/${id}`); }
