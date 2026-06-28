@@ -35,6 +35,15 @@ SIMILARITY_DISCOUNT = 0.7
 ALPHA = 0.6  # repute weight
 BETA = 0.4   # match score weight
 
+CAPABILITY_KEYWORDS: dict[str, set[str]] = {
+    "方案设计": {"方案", "设计", "规划", "路线", "策略", "产品", "架构"},
+    "系统架构": {"架构", "系统", "分布式", "扩展", "接口", "数据库", "后端"},
+    "代码实现": {"代码", "实现", "开发", "bug", "报错", "前端", "后端", "接口"},
+    "风险审查": {"风险", "审查", "检查", "合规", "安全", "漏洞", "评估"},
+    "调研分析": {"调研", "比较", "趋势", "竞品", "市场", "研究"},
+    "总结表达": {"总结", "整理", "改写", "翻译", "文案", "表达"},
+}
+
 
 def normalize_tags(tags: list[str]) -> set[str]:
     return {t.strip().lower() for t in tags if t and t.strip()}
@@ -63,6 +72,98 @@ def similarity_score(q_tags: set[str], a_tags: set[str]) -> float:
 
 def rank(repute: float, match_score: float) -> float:
     return ALPHA * (repute / 5.0) + BETA * match_score
+
+
+def infer_capability_tags(title: str, body: str, tags: list[str]) -> list[str]:
+    text = " ".join([title or "", body or "", " ".join(tags or [])]).lower()
+    inferred = [
+        capability
+        for capability, keywords in CAPABILITY_KEYWORDS.items()
+        if any(keyword.lower() in text for keyword in keywords)
+    ]
+    return inferred or ["通用问答"]
+
+
+def build_task_profile(
+    title: str,
+    body: str = "",
+    tags: list[str] | None = None,
+    max_responders: int = 3,
+) -> dict:
+    tags = tags or []
+    normalized = normalize_tags(tags)
+    domain_tags = sorted(_tag_groups_of(normalized))
+    capability_tags = infer_capability_tags(title, body, tags)
+    intent = capability_tags[0] if capability_tags else "通用问答"
+    answer_mode = "选角透明" if max_responders > 1 else "智能路由"
+
+    return {
+        "intent": intent,
+        "query_tags": sorted(normalized),
+        "domain_tags": domain_tags or sorted(normalized),
+        "capability_tags": capability_tags,
+        "answer_mode": answer_mode,
+        "routing_mode": "transparent_casting" if max_responders > 1 else "smart_route",
+        "expected_output": "结构化答案 + 可执行建议",
+        "risk_level": "中" if any(tag in capability_tags for tag in ["风险审查", "系统架构"]) else "低",
+    }
+
+
+def describe_match_type(match_type: str) -> str:
+    if match_type == "exact":
+        return "领域标签直接命中"
+    if match_type == "similarity":
+        return "同类领域相似命中"
+    return "无明确标签时按声誉与在线状态兜底"
+
+
+def build_match_explanation(
+    agent: Agent,
+    task_profile: dict,
+    match_score: float,
+    match_type: str,
+    quota_state: str,
+) -> dict:
+    agent_tags = normalize_tags(list(getattr(agent, "tags", None) or []))
+    query_tags = set(task_profile.get("query_tags") or [])
+    task_domains = set(task_profile.get("domain_tags") or [])
+    task_capabilities = set(task_profile.get("capability_tags") or [])
+    matched_tags = sorted(agent_tags & normalize_tags(list(query_tags | task_domains)))
+
+    capability_hits = [
+        capability
+        for capability in task_capabilities
+        if capability.lower() in (getattr(agent, "description", "") or "").lower()
+    ]
+    repute = float(getattr(agent, "repute_score", 0) or 0)
+    overall = round(rank(repute, match_score) * 100)
+    reasons = [
+        describe_match_type(match_type),
+        f"声誉 {repute:.1f}/5.0",
+    ]
+    if matched_tags:
+        reasons.append(f"命中标签：{', '.join(matched_tags[:4])}")
+    if capability_hits:
+        reasons.append(f"能力描述命中：{', '.join(capability_hits[:3])}")
+    if quota_state == "review_only":
+        reasons.append("当前配额接近上限，回答需要人工审核")
+
+    return {
+        "id": agent.id,
+        "name": getattr(agent, "name", agent.id),
+        "agent_type": getattr(agent, "agent_type", "agent"),
+        "status": getattr(agent, "status", "online"),
+        "match_type": match_type,
+        "match_score": round(match_score * 100),
+        "overall_score": overall,
+        "matched_tags": matched_tags,
+        "capability_hits": capability_hits,
+        "quota_state": quota_state,
+        "repute_score": repute,
+        "total_answers": int(getattr(agent, "total_answers", 0) or 0),
+        "approval_rate": float(getattr(agent, "approval_rate", 0) or 0),
+        "reasons": reasons,
+    }
 
 
 async def match_agents(

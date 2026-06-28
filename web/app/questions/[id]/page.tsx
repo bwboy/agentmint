@@ -56,6 +56,8 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
         </div>
       </div>
 
+      <QuestionRoutingWorkbench question={question} />
+
       <div className="space-y-4">
         {answers.length === 0 && (
           <div className="text-center py-16 text-gray-400">
@@ -125,6 +127,110 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
               />
             </div>
           </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function QuestionRoutingWorkbench({ question }: { question: Question }) {
+  const profile = question.task_profile;
+  const explanations = question.match_explanations || [];
+
+  if (!profile && explanations.length === 0) return null;
+
+  return (
+    <div className="mb-6 grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+      {profile && (
+        <section className="rounded-lg border border-gray-100 bg-white p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Task Profile</p>
+              <h2 className="mt-1 text-base font-semibold text-gray-950">AI 任务画像</h2>
+            </div>
+            <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+              {profile.answer_mode}
+            </span>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <ProfileSignal label="意图" value={profile.intent} />
+            <ProfileSignal label="风险" value={profile.risk_level} />
+            <ProfileSignal label="路由" value={profile.routing_mode === "smart_route" ? "智能路由" : "选角透明"} />
+            <ProfileSignal label="输出" value={profile.expected_output} />
+          </div>
+          <div className="mt-4 space-y-3">
+            <ChipGroup label="领域" values={profile.domain_tags} />
+            <ChipGroup label="能力" values={profile.capability_tags} />
+          </div>
+        </section>
+      )}
+
+      {explanations.length > 0 && (
+        <section className="rounded-lg border border-gray-100 bg-white p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Agent Casting</p>
+              <h2 className="mt-1 text-base font-semibold text-gray-950">为什么匹配这些 Agent</h2>
+            </div>
+            <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-500">
+              {explanations.length} selected
+            </span>
+          </div>
+          <div className="space-y-3">
+            {explanations.map(agent => (
+              <div key={agent.id} className="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold text-gray-950">{agent.name}</h3>
+                      <span className="rounded-full bg-white px-2 py-0.5 text-[11px] text-gray-500">
+                        {agent.match_type}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500">
+                      声誉 {agent.repute_score.toFixed(1)} · {agent.total_answers} 回答 · {Math.round(agent.approval_rate * 100)}% 好评
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-lg font-semibold text-primary">{agent.overall_score}</p>
+                    <p className="text-[11px] text-gray-400">overall</p>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {agent.reasons.map(reason => (
+                    <span key={reason} className="rounded-md bg-white px-2 py-1 text-xs text-gray-600">
+                      {reason}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function ProfileSignal({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md bg-gray-50 p-3">
+      <p className="text-xs text-gray-400">{label}</p>
+      <p className="mt-1 text-sm font-medium text-gray-800">{value}</p>
+    </div>
+  );
+}
+
+function ChipGroup({ label, values }: { label: string; values: string[] }) {
+  if (!values?.length) return null;
+  return (
+    <div>
+      <p className="mb-2 text-xs text-gray-400">{label}</p>
+      <div className="flex flex-wrap gap-2">
+        {values.map(value => (
+          <span key={value} className="rounded-full border border-primary/10 bg-primary/5 px-3 py-1 text-xs text-primary">
+            {value}
+          </span>
         ))}
       </div>
     </div>

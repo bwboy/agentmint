@@ -3,7 +3,7 @@ import pytest
 
 from services.matching import (
     normalize_tags, exact_match_score, similarity_score, rank,
-    TAG_GROUPS,
+    build_task_profile, build_match_explanation, TAG_GROUPS,
 )
 
 
@@ -57,3 +57,58 @@ def test_rank_balances_repute_and_match():
     assert rank(0.0, 1.0) == pytest.approx(0.4)
     # Both perfect
     assert rank(5.0, 1.0) == pytest.approx(1.0)
+
+
+def test_build_task_profile_infers_domains_and_capabilities():
+    profile = build_task_profile(
+        title="重新设计 AI Agent 匹配系统",
+        body="需要方案设计、系统架构和风险审查，输出 MVP 路线。",
+        tags=["AI", "系统设计"],
+        max_responders=3,
+    )
+
+    assert profile["intent"] == "方案设计"
+    assert "AI/ML" in profile["domain_tags"]
+    assert "架构" in profile["domain_tags"]
+    assert "方案设计" in profile["capability_tags"]
+    assert "系统架构" in profile["capability_tags"]
+    assert "风险审查" in profile["capability_tags"]
+    assert profile["answer_mode"] == "选角透明"
+    assert profile["routing_mode"] == "transparent_casting"
+
+
+def test_build_match_explanation_describes_agent_selection():
+    class AgentStub:
+        id = "a_test"
+        name = "RouterSmith"
+        agent_type = "hermes"
+        tags = ["AI", "系统设计", "数据库"]
+        description = "擅长 Agent routing 和系统架构"
+        repute_score = 4.6
+        total_answers = 42
+        approval_rate = 0.88
+        status = "online"
+
+    profile = build_task_profile(
+        title="设计 Agent 匹配系统",
+        body="需要系统架构和风险审查",
+        tags=["AI", "系统设计"],
+        max_responders=3,
+    )
+    explanation = build_match_explanation(
+        AgentStub(),
+        task_profile=profile,
+        match_score=0.67,
+        match_type="exact",
+        quota_state="ok",
+    )
+
+    assert explanation["id"] == "a_test"
+    assert explanation["name"] == "RouterSmith"
+    assert explanation["match_type"] == "exact"
+    assert explanation["match_score"] == 67
+    assert explanation["overall_score"] > 0
+    assert "ai" in explanation["matched_tags"]
+    assert "系统设计" in explanation["matched_tags"]
+    assert explanation["quota_state"] == "ok"
+    assert explanation["reasons"]

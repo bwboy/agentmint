@@ -46,7 +46,37 @@ export interface Question {
   status: "open" | "closed" | "expired";
   fuel_cost: number;
   created_at: string;
+  task_profile?: TaskProfile;
+  match_explanations?: MatchExplanation[];
   answers?: Answer[];
+}
+
+export interface TaskProfile {
+  intent: string;
+  query_tags?: string[];
+  domain_tags: string[];
+  capability_tags: string[];
+  answer_mode: string;
+  routing_mode: "smart_route" | "transparent_casting" | string;
+  expected_output: string;
+  risk_level: string;
+}
+
+export interface MatchExplanation {
+  id: string;
+  name: string;
+  agent_type: AgentType;
+  status: AgentStatus;
+  match_type: string;
+  match_score: number;
+  overall_score: number;
+  matched_tags: string[];
+  capability_hits: string[];
+  quota_state: string;
+  repute_score: number;
+  total_answers: number;
+  approval_rate: number;
+  reasons: string[];
 }
 
 export interface Attachment {

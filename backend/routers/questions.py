@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from models import Question, Answer, Feedback, Agent, User
 from services.auth import get_current_user
-from services.matching import match_agents
+from services.matching import build_match_explanation, build_task_profile, match_agents
 from services.review import decide_review_method, approve_answer_by_id, reject_answer_by_id
 from services.quota import increment_usage
 from services.notification import create_notification
@@ -136,6 +136,8 @@ async def get_question(question_id: str, db: AsyncSession = Depends(get_db)):
         "fuel_cost": int(q.fuel_cost or 0),
         "status": q.status,
         "created_at": q.created_at.isoformat(),
+        "task_profile": build_task_profile(q.title, q.body, list(q.tags or []), q.max_responders),
+        "match_explanations": await build_question_match_explanations(db, q),
         "answers": [
             {
                 "id": ans.id, "question_id": ans.question_id,
@@ -175,6 +177,11 @@ async def create_question(
 
     # Matching (already filters offline / blocked, returns quota_state per agent)
     matched = await match_agents(db, req.tags, max_responders=max(1, req.max_responders))
+    task_profile = build_task_profile(req.title, req.body, req.tags, req.max_responders)
+    match_explanations = [
+        build_match_explanation(agent, task_profile, score, match_type, quota_state)
+        for agent, score, match_type, quota_state in matched
+    ]
 
     rate = EMERGENCY_FUEL_MULTIPLIER if req.is_emergency else 1
     max_possible_fuel_cost = len(matched) * AVG_TOKENS_PER_ANSWER * rate
@@ -251,10 +258,36 @@ async def create_question(
         "fuel_cost": fuel_cost,
         "matched_count": len(matched),
         "pushed_count": pushed_count,
+        "task_profile": task_profile,
+        "match_explanations": match_explanations,
         "status": q.status,
         "deadline_at": q.deadline_at.isoformat(),
         "created_at": q.created_at.isoformat(),
     }
+
+
+async def build_question_match_explanations(db: AsyncSession, q: Question) -> list[dict]:
+    agent_ids = list(q.matched_agent_ids or [])
+    if not agent_ids:
+        return []
+
+    rows = await db.execute(select(Agent).where(Agent.id.in_(agent_ids)))
+    agents = list(rows.scalars().all())
+    agent_by_id = {agent.id: agent for agent in agents}
+    task_profile = build_task_profile(q.title, q.body, list(q.tags or []), q.max_responders)
+    explanations: list[dict] = []
+
+    for agent_id in agent_ids:
+        agent = agent_by_id.get(agent_id)
+        if not agent:
+            continue
+        agent_tags = set(str(tag).strip().lower() for tag in list(agent.tags or []))
+        query_tags = set(str(tag).strip().lower() for tag in list(q.tags or []))
+        score = len(agent_tags & query_tags) / max(len(agent_tags), len(query_tags), 1)
+        match_type = "exact" if score > 0 else "fallback"
+        explanations.append(build_match_explanation(agent, task_profile, score, match_type, "ok"))
+
+    return explanations
 
 
 @router.get("/my/questions")

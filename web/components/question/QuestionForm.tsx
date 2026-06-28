@@ -19,6 +19,7 @@ export function QuestionForm() {
   const [err, setErr] = useState<string | null>(null);
 
   const estFuel = maxResp * AVG_TOKENS * (emergency ? 3 : 1);
+  const previewCapabilities = inferCapabilityPreview(`${title} ${body} ${tags.join(" ")}`);
 
   function addTag() {
     const t = tagInput.trim();
@@ -44,60 +45,109 @@ export function QuestionForm() {
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-5">
+    <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
+      <div className="rounded-lg border border-gray-100 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between">
+          <span className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Task Command</span>
+          <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-500">
+            {maxResp > 1 ? "选角透明" : "智能路由"}
+          </span>
+        </div>
       <div>
-        <label className="block text-xs text-gray-500 mb-1">标题</label>
+          <label className="mb-1 block text-xs text-gray-500">任务一句话</label>
         <input value={title} onChange={e => setTitle(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-primary"
-          placeholder="问题简述，例如：Rust 零拷贝怎么实现？" />
+            className="w-full rounded-lg border border-gray-200 px-3 py-3 text-base focus:border-primary focus:outline-none"
+            placeholder="例如：帮我设计 AI Agent 平台的提问和匹配逻辑" />
       </div>
-      <div>
-        <label className="block text-xs text-gray-500 mb-1">详细描述</label>
+        <div className="mt-4">
+          <label className="mb-1 block text-xs text-gray-500">补充上下文</label>
         <textarea value={body} onChange={e => setBody(e.target.value)} rows={6}
-          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-primary"
-          placeholder="补充背景、约束、已尝试的方案等" />
+            className="w-full rounded-lg border border-gray-200 px-3 py-3 text-sm focus:border-primary focus:outline-none"
+            placeholder="补充背景、约束、希望输出格式、已经尝试过的方案等" />
+        </div>
       </div>
-      <div>
-        <label className="block text-xs text-gray-500 mb-1">标签（按 Enter 添加）</label>
-        <div className="flex flex-wrap gap-1.5 mb-2">
+
+      <div className="space-y-4">
+        <section className="rounded-lg border border-gray-100 bg-white p-5 shadow-sm">
+          <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Routing Signals</p>
+          <h2 className="mt-1 text-base font-semibold text-gray-950">匹配信号</h2>
+          <div className="mt-4">
+            <label className="mb-1 block text-xs text-gray-500">领域标签（按 Enter 添加）</label>
+            <div className="mb-2 flex flex-wrap gap-1.5">
           {tags.map(t => (
             <span key={t} onClick={() => setTags(tags.filter(x => x !== t))}
-              className="px-2 py-0.5 rounded bg-primary/10 text-primary text-xs cursor-pointer hover:bg-red-50 hover:text-red-500">
+                    className="cursor-pointer rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary hover:bg-red-50 hover:text-red-500">
               #{t} ×
             </span>
           ))}
         </div>
         <input value={tagInput} onChange={e => setTagInput(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
-          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-primary"
-          placeholder="rust, 系统编程..." />
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                placeholder="AI, 产品设计, 系统架构..." />
+          </div>
+          <div className="mt-4">
+            <p className="mb-2 text-xs text-gray-500">系统预判能力</p>
+            <div className="flex flex-wrap gap-2">
+              {previewCapabilities.map(capability => (
+                <span key={capability} className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-600">
+                  {capability}
+                </span>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-gray-100 bg-white p-5 shadow-sm">
+          <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Controls</p>
+          <div className="mt-4 grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-xs text-gray-500">截止时间（分钟）</label>
+              <input type="number" value={deadline} onChange={e => setDeadline(Number(e.target.value))}
+                min={1} max={1440}
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-gray-500">回答阵容</label>
+              <input type="number" value={maxResp} onChange={e => setMaxResp(Number(e.target.value))}
+                min={1} max={10}
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
+            </div>
+          </div>
+          <label className="mt-4 flex items-center gap-2 text-sm text-gray-600">
+            <input type="checkbox" checked={emergency} onChange={e => setEmergency(e.target.checked)} />
+            紧急调度（3 倍燃值，优先推送）
+          </label>
+          <div className="mt-4 border-t border-gray-100 pt-4">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-sm text-gray-500">预估消耗</span>
+              <span className="font-medium text-orange-500">🔥 {estFuel}</span>
+            </div>
+            <button onClick={submit} disabled={!title || busy}
+              className="w-full rounded-lg bg-primary px-6 py-2.5 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50">
+              {busy ? "调度中..." : "发布并匹配 Agent"}
+            </button>
+          </div>
+          {err && <p className="mt-3 text-xs text-red-500">{err}</p>}
+        </section>
       </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">截止时间（分钟）</label>
-          <input type="number" value={deadline} onChange={e => setDeadline(Number(e.target.value))}
-            min={1} max={1440}
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">最多匹配人数</label>
-          <input type="number" value={maxResp} onChange={e => setMaxResp(Number(e.target.value))}
-            min={1} max={10}
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-        </div>
-      </div>
-      <label className="flex items-center gap-2 text-sm text-gray-600">
-        <input type="checkbox" checked={emergency} onChange={e => setEmergency(e.target.checked)} />
-        紧急问题（3 倍燃值，匹配更多 Agent）
-      </label>
-      <div className="pt-4 border-t border-gray-100 flex items-center justify-between">
-        <span className="text-sm text-gray-500">预估消耗：<span className="text-orange-500 font-medium">🔥 {estFuel}</span></span>
-        <button onClick={submit} disabled={!title || busy}
-          className="px-6 py-2.5 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary-dark disabled:opacity-50">
-          {busy ? "发布中..." : "发布问题"}
-        </button>
-      </div>
-      {err && <p className="text-xs text-red-500">{err}</p>}
     </div>
   );
+}
+
+function inferCapabilityPreview(text: string) {
+  const normalized = text.toLowerCase();
+  const capabilities = [
+    ["方案设计", ["方案", "设计", "规划", "策略", "产品"]],
+    ["系统架构", ["架构", "系统", "数据库", "接口", "后端"]],
+    ["代码实现", ["代码", "实现", "开发", "bug", "报错"]],
+    ["风险审查", ["风险", "审查", "检查", "合规", "安全"]],
+    ["调研分析", ["调研", "比较", "趋势", "竞品"]],
+  ] as const;
+
+  const matched = capabilities
+    .filter(([, keywords]) => keywords.some(keyword => normalized.includes(keyword)))
+    .map(([capability]) => capability);
+
+  return matched.length ? matched : ["通用问答"];
 }
