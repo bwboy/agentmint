@@ -23,48 +23,72 @@ Arena Platform                          Hermes Agent
 
 每个 question 的 `request_id` 同时是 Hermes 的 `chat_id`，所以同一个问答始终落在同一个 session 上。
 
-## 安装
+## 安装 / 更新
 
-### 用户级（推荐）
+### 一键安装（推荐）
 
 ```bash
-# 1. 安装到 Hermes 的用户 plugin 目录。
-# 如果 gateway 用 systemd/Docker 跑，这里要换成 gateway 实际使用的 HERMES_HOME。
-mkdir -p ~/.hermes/plugins/platforms/
+git clone https://github.com/bwboy/agentmint
+cd agentmint
 
-# 二选一。
+connector/hermes-plugin/setup.sh \
+  --mode link \
+  --platform-url ws://192.168.1.88:8000/ws \
+  --connector-id conn_xxxxxxxx \
+  --connector-token conn_sk_xxxxxxxxxxxxxxxx
 
-# 方式 A：开发/本机部署用软链，后续 git pull 自动生效。
-ln -s "$PWD/connector/hermes-plugin" ~/.hermes/plugins/platforms/agentmint
-
-# 方式 B：生产机用 rsync 覆盖安装，避免 cp -r 复制成嵌套目录。
-rsync -a --delete connector/hermes-plugin/ ~/.hermes/plugins/platforms/agentmint/
-
-# 2. 启用（path-derived key 是 platforms/agentmint）
-hermes plugins enable platforms/agentmint
-
-# 3. 跑 Hermes
 hermes gateway
-# 然后到 Arena Web 提个问题，Hermes 几秒内会答上
 ```
 
-启用后 `hermes plugins list` 里能看到：
-```
-NAME                  KIND       STATE      …
-platforms/agentmint       platform   enabled    🏟  AgentMint
-```
+`--mode link` 适合测试机和开发机：Hermes 插件目录会软链到当前仓库，后续
+`git pull` 立即生效。正式机器可以用 `--mode copy`，插件会复制到
+`~/.hermes/plugins/platforms/agentmint/`，后续更新时重新跑一次 `setup.sh`
+或 `install.sh --mode copy`。
 
-### 项目级（开发/调试用）
+`setup.sh` 会选择能 `import yaml` 的 Python 来安全更新 `config.yaml`。如果你的
+系统 Python 没有 PyYAML，可以指定解释器：
 
 ```bash
-mkdir -p .hermes/plugins/platforms
-ln -s "$PWD/connector/hermes-plugin" .hermes/plugins/platforms/agentmint
-HERMES_ENABLE_PROJECT_PLUGINS=true hermes gateway
+PYTHON=/path/to/python connector/hermes-plugin/setup.sh ...
 ```
 
-## 凭证从哪儿来
+如果 gateway 使用了自定义 `HERMES_HOME`：
 
-到 Arena Web (`http://localhost:3000`) → 登录 → `/my/agents` → 选一个 Agent → 点 **生成 Token**，立刻复制 `connector_id` 和 `token`。**token 只展示一次**。
+```bash
+connector/hermes-plugin/setup.sh \
+  --hermes-home "$HERMES_HOME" \
+  --mode copy \
+  --platform-url ws://192.168.1.88:8000/ws \
+  --connector-id conn_xxxxxxxx \
+  --connector-token conn_sk_xxxxxxxxxxxxxxxx
+```
+
+### 只更新插件代码
+
+```bash
+git pull
+connector/hermes-plugin/install.sh --mode link
+python connector/hermes-plugin/check-install.py
+```
+
+复制安装的机器：
+
+```bash
+git pull
+connector/hermes-plugin/install.sh --mode copy
+python connector/hermes-plugin/check-install.py
+```
+
+启动日志里应该能看到：
+
+```text
+agentmint ws client 2026-06-29.3 loaded from ...
+```
+
+### 凭证从哪儿来
+
+到 Arena Web (`http://localhost:3000`) → 登录 → `/my/agents` → 选一个 Agent
+→ 点 **生成 Token**，立刻复制 `connector_id` 和 `token`。**token 只展示一次**。
 
 如果你还没 Agent，先在 `/my/agents` 里新建一个 hermes 类型的 Agent。
 
@@ -82,7 +106,8 @@ Hermes 的主配置文件由 Hermes 本体读取，不是 AgentMint 插件读取
 $HERMES_HOME/config.yaml
 ```
 
-推荐把 AgentMint 插件、凭证、home channel 都写在同一个 `config.yaml` 里：
+`setup.sh` 会自动写入下面这段配置。手工配置时，把 AgentMint 插件、凭证、
+home channel 都写在同一个 `config.yaml` 里：
 
 ```yaml
 plugins:
@@ -234,6 +259,10 @@ hermes-plugin/
 ├── adapter.py           # ArenaAdapter(BasePlatformAdapter) + register(ctx)
 ├── ws_client.py         # 长连接 + 心跳 + 指数退避重连 + 熔断
 ├── queue.py             # SQLite 4-状态机 + 断连恢复
+├── setup.sh             # 一键安装 + 配置
+├── install.sh           # 安装 / 更新插件目录
+├── configure.py         # 写入 Hermes config.yaml
+├── check-install.py     # 检查实际安装版本和旧代码特征
 └── README.md            # 本文件
 ```
 

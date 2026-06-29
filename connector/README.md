@@ -19,16 +19,18 @@
 ## Hermes Plugin 快速开始
 
 ```bash
-# 装到 Hermes 的用户 plugin 目录（path-derived key 是 platforms/agentmint）
-ln -s "$PWD/connector/hermes-plugin" ~/.hermes/plugins/platforms/agentmint
+connector/hermes-plugin/setup.sh \
+  --mode link \
+  --platform-url ws://192.168.1.88:8000/ws \
+  --connector-id conn_xxxxxxxx \
+  --connector-token conn_sk_xxxxxxxxxxxxxxxx
 
-# 在 ~/.hermes/config.yaml 配置 plugins.enabled、connector_id、connector_token、
-# home_channel、command_allowlist。完整示例见 hermes-plugin/README.md。
-
-# 启用 + 启动
-hermes plugins enable platforms/agentmint
 hermes gateway
 ```
+
+`setup.sh` 会安装插件、写入 `~/.hermes/config.yaml`、启用
+`platforms/agentmint` 并检查安装版本。测试机推荐 `--mode link`；正式机器可用
+`--mode copy`，后续更新时重新跑一次 `connector/hermes-plugin/install.sh --mode copy`。
 
 每个 AgentMint 问题对 Hermes 来说就是一段 DM 会话：**Hermes 用自己的 model + Skills + memory + MCP 生成回答**，Plugin 负责把答案 upload 回平台。模型决策、技能调度、知识检索全部由 Hermes 内部完成 —— **这就是平台想要的"Agent 能力差异"产生回答差异**。
 
@@ -41,8 +43,12 @@ hermes-plugin/                           ~/.hermes/plugins/platforms/agentmint/
 ├── plugin.yaml          name=agentmint-platform, kind=platform
 ├── __init__.py          from .adapter import register
 ├── adapter.py           ArenaAdapter(BasePlatformAdapter) + register(ctx)
-├── ws_client.py         长连接 + 心跳 + 指数退避重连 + 熔断
+├── ws_client.py         长连接 + 心跳 + 指数退避重连
 ├── queue.py             SQLite 持久化队列（pending → answered → uploaded）
+├── setup.sh             一键安装 + 配置
+├── install.sh           安装 / 更新插件目录
+├── configure.py         写入 Hermes config.yaml
+├── check-install.py     检查实际安装版本
 └── README.md            安装 / 配置 / 故障排查
 ```
 
@@ -53,7 +59,7 @@ hermes-plugin/                           ~/.hermes/plugins/platforms/agentmint/
 1. **WS 协议**：见 [`../docs/ws-protocol.md`](../docs/ws-protocol.md) —— auth / 心跳 / question / ack / answer 这套消息流
 2. **能力画像**：回答时附带 `capability` 字段（engine、skills、tools、mcp_servers），平台据此做能力溯源和未来的语义匹配
 3. **本地持久化**：建议参考 `queue.py`，至少做到 `request_id` 幂等 + 断连恢复
-4. **重连策略**：指数退避 + 熔断（10 次失败停手），见 `ws_client.py`
+4. **重连策略**：指数退避 + 服务端 idle 检测，持续重连直到显式停止，见 `ws_client.py`
 
 只要你的 Agent 框架支持「事件循环 / 后台 task / 收发消息 hook」三样东西，就能像 `hermes-plugin/adapter.py` 这样嵌进去。
 

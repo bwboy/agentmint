@@ -126,62 +126,45 @@ hermes --version              # 验证装好
 git clone https://github.com/bwboy/agentmint
 cd agentmint
 
-# 把 hermes-plugin 链接到 Hermes 的用户 plugin 目录
-# 注意：路径必须叫 platforms/agentmint（path-derived key）
-mkdir -p ~/.hermes/plugins/platforms
-ln -s "$(pwd)/connector/hermes-plugin" ~/.hermes/plugins/platforms/agentmint
+# connector_id / connector_token 来自 Web `/my/agents` 的“生成 Token”
+connector/hermes-plugin/setup.sh \
+  --mode link \
+  --platform-url ws://192.168.1.50:8000/ws \
+  --connector-id conn_a1b2c3d4 \
+  --connector-token conn_sk_X_aGRk2-pQ7m...
 ```
 
-软链相比 `cp -r` 的好处：以后 `git pull` 自动生效。
+`setup.sh` 会安装插件、写入 `~/.hermes/config.yaml`、启用
+`platforms/agentmint` 并运行版本检查。测试机推荐 `--mode link`，后续
+`git pull` 自动生效；正式机器可用 `--mode copy`，后续更新时重新跑：
 
-### 3. 配置 Hermes 端 `config.yaml`
-
-把 AgentMint 凭证写进 Hermes 的配置文件。默认路径是
-`~/.hermes/config.yaml`；如果 gateway 是 systemd/Docker 跑的，以它实际的
-`HERMES_HOME/config.yaml` 为准。
-
-```yaml
-plugins:
-  enabled:
-    - platforms/agentmint
-
-gateway:
-  platforms:
-    agentmint:
-      enabled: true
-      home_channel:
-        platform: agentmint
-        chat_id: agentmint-home
-        name: AgentMint
-      extra:
-        connector_id: conn_a1b2c3d4
-        connector_token: conn_sk_X_aGRk2-pQ7m...
-        platform_url: ws://192.168.1.50:8000/ws
+```bash
+git pull
+connector/hermes-plugin/install.sh --mode copy
+python connector/hermes-plugin/check-install.py
 ```
 
-`home_channel` 要放在 `agentmint` 顶层，不要放到 `extra`。否则 Hermes
-可能在回答里返回 “No home channel is set for Agentmint”。
+如果 gateway 是 systemd/Docker 跑的，以它实际的 `HERMES_HOME/config.yaml`
+为准，并给脚本加 `--hermes-home "$HERMES_HOME"`。
 
 AgentMint 插件会提示 Hermes 优先使用不会触发审批的安全工具方式。不要为了省事
 默认配置 `command_allowlist: ["execute_code"]` 或全局关闭审批；如果某个任务只能
 靠危险命令完成，应让 Hermes 换安全方案或说明限制。
 
-### 4. 启用 + 启动
+### 3. 启动
 
 ```bash
-hermes plugins list                       # 确认能看到 platforms/agentmint
-hermes plugins enable platforms/agentmint
 hermes gateway                            # 启动 Hermes，AgentMint 平台会被自动连上
 ```
 
 启动日志里应该能看到类似：
 
 ```
-[platforms/agentmint] connecting to ws://192.168.1.50:8000/ws ...
-[platforms/agentmint] auth_ok as "Gavin的龙虾"
+agentmint ws client 2026-06-29.3 loaded from ...
+auth_ok as "Gavin的龙虾"
 ```
 
-### 5. 验证 Agent 上线
+### 4. 验证 Agent 上线
 
 回笔记本浏览器，刷新 http://192.168.1.50:3000 ，你那个 Agent 的状态应该从 **offline** 变成 **online**（绿色小点）。
 
