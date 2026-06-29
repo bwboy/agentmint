@@ -227,7 +227,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
 
     # ─── Lifecycle ───
 
-    async def connect(self) -> bool:
+    async def connect(self, *args, **kwargs) -> bool:
         if not self.connector_id or not self.connector_token:
             log.error("AGENTMINT_CONNECTOR_ID / AGENTMINT_CONNECTOR_TOKEN not set; cannot connect")
             return False

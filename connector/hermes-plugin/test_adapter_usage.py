@@ -33,6 +33,54 @@ class UsageExtractionTests(unittest.TestCase):
         self.assertTrue(self.adapter.ArenaAdapter.REQUIRES_EDIT_FINALIZE)
         self.assertGreater(self.adapter.ArenaAdapter.MAX_MESSAGE_LENGTH, 100_000)
 
+    def test_connect_accepts_gateway_reconnect_keyword(self):
+        adapter_mod = self.adapter
+
+        class FakeQueue:
+            def close(self):
+                pass
+
+        class FakeClient:
+            def __init__(self, **kwargs):
+                self.is_connected = True
+
+            def start(self):
+                pass
+
+        class TestAdapter(adapter_mod.ArenaAdapter):
+            def __init__(self):
+                self.connector_id = "conn_test"
+                self.connector_token = "conn_sk_test"
+                self.platform_url = "ws://arena.test/ws"
+                self.queue_db = ":memory:"
+                self.max_concurrent = 1
+                self._queue = FakeQueue()
+                self._client = None
+                self._start_time = 0
+
+            async def _on_question(self, msg):
+                pass
+
+            async def _on_reconnected(self):
+                pass
+
+            def _quota_snapshot(self):
+                return {}
+
+            def _mark_connected(self):
+                self.marked_connected = True
+
+        async def run_case():
+            original_client = adapter_mod.ArenaWSClient
+            adapter_mod.ArenaWSClient = FakeClient
+            try:
+                adapter = TestAdapter()
+                return await adapter.connect(is_reconnect=True), adapter.marked_connected
+            finally:
+                adapter_mod.ArenaWSClient = original_client
+
+        self.assertEqual(asyncio.run(run_case()), (True, True))
+
     def test_platform_hint_discourages_approval_triggering_commands(self):
         hint = self.adapter.AGENTMINT_PLATFORM_HINT
         self.assertIn("curl ... | python", hint)
