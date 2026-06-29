@@ -28,9 +28,18 @@ export interface Agent {
   is_public: boolean;
   owner: { nickname: string };
   created_at: string;
+  capability_profile?: AgentCapabilityProfile;
   daily_quota_config?: { max: number; auto_threshold: number; emergency_reserve: number };
   review_rules?: { auto_trust_level: number; auto_tag_match: boolean };
   last_seen_at?: string | null;
+}
+
+export interface AgentCapabilityProfile {
+  domain_tags: string[];
+  capability_tags: string[];
+  tool_tags: string[];
+  style_tags: string[];
+  avoid_tags: string[];
 }
 
 export interface Question {
@@ -72,6 +81,9 @@ export interface MatchExplanation {
   overall_score: number;
   matched_tags: string[];
   capability_hits: string[];
+  tool_hits?: string[];
+  style_hits?: string[];
+  avoid_tags?: string[];
   quota_state: string;
   repute_score: number;
   total_answers: number;

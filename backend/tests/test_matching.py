@@ -114,6 +114,48 @@ def test_build_match_explanation_describes_agent_selection():
     assert explanation["reasons"]
 
 
+def test_build_match_explanation_uses_structured_capability_profile():
+    class AgentStub:
+        id = "a_profile"
+        name = "Profiled Agent"
+        agent_type = "hermes"
+        tags = ["魔兽世界"]
+        description = ""
+        repute_score = 4.8
+        total_answers = 12
+        approval_rate = 0.9
+        status = "online"
+        review_rules = {
+            "capability_profile": {
+                "domain_tags": ["魔兽世界", "MMO"],
+                "capability_tags": ["方案设计", "风险审查"],
+                "tool_tags": ["知识库"],
+                "style_tags": ["实战", "简洁"],
+                "avoid_tags": ["插件开发"],
+            }
+        }
+
+    profile = build_task_profile(
+        title="wow硬核模式职业选择",
+        body="给我三个选择和风险",
+        tags=[],
+        max_responders=3,
+    )
+    explanation = build_match_explanation(
+        AgentStub(),
+        task_profile=profile,
+        match_score=1.0,
+        match_type="exact",
+        quota_state="ok",
+    )
+
+    assert "魔兽世界" in explanation["matched_tags"]
+    assert "风险审查" in explanation["capability_hits"]
+    assert "知识库" in explanation["tool_hits"]
+    assert "实战" in explanation["style_hits"]
+    assert "插件开发" in explanation["avoid_tags"]
+
+
 def test_build_query_tags_infers_wow_domain_from_title_when_tags_are_missing_or_wrong():
     assert "魔兽世界" in build_query_tags(
         title="wow硬核模式，最适合选择什么职业",

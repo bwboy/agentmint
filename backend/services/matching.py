@@ -145,16 +145,25 @@ def build_match_explanation(
     quota_state: str,
 ) -> dict:
     agent_tags = normalize_tags(list(getattr(agent, "tags", None) or []))
+    capability_profile = get_agent_capability_profile(agent)
+    profile_domain_tags = normalize_tags(capability_profile.get("domain_tags", []))
+    profile_capability_tags = set(capability_profile.get("capability_tags", []))
+    profile_tool_tags = set(capability_profile.get("tool_tags", []))
+    profile_style_tags = set(capability_profile.get("style_tags", []))
+    profile_avoid_tags = set(capability_profile.get("avoid_tags", []))
     query_tags = set(task_profile.get("query_tags") or [])
     task_domains = set(task_profile.get("domain_tags") or [])
     task_capabilities = set(task_profile.get("capability_tags") or [])
-    matched_tags = sorted(agent_tags & normalize_tags(list(query_tags | task_domains)))
+    matched_tags = sorted((agent_tags | profile_domain_tags) & normalize_tags(list(query_tags | task_domains)))
 
     capability_hits = [
         capability
         for capability in task_capabilities
-        if capability.lower() in (getattr(agent, "description", "") or "").lower()
+        if capability in profile_capability_tags
+        or capability.lower() in (getattr(agent, "description", "") or "").lower()
     ]
+    tool_hits = sorted(profile_tool_tags)
+    style_hits = sorted(profile_style_tags)
     repute = float(getattr(agent, "repute_score", 0) or 0)
     overall = round(rank(repute, match_score) * 100)
     reasons = [
@@ -165,6 +174,10 @@ def build_match_explanation(
         reasons.append(f"命中标签：{', '.join(matched_tags[:4])}")
     if capability_hits:
         reasons.append(f"能力描述命中：{', '.join(capability_hits[:3])}")
+    if tool_hits:
+        reasons.append(f"可用工具：{', '.join(tool_hits[:3])}")
+    if style_hits:
+        reasons.append(f"回答风格：{', '.join(style_hits[:3])}")
     if quota_state == "review_only":
         reasons.append("当前配额接近上限，回答需要人工审核")
 
@@ -178,12 +191,46 @@ def build_match_explanation(
         "overall_score": overall,
         "matched_tags": matched_tags,
         "capability_hits": capability_hits,
+        "tool_hits": tool_hits,
+        "style_hits": style_hits,
+        "avoid_tags": sorted(profile_avoid_tags),
         "quota_state": quota_state,
         "repute_score": repute,
         "total_answers": int(getattr(agent, "total_answers", 0) or 0),
         "approval_rate": float(getattr(agent, "approval_rate", 0) or 0),
         "reasons": reasons,
     }
+
+
+def get_agent_capability_profile(agent: Agent) -> dict[str, list[str]]:
+    rules = getattr(agent, "review_rules", None) or {}
+    profile = rules.get("capability_profile") or {}
+    return normalize_capability_profile(profile)
+
+
+def normalize_capability_profile(profile: dict | None) -> dict[str, list[str]]:
+    profile = profile or {}
+    return {
+        "domain_tags": clean_profile_list(profile.get("domain_tags")),
+        "capability_tags": clean_profile_list(profile.get("capability_tags")),
+        "tool_tags": clean_profile_list(profile.get("tool_tags")),
+        "style_tags": clean_profile_list(profile.get("style_tags")),
+        "avoid_tags": clean_profile_list(profile.get("avoid_tags")),
+    }
+
+
+def clean_profile_list(value) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in value:
+        text = str(item).strip()
+        key = text.lower()
+        if text and key not in seen:
+            seen.add(key)
+            out.append(text)
+    return out
 
 
 async def match_agents(

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from models import Agent, Connector, User, Answer, Question
 from services.auth import get_current_user, hash_token
+from services.matching import normalize_capability_profile
 from services.review import approve_answer_by_id, reject_answer_by_id
 
 router = APIRouter(prefix="/api", tags=["agents"])
@@ -24,6 +25,7 @@ class CreateAgentReq(BaseModel):
     tags: list[str] = []
     description: str = ""
     is_public: bool = True
+    capability_profile: dict | None = None
 
 
 class UpdateAgentReq(BaseModel):
@@ -33,6 +35,7 @@ class UpdateAgentReq(BaseModel):
     is_public: bool | None = None
     daily_quota_config: dict | None = None
     review_rules: dict | None = None
+    capability_profile: dict | None = None
 
 
 # ═══════════════════════════════════════════════════
@@ -113,6 +116,7 @@ async def create_agent(
         tags=req.tags,
         description=req.description,
         is_public=req.is_public,
+        review_rules=merge_capability_profile(None, req.capability_profile),
     )
     db.add(agent)
     await db.commit()
@@ -135,6 +139,8 @@ async def update_agent(
     if req.is_public is not None: agent.is_public = req.is_public
     if req.daily_quota_config is not None: agent.daily_quota_config = req.daily_quota_config
     if req.review_rules is not None: agent.review_rules = req.review_rules
+    if req.capability_profile is not None:
+        agent.review_rules = merge_capability_profile(agent.review_rules, req.capability_profile)
 
     await db.commit()
     await db.refresh(agent)
@@ -312,9 +318,20 @@ def _agent_to_dict(agent: Agent, owner_nickname: str, include_owner_id: bool = F
         "is_public": agent.is_public,
         "owner": {"nickname": owner_nickname},
         "created_at": agent.created_at.isoformat() if agent.created_at else None,
+        "capability_profile": normalize_capability_profile((agent.review_rules or {}).get("capability_profile")),
     }
     if full:
         out["daily_quota_config"] = agent.daily_quota_config
         out["review_rules"] = agent.review_rules
         out["last_seen_at"] = agent.last_seen_at.isoformat() if agent.last_seen_at else None
     return out
+
+
+def merge_capability_profile(review_rules: dict | None, capability_profile: dict | None) -> dict:
+    rules = dict(review_rules or {"auto_trust_level": 2, "auto_tag_match": True})
+    if "auto_trust_level" not in rules:
+        rules["auto_trust_level"] = 2
+    if "auto_tag_match" not in rules:
+        rules["auto_tag_match"] = True
+    rules["capability_profile"] = normalize_capability_profile(capability_profile)
+    return rules
