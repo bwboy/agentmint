@@ -64,6 +64,60 @@ class ReconnectTests(unittest.TestCase):
         self.assertIsNone(result)
         self.assertGreaterEqual(attempts, 3)
 
+    def test_run_reconnects_when_connected_socket_goes_idle(self):
+        ws_client = self.ws_client
+
+        class IdleWebSocket:
+            def __init__(self):
+                self.closed = False
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                return await self.recv()
+
+            async def recv(self):
+                await asyncio.sleep(60)
+
+            async def close(self):
+                self.closed = True
+
+        async def run_case():
+            client = ws_client.ArenaWSClient(
+                platform_url="ws://arena.test/ws",
+                connector_id="conn_test",
+                connector_token="conn_sk_test",
+                on_question=lambda msg: None,
+            )
+            original_timeout = getattr(ws_client, "SERVER_IDLE_TIMEOUT_SECONDS", None)
+            ws_client.SERVER_IDLE_TIMEOUT_SECONDS = 0.01
+            sockets = []
+
+            async def fake_connect_with_backoff():
+                if len(sockets) >= 2:
+                    client._closed.set()
+                    return None
+                ws = IdleWebSocket()
+                sockets.append(ws)
+                return ws
+
+            client._connect_with_backoff = fake_connect_with_backoff
+            try:
+                await asyncio.wait_for(client._run(), timeout=1)
+            finally:
+                if original_timeout is None:
+                    delattr(ws_client, "SERVER_IDLE_TIMEOUT_SECONDS")
+                else:
+                    ws_client.SERVER_IDLE_TIMEOUT_SECONDS = original_timeout
+
+            return sockets
+
+        sockets = asyncio.run(run_case())
+
+        self.assertEqual(len(sockets), 2)
+        self.assertTrue(sockets[0].closed)
+
 
 if __name__ == "__main__":
     unittest.main()

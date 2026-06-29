@@ -25,6 +25,7 @@ from websockets.exceptions import ConnectionClosed, WebSocketException
 log = logging.getLogger(__name__)
 
 BACKOFF_SCHEDULE = [0, 2, 4, 8, 30, 30, 30, 30, 30, 30]
+SERVER_IDLE_TIMEOUT_SECONDS = 75
 
 
 QuestionHandler = Callable[[dict], Awaitable[None]]
@@ -189,7 +190,16 @@ class ArenaWSClient:
             first = False
 
             try:
-                async for raw in ws:
+                while not self._closed.is_set():
+                    try:
+                        raw = await asyncio.wait_for(ws.recv(), timeout=SERVER_IDLE_TIMEOUT_SECONDS)
+                    except asyncio.TimeoutError:
+                        log.warning("no server messages for %ss — reconnecting", SERVER_IDLE_TIMEOUT_SECONDS)
+                        try:
+                            await ws.close()
+                        except Exception:
+                            pass
+                        break
                     try:
                         msg = json.loads(raw)
                     except json.JSONDecodeError:

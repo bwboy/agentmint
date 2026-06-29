@@ -23,6 +23,8 @@ import time
 
 import websockets
 
+SERVER_IDLE_TIMEOUT_SECONDS = 75
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="AgentMint Connector Simulator")
@@ -100,7 +102,14 @@ async def run(args: argparse.Namespace):
             "capabilities": ["chat"],
         }))
 
-        async for raw in ws:
+        while True:
+            try:
+                raw = await asyncio.wait_for(ws.recv(), timeout=SERVER_IDLE_TIMEOUT_SECONDS)
+            except asyncio.TimeoutError:
+                print(f"[sim] no server messages for {SERVER_IDLE_TIMEOUT_SECONDS}s; reconnecting")
+                await ws.close()
+                return
+
             try:
                 msg = json.loads(raw)
             except json.JSONDecodeError:
