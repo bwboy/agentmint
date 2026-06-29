@@ -26,6 +26,11 @@ log = logging.getLogger(__name__)
 
 BACKOFF_SCHEDULE = [0, 2, 4, 8, 30, 30, 30, 30, 30, 30]
 SERVER_IDLE_TIMEOUT_SECONDS = 75
+AGENTMINT_WS_CLIENT_VERSION = "2026-06-29.3"
+
+
+class ArenaAuthError(Exception):
+    """Connector credentials were rejected by Arena; retrying will not help."""
 
 
 QuestionHandler = Callable[[dict], Awaitable[None]]
@@ -66,6 +71,11 @@ class ArenaWSClient:
 
     def start(self):
         if self._task is None or self._task.done():
+            log.info(
+                "agentmint ws client %s loaded from %s",
+                AGENTMINT_WS_CLIENT_VERSION,
+                __file__,
+            )
             self._task = asyncio.create_task(self._run(), name="agentmint-ws-client")
 
     async def stop(self):
@@ -147,7 +157,7 @@ class ArenaWSClient:
         if msg.get("type") != "auth_ok":
             reason = msg.get("reason") or "unknown"
             await ws.close()
-            raise ConnectionRefusedError(f"auth_fail: {reason}")
+            raise ArenaAuthError(reason)
         log.info("auth_ok as \"%s\"", msg.get("connector_name"))
         return ws
 
@@ -157,7 +167,7 @@ class ArenaWSClient:
                 ws = await self._connect_once()
                 self._attempts = 0
                 return ws
-            except ConnectionRefusedError as e:
+            except ArenaAuthError as e:
                 log.error("auth refused, giving up: %s", e)
                 return None
             except (ConnectionClosed, WebSocketException, OSError, asyncio.TimeoutError) as e:

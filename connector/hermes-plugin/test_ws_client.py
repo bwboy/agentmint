@@ -64,6 +64,40 @@ class ReconnectTests(unittest.TestCase):
         self.assertIsNone(result)
         self.assertGreaterEqual(attempts, 3)
 
+    def test_connection_refused_is_treated_as_retryable_network_error(self):
+        ws_client = self.ws_client
+
+        async def run_case():
+            client = ws_client.ArenaWSClient(
+                platform_url="ws://arena.test/ws",
+                connector_id="conn_test",
+                connector_token="conn_sk_test",
+                on_question=lambda msg: None,
+            )
+            attempts = 0
+            original_schedule = ws_client.BACKOFF_SCHEDULE
+            ws_client.BACKOFF_SCHEDULE = [0]
+
+            async def refused():
+                nonlocal attempts
+                attempts += 1
+                if attempts >= 3:
+                    client._closed.set()
+                raise ConnectionRefusedError("connect call failed")
+
+            client._connect_once = refused
+            try:
+                result = await client._connect_with_backoff()
+            finally:
+                ws_client.BACKOFF_SCHEDULE = original_schedule
+
+            return result, attempts
+
+        result, attempts = asyncio.run(run_case())
+
+        self.assertIsNone(result)
+        self.assertGreaterEqual(attempts, 3)
+
     def test_run_reconnects_when_connected_socket_goes_idle(self):
         ws_client = self.ws_client
 
