@@ -24,6 +24,7 @@ from ws.endpoint import router as ws_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await hub.mark_all_offline()
     hub.start_heartbeat()
     try:
         yield

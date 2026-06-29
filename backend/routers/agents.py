@@ -147,6 +147,38 @@ async def update_agent(
     return _agent_to_dict(agent, user.get("nickname", ""), full=True)
 
 
+@router.delete("/my/agents/{agent_id}", status_code=204)
+async def delete_agent(
+    agent_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    agent = await _get_owned_agent(db, agent_id, user["sub"])
+
+    answer_count = (await db.execute(
+        select(func.count(Answer.id)).where(Answer.agent_id == agent_id)
+    )).scalar() or 0
+    if answer_count:
+        raise HTTPException(
+            status_code=409,
+            detail="已有回答历史的 Agent 暂不能删除，请先设为不公开或撤销 Connector。",
+        )
+
+    old = await db.execute(select(Connector).where(Connector.agent_id == agent_id))
+    for c in old.scalars().all():
+        await db.delete(c)
+
+    try:
+        from ws.hub import hub
+        await hub.disconnect_agent(agent_id, reason="deleted")
+    except Exception:
+        pass
+
+    await db.delete(agent)
+    await db.commit()
+    return Response(status_code=204)
+
+
 @router.post("/my/agents/{agent_id}/connector", status_code=201)
 async def create_connector(
     agent_id: str,

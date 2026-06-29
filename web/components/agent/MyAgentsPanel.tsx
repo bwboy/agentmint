@@ -140,6 +140,23 @@ export function MyAgentsPanel() {
     }
   }
 
+  async function deleteAgent(agent: Agent) {
+    const token = getToken();
+    if (!token) return;
+    if (!confirm(`删除 Agent「${agent.name}」？没有回答历史的 Agent 会被永久删除。`)) return;
+    try {
+      await api(`/api/my/agents/${agent.id}`, { method: "DELETE", token });
+      if (tokenInfo?.agentId === agent.id) setTokenInfo(null);
+      if (editing === agent.id) {
+        setEditing(null);
+        setEditState(null);
+      }
+      await refresh();
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
+
   if (agents === null) return <p className="text-gray-400 text-sm">加载中…</p>;
   const connectorInstructions = tokenInfo ? getConnectorInstructions(tokenInfo) : null;
 
@@ -207,6 +224,10 @@ export function MyAgentsPanel() {
                 <button onClick={() => startEdit(a)}
                   className="px-3 py-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-primary/10 hover:text-primary">
                   能力档案
+                </button>
+                <button onClick={() => deleteAgent(a)}
+                  className="px-3 py-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-red-50 hover:text-red-500">
+                  删除
                 </button>
               </div>
             </div>

@@ -60,6 +60,16 @@ class Hub:
         if self._heartbeat_task is None or self._heartbeat_task.done():
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
+    async def mark_all_offline(self):
+        """Reset DB presence after API process restart.
+
+        Live connector state is in-memory, so a fresh process should consider
+        every agent offline until its connector authenticates again.
+        """
+        async with AsyncSessionLocal() as db:
+            await db.execute(update(Agent).where(Agent.status == "online").values(status="offline"))
+            await db.commit()
+
     async def stop_heartbeat(self):
         if self._heartbeat_task and not self._heartbeat_task.done():
             self._heartbeat_task.cancel()
@@ -205,6 +215,19 @@ class Hub:
             )
             await db.commit()
         print(f"[WS] disconnected: {client.agent_id}")
+
+    async def disconnect_agent(self, agent_id: str, reason: str = "disconnected"):
+        conn_id = self.agent_to_conn.get(agent_id)
+        if not conn_id:
+            return
+        client = self.clients.get(conn_id)
+        if not client:
+            return
+        try:
+            await client.ws.close(code=4005, reason=reason)
+        except Exception:
+            pass
+        await self._cleanup(client)
 
     # ─── Heartbeat ───
 

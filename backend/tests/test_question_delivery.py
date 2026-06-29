@@ -67,7 +67,7 @@ async def test_create_question_zero_push_charges_zero(monkeypatch):
     db = FakeDB(user)
     agent = make_agent("a_zero")
 
-    async def fake_match_agents(db_arg, tags, max_responders):
+    async def fake_match_agents(db_arg, tags, max_responders, title="", body=""):
         return [(agent, 1.0, "exact", "ok")]
 
     async def fake_push_question(agent_id, payload):
@@ -100,7 +100,7 @@ async def test_create_question_partial_push_charges_only_successes(monkeypatch):
     agents = [make_agent("a_ok"), make_agent("a_fail")]
     incremented = []
 
-    async def fake_match_agents(db_arg, tags, max_responders):
+    async def fake_match_agents(db_arg, tags, max_responders, title="", body=""):
         return [
             (agents[0], 1.0, "exact", "ok"),
             (agents[1], 1.0, "exact", "ok"),

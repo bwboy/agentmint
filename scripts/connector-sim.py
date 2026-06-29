@@ -143,9 +143,6 @@ async def main_with_reconnect():
         # Exponential backoff, cap at 30s
         delay = backoffs[min(attempt, len(backoffs) - 1)]
         attempt += 1
-        if attempt > 10:
-            print("[sim] giving up after 10 attempts (circuit breaker)")
-            return
         print(f"[sim] reconnecting in {delay}s (attempt {attempt})")
         await asyncio.sleep(delay)
 

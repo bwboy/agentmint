@@ -5,7 +5,7 @@ ArenaAdapter.connect(). The client owns:
 
   - auth handshake with the Arena platform
   - heartbeat: replies to platform `ping` with `pong`
-  - reconnect: exponential backoff (0, 2, 4, 8, then 30s × 6), then circuit-break
+  - reconnect: exponential backoff (0, 2, 4, 8, then capped at 30s) until stopped
   - inbound `question`s → handed to `on_question` callback
   - outbound `answer` / `ack` / `config_ack` via `send_*` helpers
 
@@ -25,7 +25,6 @@ from websockets.exceptions import ConnectionClosed, WebSocketException
 log = logging.getLogger(__name__)
 
 BACKOFF_SCHEDULE = [0, 2, 4, 8, 30, 30, 30, 30, 30, 30]
-MAX_ATTEMPTS = len(BACKOFF_SCHEDULE)
 
 
 QuestionHandler = Callable[[dict], Awaitable[None]]
@@ -161,12 +160,9 @@ class ArenaWSClient:
                 log.error("auth refused, giving up: %s", e)
                 return None
             except (ConnectionClosed, WebSocketException, OSError, asyncio.TimeoutError) as e:
-                if self._attempts >= MAX_ATTEMPTS:
-                    log.error("circuit break after %d failed attempts (last: %s)", MAX_ATTEMPTS, e)
-                    return None
-                delay = BACKOFF_SCHEDULE[self._attempts]
                 self._attempts += 1
-                log.warning("connect failed (%s), retry %d/%d in %ds", e, self._attempts, MAX_ATTEMPTS, delay)
+                delay = BACKOFF_SCHEDULE[min(self._attempts - 1, len(BACKOFF_SCHEDULE) - 1)]
+                log.warning("connect failed (%s), retry %d in %ds", e, self._attempts, delay)
                 try:
                     await asyncio.wait_for(self._closed.wait(), timeout=delay)
                     return None  # stopped while waiting
