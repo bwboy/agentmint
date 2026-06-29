@@ -264,8 +264,25 @@ hermes-plugin/
 | 启动时 `auth_fail: invalid_token` | `AGENTMINT_CONNECTOR_TOKEN` 错或漏字符；token 只展示一次，丢了重新到 `/my/agents` 生成 |
 | 启动时 `auth_fail: invalid_connector` | `AGENTMINT_CONNECTOR_ID` 错，或者该 connector 已被吊销 |
 | Hermes 启动正常但 agent 在 Arena 一直显示 offline | 看 `hermes gateway` 日志找 `agentmint-platform`，常见是 WS URL 不通 |
+| `hermes gateway` 日志仍出现 `retry 1/10` | Hermes 加载的是旧插件；从仓库根目录运行 `python connector/hermes-plugin/check-install.py`，看 `user install` / `project install` 的 version 和 stale_markers |
 | Hermes 回答完了但 Arena 看不到 | 看 `~/.hermes/agentmint-jobs.db` 里有没有 `answered` 但不 `uploaded` 的 — 重连时会自动重传 |
 | 想看队列状态 | `sqlite3 ~/.hermes/agentmint-jobs.db "SELECT status, COUNT(*) FROM jobs GROUP BY status"` |
+
+确认当前安装版本：
+
+```bash
+python connector/hermes-plugin/check-install.py
+```
+
+`version` 应该等于插件代码里的 `AGENTMINT_WS_CLIENT_VERSION`，且
+`stale_markers` 应该是 `none`。如果 `repo copy` 是新版本、`user install`
+还是旧版本，重新安装：
+
+```bash
+rsync -a --delete connector/hermes-plugin/ ~/.hermes/plugins/platforms/agentmint/
+```
+
+如果使用了 `HERMES_HOME`，把 `~/.hermes` 换成实际的 `$HERMES_HOME`。
 
 ## 与独立版（`connector/`）的对比
 
