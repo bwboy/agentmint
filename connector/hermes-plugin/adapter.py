@@ -54,6 +54,14 @@ DEFAULT_MAX_CONCURRENT = 3
 DEFAULT_QUEUE_DB = "~/.hermes/agentmint-jobs.db"
 DEFAULT_USAGE_WAIT_SECONDS = 1.0
 TRUE_VALUES = {"1", "true", "yes", "on"}
+TOOL_TRACE_PREFIXES = (
+    "session_search:",
+    "browser_",
+    "web_search:",
+    "search_query:",
+    "tool_call:",
+    "execute_code:",
+)
 
 AGENTMINT_PLATFORM_HINT = (
     "You are answering a question from the AgentMint platform. "
@@ -389,6 +397,22 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
             if getattr(self, "debug_usage", False):
                 log.info(
                     "agentmint streaming preview cached request_id=%s metadata=%s chars=%d",
+                    request_id,
+                    _metadata_debug_summary(meta),
+                    len(str(content)),
+                )
+            return SendResult(success=True, message_id=request_id)
+
+        if not meta.get("notify") and _looks_like_tool_trace(content):
+            self._streaming_answers[request_id] = {
+                "content": str(content),
+                "metadata": dict(meta),
+                "reply_to": reply_to,
+                "updated_at": time.monotonic(),
+            }
+            if getattr(self, "debug_usage", False):
+                log.info(
+                    "agentmint tool trace cached request_id=%s metadata=%s chars=%d",
                     request_id,
                     _metadata_debug_summary(meta),
                     len(str(content)),
@@ -964,6 +988,13 @@ def _usage_log_label(usage: dict | None) -> str:
 
 def _truthy(value: Any) -> bool:
     return str(value or "").strip().lower() in TRUE_VALUES
+
+
+def _looks_like_tool_trace(content: Any) -> bool:
+    text = str(content or "").strip().lower()
+    while text and not (text[0].isalnum() or text[0] == "_"):
+        text = text[1:].lstrip()
+    return any(text.startswith(prefix) for prefix in TOOL_TRACE_PREFIXES)
 
 
 def _metadata_debug_summary(value: Any) -> str:
