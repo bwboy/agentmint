@@ -328,6 +328,17 @@ function ReadinessView({
   const meta = readinessMeta(readiness.state);
   const canCheck = agent.status === "online" && !checking;
   const label = agent.status === "online" ? meta.label : "待接入";
+  const [copied, setCopied] = useState(false);
+
+  async function copyCommand(command: string) {
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setCopied(false);
+    }
+  }
 
   return (
     <div className={`mt-4 rounded-lg border px-3 py-2 text-xs ${meta.box}`}>
@@ -346,9 +357,21 @@ function ReadinessView({
         </button>
       </div>
       {readiness.state === "pairing_required" && readiness.command && (
-        <pre className="mt-2 whitespace-pre-wrap break-all rounded-md bg-white px-2 py-1.5 font-mono text-[11px] text-gray-700 ring-1 ring-black/5">
-          {readiness.command}
-        </pre>
+        <div className="mt-3 rounded-md bg-white p-2 ring-1 ring-black/5">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-[11px] font-medium text-amber-700">在 Hermes Agent 机器执行下面命令</span>
+            <button
+              type="button"
+              onClick={() => copyCommand(readiness.command || "")}
+              className="rounded-md bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700 hover:bg-amber-100"
+            >
+              {copied ? "已复制" : "复制命令"}
+            </button>
+          </div>
+          <code className="block max-w-full overflow-x-auto whitespace-pre rounded bg-gray-950 px-3 py-2 font-mono text-[12px] leading-5 text-white">
+            {readiness.command}
+          </code>
+        </div>
       )}
       {readiness.state === "error" && readiness.error && (
         <p className="mt-1 text-gray-500">{readiness.error}</p>
