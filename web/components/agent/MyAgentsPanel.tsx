@@ -326,8 +326,10 @@ function ReadinessView({
 }) {
   const readiness = agent.readiness || { state: "unverified" as const };
   const meta = readinessMeta(readiness.state);
-  const canCheck = agent.status === "online" && !checking;
+  const canCheck = !checking;
   const label = agent.status === "online" ? meta.label : "待接入";
+  const boxClass = agent.status === "online" ? meta.box : "border-gray-100 bg-gray-50 text-gray-600";
+  const dotClass = agent.status === "online" ? meta.dot : "bg-gray-400";
   const [copied, setCopied] = useState(false);
 
   async function copyCommand(command: string) {
@@ -341,10 +343,10 @@ function ReadinessView({
   }
 
   return (
-    <div className={`mt-4 rounded-lg border px-3 py-2 text-xs ${meta.box}`}>
+    <div className={`mt-4 rounded-lg border px-3 py-2 text-xs ${boxClass}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className={`h-2 w-2 rounded-full ${meta.dot}`} />
+          <span className={`h-2 w-2 rounded-full ${dotClass}`} />
           <span className="font-medium">{label}</span>
           {readiness.checked_at && <span className="text-gray-400">{formatDateTime(readiness.checked_at)}</span>}
         </div>
