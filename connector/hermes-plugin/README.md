@@ -82,7 +82,7 @@ python connector/hermes-plugin/check-install.py
 启动日志里应该能看到：
 
 ```text
-agentmint ws client 2026-06-30.1 loaded from ...
+agentmint ws client 2026-06-30.2 loaded from ...
 ```
 
 ### 凭证从哪儿来

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from models import Agent, Connector, User, Answer, Question
 from services.auth import get_current_user, hash_token
+from services.agent_readiness import get_agent_readiness, set_agent_readiness
 from services.matching import normalize_capability_profile
 from services.review import approve_answer_by_id, reject_answer_by_id
 
@@ -198,6 +199,7 @@ async def create_connector(
     plain_token = "conn_sk_" + secrets.token_urlsafe(24)
     conn = Connector(agent_id=agent_id, token_hash=hash_token(plain_token))
     db.add(conn)
+    set_agent_readiness(agent, "unverified")
     await db.commit()
     await db.refresh(conn)
 
@@ -219,8 +221,31 @@ async def revoke_connector(
     for c in old.scalars().all():
         await db.delete(c)
     agent.status = "offline"
+    set_agent_readiness(agent, "unverified")
     await db.commit()
     return Response(status_code=204)
+
+
+@router.post("/my/agents/{agent_id}/readiness-check")
+async def readiness_check(
+    agent_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    agent = await _get_owned_agent(db, agent_id, user["sub"])
+    if agent.status != "online":
+        readiness = set_agent_readiness(agent, "error", error="Agent 当前离线，无法检测")
+        await db.commit()
+        return {"readiness": readiness, "delivered": False}
+
+    try:
+        from ws.hub import hub
+        delivered = await hub.push_readiness_probe(agent_id)
+    except Exception:
+        delivered = False
+
+    await db.refresh(agent)
+    return {"readiness": get_agent_readiness(agent), "delivered": delivered}
 
 
 @router.put("/my/agents/{agent_id}/quota")
@@ -351,6 +376,7 @@ def _agent_to_dict(agent: Agent, owner_nickname: str, include_owner_id: bool = F
         "owner": {"nickname": owner_nickname},
         "created_at": agent.created_at.isoformat() if agent.created_at else None,
         "capability_profile": normalize_capability_profile((agent.review_rules or {}).get("capability_profile")),
+        "readiness": get_agent_readiness(agent),
     }
     if full:
         out["daily_quota_config"] = agent.daily_quota_config

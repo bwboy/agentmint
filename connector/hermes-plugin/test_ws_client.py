@@ -152,6 +152,40 @@ class ReconnectTests(unittest.TestCase):
         self.assertEqual(len(sockets), 2)
         self.assertTrue(sockets[0].closed)
 
+    def test_send_pairing_required_uses_special_message_type(self):
+        ws_client = self.ws_client
+
+        async def run_case():
+            client = ws_client.ArenaWSClient(
+                platform_url="ws://arena.test/ws",
+                connector_id="conn_test",
+                connector_token="conn_sk_test",
+                on_question=lambda msg: None,
+            )
+            sent = []
+
+            async def fake_send(payload):
+                sent.append(payload)
+                return True
+
+            client.send = fake_send
+            ok = await client.send_pairing_required(
+                "probe_a_test_123",
+                code="KJ5S6H25",
+                command="hermes pairing approve agentmint KJ5S6H25",
+            )
+            return ok, sent
+
+        ok, sent = asyncio.run(run_case())
+
+        self.assertTrue(ok)
+        self.assertEqual(sent, [{
+            "type": "pairing_required",
+            "request_id": "probe_a_test_123",
+            "code": "KJ5S6H25",
+            "command": "hermes pairing approve agentmint KJ5S6H25",
+        }])
+
 
 if __name__ == "__main__":
     unittest.main()

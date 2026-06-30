@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { getToken } from "@/lib/auth";
-import type { Agent, AgentCapabilityProfile, AgentType } from "@/lib/types";
+import type { Agent, AgentCapabilityProfile, AgentReadinessState, AgentType } from "@/lib/types";
 import { getConnectorInstructions } from "./connectorInstructions";
 
 const emptyProfile: AgentCapabilityProfile = {
@@ -29,6 +29,7 @@ export function MyAgentsPanel() {
   const [tokenInfo, setTokenInfo] = useState<{ agentId: string; agentType: AgentType; connectorId: string; token: string } | null>(null);
   const [adding, setAdding] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [checkingId, setCheckingId] = useState<string | null>(null);
 
   // Create form state
   const [name, setName] = useState("");
@@ -140,6 +141,20 @@ export function MyAgentsPanel() {
     }
   }
 
+  async function checkReadiness(agentId: string) {
+    const token = getToken();
+    if (!token) return;
+    setCheckingId(agentId);
+    try {
+      await api(`/api/my/agents/${agentId}/readiness-check`, { method: "POST", token });
+      await refresh();
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setCheckingId(null);
+    }
+  }
+
   async function deleteAgent(agent: Agent) {
     const token = getToken();
     if (!token) return;
@@ -207,6 +222,11 @@ export function MyAgentsPanel() {
                   <span>{a.total_answers} 回答</span>
                   <span>🔥 {a.fuel_earned} 累计</span>
                 </div>
+                <ReadinessView
+                  agent={a}
+                  checking={checkingId === a.id}
+                  onCheck={() => checkReadiness(a.id)}
+                />
               </div>
               <div className="flex flex-col gap-2 text-xs">
                 <button onClick={() => genToken(a)}
@@ -281,6 +301,73 @@ export function MyAgentsPanel() {
       )}
     </div>
   );
+}
+
+function ReadinessView({
+  agent,
+  checking,
+  onCheck,
+}: {
+  agent: Agent;
+  checking: boolean;
+  onCheck: () => void;
+}) {
+  const readiness = agent.readiness || { state: "unverified" as const };
+  const meta = readinessMeta(readiness.state);
+  const canCheck = agent.status === "online" && !checking;
+
+  return (
+    <div className={`mt-4 rounded-lg border px-3 py-2 text-xs ${meta.box}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className={`h-2 w-2 rounded-full ${meta.dot}`} />
+          <span className="font-medium">{meta.label}</span>
+          {readiness.checked_at && <span className="text-gray-400">{formatDateTime(readiness.checked_at)}</span>}
+        </div>
+        <button
+          onClick={onCheck}
+          disabled={!canCheck}
+          className="rounded-md bg-white/80 px-2 py-1 text-gray-600 ring-1 ring-black/5 hover:text-primary disabled:opacity-50"
+        >
+          {checking ? "检测中" : "重新检测"}
+        </button>
+      </div>
+      {readiness.state === "pairing_required" && readiness.command && (
+        <pre className="mt-2 whitespace-pre-wrap break-all rounded-md bg-white px-2 py-1.5 font-mono text-[11px] text-gray-700 ring-1 ring-black/5">
+          {readiness.command}
+        </pre>
+      )}
+      {readiness.state === "error" && readiness.error && (
+        <p className="mt-1 text-gray-500">{readiness.error}</p>
+      )}
+    </div>
+  );
+}
+
+function readinessMeta(state: AgentReadinessState) {
+  switch (state) {
+    case "ready":
+      return { label: "可回答", dot: "bg-emerald-500", box: "border-emerald-100 bg-emerald-50 text-emerald-700" };
+    case "checking":
+      return { label: "接入检测中", dot: "bg-blue-500", box: "border-blue-100 bg-blue-50 text-blue-700" };
+    case "pairing_required":
+      return { label: "需要 Pairing", dot: "bg-amber-500", box: "border-amber-100 bg-amber-50 text-amber-700" };
+    case "error":
+      return { label: "检测失败", dot: "bg-red-500", box: "border-red-100 bg-red-50 text-red-700" };
+    default:
+      return { label: "未验证", dot: "bg-gray-400", box: "border-gray-100 bg-gray-50 text-gray-600" };
+  }
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function CreateProfileFields({

@@ -656,6 +656,78 @@ class UsageExtractionTests(unittest.TestCase):
         self.assertEqual(tasks, set())
         self.assertEqual(streaming["req_tool"]["content"], 'browser_navigate: "https://www.google.com/search?q=finops"')
 
+    def test_pairing_required_message_is_reported_not_uploaded_as_answer(self):
+        adapter_mod = self.adapter
+
+        class FakeQueue:
+            def __init__(self):
+                self.marked = []
+
+            def mark(self, request_id, status, **kwargs):
+                self.marked.append((request_id, status, kwargs))
+                return True
+
+            def by_request_id(self, request_id):
+                return {
+                    "request_id": request_id,
+                    "status": "pending",
+                    "question": {"title": "Probe", "body": "", "tags": [], "asker": {"nickname": "AgentMint"}},
+                    "answer": None,
+                }
+
+        class FakeClient:
+            def __init__(self):
+                self.answers = []
+                self.pairing = []
+
+            async def send_answer(self, request_id, **kwargs):
+                self.answers.append((request_id, kwargs))
+                return True
+
+            async def send_pairing_required(self, request_id, *, code, command):
+                self.pairing.append((request_id, code, command))
+                return True
+
+        class TestAdapter(adapter_mod.ArenaAdapter):
+            def __init__(self):
+                self._last_turn_metadata = {}
+                self._turn_metadata_events = {}
+                self._pending_answer_uploads = set()
+                self._background_upload_tasks = set()
+                self._streaming_answers = {}
+                self.usage_wait_seconds = 0
+                self._prompt_text_by_request = {"probe_a_test_123": "Probe prompt"}
+                self._job_started_at = {}
+                self._queue = FakeQueue()
+                self._client = FakeClient()
+
+        pairing_text = """Hi~ I don't recognize you yet!
+
+Here's your pairing code: KJ5S6H25
+
+Ask the bot owner to run: hermes pairing approve agentmint KJ5S6H25"""
+
+        async def run_case():
+            adapter = TestAdapter()
+            original_send_result = adapter_mod.SendResult
+            adapter_mod.SendResult = lambda **kwargs: SimpleNamespace(**kwargs)
+            try:
+                result = await adapter.send("probe_a_test_123", pairing_text, metadata={"notify": True})
+            finally:
+                adapter_mod.SendResult = original_send_result
+            return result, adapter._client.pairing, adapter._client.answers, adapter._queue.marked
+
+        result, pairing, answers, marked = asyncio.run(run_case())
+
+        self.assertTrue(result.success)
+        self.assertEqual(pairing, [(
+            "probe_a_test_123",
+            "KJ5S6H25",
+            "hermes pairing approve agentmint KJ5S6H25",
+        )])
+        self.assertEqual(answers, [])
+        self.assertEqual(marked, [("probe_a_test_123", "failed", {"error": "pairing_required"})])
+
     def test_send_creates_synthetic_queue_row_when_answer_has_no_job(self):
         adapter_mod = self.adapter
 

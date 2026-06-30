@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Agent
+from services.agent_readiness import get_agent_readiness
 from services.quota import check_quota
 
 TAG_GROUPS: dict[str, set[str]] = {
@@ -233,6 +234,10 @@ def clean_profile_list(value) -> list[str]:
     return out
 
 
+def filter_ready_agents(agents: list[Agent]) -> list[Agent]:
+    return [agent for agent in agents if get_agent_readiness(agent).get("state") == "ready"]
+
+
 async def match_agents(
     db: AsyncSession,
     q_tags: list[str],
@@ -252,6 +257,7 @@ async def match_agents(
         select(Agent).where(Agent.status == "online", Agent.is_public == True)
     )
     agents = list(result.scalars().all())
+    agents = filter_ready_agents(agents)
     if not agents:
         return []
 

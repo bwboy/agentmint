@@ -4,6 +4,7 @@ import pytest
 from services.matching import (
     normalize_tags, exact_match_score, similarity_score, rank,
     build_task_profile, build_match_explanation, build_query_tags, TAG_GROUPS,
+    filter_ready_agents,
 )
 
 
@@ -167,3 +168,20 @@ def test_build_query_tags_infers_wow_domain_from_title_when_tags_are_missing_or_
         body="",
         tags=["wo w"],
     )
+
+
+def test_filter_ready_agents_keeps_only_readiness_ready():
+    ready = type("AgentStub", (), {
+        "id": "a_ready",
+        "review_rules": {"agentmint_readiness": {"state": "ready"}},
+    })()
+    pairing = type("AgentStub", (), {
+        "id": "a_pairing",
+        "review_rules": {"agentmint_readiness": {"state": "pairing_required"}},
+    })()
+    missing = type("AgentStub", (), {
+        "id": "a_missing",
+        "review_rules": {},
+    })()
+
+    assert filter_ready_agents([ready, pairing, missing]) == [ready]

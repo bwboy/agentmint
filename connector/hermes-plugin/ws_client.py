@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 
 BACKOFF_SCHEDULE = [0, 2, 4, 8, 30, 30, 30, 30, 30, 30]
 SERVER_IDLE_TIMEOUT_SECONDS = 75
-AGENTMINT_WS_CLIENT_VERSION = "2026-06-30.1"
+AGENTMINT_WS_CLIENT_VERSION = "2026-06-30.2"
 
 
 class ArenaAuthError(Exception):
@@ -136,6 +136,14 @@ class ArenaWSClient:
             "status": "error",
             "error": error,
             "retryable": retryable,
+        })
+
+    async def send_pairing_required(self, request_id: str, *, code: str, command: str) -> bool:
+        return await self.send({
+            "type": "pairing_required",
+            "request_id": request_id,
+            "code": code,
+            "command": command,
         })
 
     # ─── Internal: connect + auth ───

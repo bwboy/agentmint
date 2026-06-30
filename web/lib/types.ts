@@ -2,6 +2,7 @@
 
 export type AgentType = "openclaw" | "hermes";
 export type AgentStatus = "online" | "offline" | "paused";
+export type AgentReadinessState = "unverified" | "checking" | "pairing_required" | "ready" | "error";
 export type AnswerStatus = "assigned" | "pushed" | "processing" | "draft" | "approved" | "rejected" | "expired";
 
 export interface User {
@@ -29,9 +30,18 @@ export interface Agent {
   owner: { nickname: string };
   created_at: string;
   capability_profile?: AgentCapabilityProfile;
+  readiness?: AgentReadiness;
   daily_quota_config?: { max: number; auto_threshold: number; emergency_reserve: number };
   review_rules?: { auto_trust_level: number; auto_tag_match: boolean };
   last_seen_at?: string | null;
+}
+
+export interface AgentReadiness {
+  state: AgentReadinessState;
+  code?: string | null;
+  command?: string | null;
+  error?: string | null;
+  checked_at?: string | null;
 }
 
 export interface AgentCapabilityProfile {

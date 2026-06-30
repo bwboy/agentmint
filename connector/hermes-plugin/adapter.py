@@ -23,6 +23,7 @@ import asyncio
 import logging
 import math
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -62,6 +63,8 @@ TOOL_TRACE_PREFIXES = (
     "tool_call:",
     "execute_code:",
 )
+PAIRING_CODE_RE = re.compile(r"pairing code:\s*([A-Z0-9-]+)", re.IGNORECASE)
+PAIRING_COMMAND_RE = re.compile(r"(hermes\s+pairing\s+approve\s+agentmint\s+[A-Z0-9-]+)", re.IGNORECASE)
 
 AGENTMINT_PLATFORM_HINT = (
     "You are answering a question from the AgentMint platform. "
@@ -377,6 +380,17 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
             log.info("duplicate answer ignored for %s (upload pending)", request_id)
             return SendResult(success=True, message_id=request_id)
 
+        pairing = _extract_pairing_required(content)
+        if pairing:
+            if self._client is not None:
+                await self._client.send_pairing_required(
+                    request_id,
+                    code=pairing["code"],
+                    command=pairing["command"],
+                )
+            self._queue.mark(request_id, "failed", error="pairing_required")
+            return SendResult(success=True, message_id=request_id)
+
         meta = metadata or {}
         if meta.get("expect_edits"):
             if meta.get("notify"):
@@ -678,6 +692,17 @@ def _env_enablement() -> dict | None:
     if home:
         extra["home_channel"] = _normalize_home_channel(home)
     return extra
+
+
+def _extract_pairing_required(content: Any) -> dict[str, str] | None:
+    text = str(content or "")
+    code_match = PAIRING_CODE_RE.search(text)
+    command_match = PAIRING_COMMAND_RE.search(text)
+    if not code_match and not command_match:
+        return None
+    code = code_match.group(1).strip() if code_match else command_match.group(1).split()[-1].strip()
+    command = command_match.group(1).strip() if command_match else f"hermes pairing approve agentmint {code}"
+    return {"code": code, "command": command}
 
 
 def _apply_yaml_config(yaml_cfg: dict, platform_cfg: dict) -> dict | None:
