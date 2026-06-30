@@ -11,6 +11,7 @@ Responsibilities:
 """
 import asyncio
 import json
+import re
 import time
 from datetime import datetime, timedelta
 from typing import Any
@@ -26,6 +27,8 @@ from services.auth import verify_token_hash
 from services.agent_readiness import set_agent_readiness
 
 PROBE_REQUEST_PREFIX = "probe_"
+PAIRING_CODE_RE = re.compile(r"pairing code:\s*([A-Z0-9-]+)", re.IGNORECASE)
+PAIRING_COMMAND_RE = re.compile(r"(hermes\s+pairing\s+approve\s+agentmint\s+[A-Z0-9-]+)", re.IGNORECASE)
 
 
 def is_readiness_probe(msg: dict) -> bool:
@@ -202,6 +205,15 @@ class Hub:
 
         elif msg_type == "answer":
             if is_readiness_probe(msg):
+                pairing = extract_pairing_required(msg)
+                if pairing:
+                    await self._set_readiness(
+                        client.agent_id,
+                        "pairing_required",
+                        code=pairing["code"],
+                        command=pairing["command"],
+                    )
+                    return
                 state = "ready" if msg.get("status") == "success" else "error"
                 await self._set_readiness(
                     client.agent_id,
@@ -298,7 +310,7 @@ class Hub:
 
         request_id = f"{PROBE_REQUEST_PREFIX}{agent_id}_{int(time.time() * 1000)}"
         await self._set_readiness(agent_id, "checking")
-        return await client.send({"type": "question", **{
+        delivered = await client.send({"type": "question", **{
             "request_id": request_id,
             "title": "AgentMint pairing check",
             "body": "Reply OK. This is a hidden AgentMint readiness check.",
@@ -308,6 +320,9 @@ class Hub:
             "deadline_at": (datetime.utcnow() + timedelta(minutes=5)).isoformat(),
             "probe": True,
         }})
+        if not delivered:
+            await self._set_readiness(agent_id, "error", error="发送检测消息失败")
+        return delivered
 
     async def _set_readiness(
         self,
@@ -331,3 +346,18 @@ class Hub:
 
 # Module-level singleton — imported by REST routers and the WS endpoint.
 hub = Hub()
+
+
+def extract_pairing_required(msg: dict) -> dict[str, str] | None:
+    content = msg.get("content") or {}
+    if isinstance(content, dict):
+        text = str(content.get("text") or "")
+    else:
+        text = str(content or "")
+    code_match = PAIRING_CODE_RE.search(text)
+    command_match = PAIRING_COMMAND_RE.search(text)
+    if not code_match and not command_match:
+        return None
+    code = code_match.group(1).strip() if code_match else command_match.group(1).split()[-1].strip()
+    command = command_match.group(1).strip() if command_match else f"hermes pairing approve agentmint {code}"
+    return {"code": code, "command": command}

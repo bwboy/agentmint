@@ -10,10 +10,13 @@ hub_module = importlib.import_module("ws.hub")
 
 
 class FakeWebSocket:
-    def __init__(self):
+    def __init__(self, fail_send=False):
         self.sent = []
+        self.fail_send = fail_send
 
     async def send_text(self, text):
+        if self.fail_send:
+            raise RuntimeError("send failed")
         self.sent.append(text)
 
 
@@ -63,6 +66,42 @@ async def test_push_readiness_probe_marks_checking_and_sends_hidden_question(mon
 
 
 @pytest.mark.asyncio
+async def test_push_readiness_probe_marks_error_when_send_fails(monkeypatch):
+    agent = SimpleNamespace(id="a_test", review_rules={})
+
+    class ScalarResult:
+        def scalar_one_or_none(self):
+            return agent
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def execute(self, stmt):
+            return ScalarResult()
+
+        async def commit(self):
+            pass
+
+    monkeypatch.setattr(hub_module, "AsyncSessionLocal", lambda: FakeSession())
+
+    client = WSClient(FakeWebSocket(fail_send=True), "conn_test", "a_test", "u_test", "Agent")
+    hub = Hub()
+    hub.clients["conn_test"] = client
+    hub.agent_to_conn["a_test"] = "conn_test"
+
+    delivered = await hub.push_readiness_probe("a_test")
+
+    readiness = get_agent_readiness(agent)
+    assert delivered is False
+    assert readiness["state"] == "error"
+    assert "发送检测消息失败" in readiness["error"]
+
+
+@pytest.mark.asyncio
 async def test_probe_answer_marks_agent_ready_without_review(monkeypatch):
     agent = SimpleNamespace(id="a_test", review_rules={})
     reviewed = []
@@ -102,6 +141,48 @@ async def test_probe_answer_marks_agent_ready_without_review(monkeypatch):
 
     assert get_agent_readiness(agent)["state"] == "ready"
     assert reviewed == []
+
+
+@pytest.mark.asyncio
+async def test_probe_answer_with_pairing_text_marks_pairing_required(monkeypatch):
+    agent = SimpleNamespace(id="a_test", review_rules={})
+
+    class ScalarResult:
+        def scalar_one_or_none(self):
+            return agent
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def execute(self, stmt):
+            return ScalarResult()
+
+        async def commit(self):
+            pass
+
+    monkeypatch.setattr(hub_module, "AsyncSessionLocal", lambda: FakeSession())
+
+    hub = Hub()
+    client = WSClient(FakeWebSocket(), "conn_test", "a_test", "u_test", "Agent")
+
+    await hub._dispatch(client, {
+        "type": "answer",
+        "request_id": "probe_a_test_123",
+        "status": "success",
+        "content": {
+            "text": "Hi~ I don't recognize you yet!\n\nHere's your pairing code: KJ5S6H25\n\n"
+                    "Ask the bot owner to run: hermes pairing approve agentmint KJ5S6H25"
+        },
+    })
+
+    readiness = get_agent_readiness(agent)
+    assert readiness["state"] == "pairing_required"
+    assert readiness["code"] == "KJ5S6H25"
+    assert readiness["command"] == "hermes pairing approve agentmint KJ5S6H25"
 
 
 @pytest.mark.asyncio

@@ -147,11 +147,23 @@ export function MyAgentsPanel() {
     setCheckingId(agentId);
     try {
       await api(`/api/my/agents/${agentId}/readiness-check`, { method: "POST", token });
-      await refresh();
+      await refreshUntilSettled(agentId);
     } catch (e: any) {
       setErr(e.message);
     } finally {
       setCheckingId(null);
+    }
+  }
+
+  async function refreshUntilSettled(agentId: string) {
+    const token = getToken();
+    if (!token) return;
+    for (let i = 0; i < 8; i += 1) {
+      const r = await api<{ data: Agent[] }>("/api/my/agents", { token });
+      setAgents(r.data);
+      const agent = r.data.find(item => item.id === agentId);
+      if (agent?.readiness?.state && agent.readiness.state !== "checking") return;
+      await sleep(1000);
     }
   }
 
@@ -315,13 +327,14 @@ function ReadinessView({
   const readiness = agent.readiness || { state: "unverified" as const };
   const meta = readinessMeta(readiness.state);
   const canCheck = agent.status === "online" && !checking;
+  const label = agent.status === "online" ? meta.label : "待接入";
 
   return (
     <div className={`mt-4 rounded-lg border px-3 py-2 text-xs ${meta.box}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className={`h-2 w-2 rounded-full ${meta.dot}`} />
-          <span className="font-medium">{meta.label}</span>
+          <span className="font-medium">{label}</span>
           {readiness.checked_at && <span className="text-gray-400">{formatDateTime(readiness.checked_at)}</span>}
         </div>
         <button
@@ -469,4 +482,8 @@ function inputFromProfile(profile?: AgentCapabilityProfile) {
     style_tags: safe.style_tags.join(", "),
     avoid_tags: safe.avoid_tags.join(", "),
   };
+}
+
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
