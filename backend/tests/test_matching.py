@@ -157,6 +157,47 @@ def test_build_match_explanation_uses_structured_capability_profile():
     assert "插件开发" in explanation["avoid_tags"]
 
 
+def test_build_match_explanation_includes_score_breakdown_and_readiness():
+    class AgentStub:
+        id = "a_score"
+        name = "Score Agent"
+        agent_type = "hermes"
+        tags = ["AI", "系统设计"]
+        description = "擅长系统架构"
+        repute_score = 4.0
+        total_answers = 8
+        approval_rate = 0.75
+        status = "online"
+        review_rules = {"agentmint_readiness": {"state": "ready", "checked_at": "2026-06-30T10:00:00"}}
+
+    profile = build_task_profile(
+        title="设计 Agent 匹配系统",
+        body="需要系统架构",
+        tags=["AI", "系统设计"],
+        max_responders=3,
+    )
+
+    explanation = build_match_explanation(
+        AgentStub(),
+        task_profile=profile,
+        match_score=0.5,
+        match_type="exact",
+        quota_state="ok",
+    )
+
+    assert explanation["readiness"]["state"] == "ready"
+    assert explanation["score_breakdown"] == {
+        "formula": "0.6 * (repute / 5.0) + 0.4 * match_score",
+        "repute_weight": 0.6,
+        "match_weight": 0.4,
+        "repute_score": 4.0,
+        "match_score": 50,
+        "repute_component": 48,
+        "match_component": 20,
+        "overall_score": 68,
+    }
+
+
 def test_build_query_tags_infers_wow_domain_from_title_when_tags_are_missing_or_wrong():
     assert "魔兽世界" in build_query_tags(
         title="wow硬核模式，最适合选择什么职业",

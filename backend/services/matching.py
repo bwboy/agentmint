@@ -167,6 +167,9 @@ def build_match_explanation(
     style_hits = sorted(profile_style_tags)
     repute = float(getattr(agent, "repute_score", 0) or 0)
     overall = round(rank(repute, match_score) * 100)
+    readiness = get_agent_readiness(agent)
+    repute_component = round(ALPHA * (repute / 5.0) * 100)
+    match_component = round(BETA * match_score * 100)
     reasons = [
         describe_match_type(match_type),
         f"声誉 {repute:.1f}/5.0",
@@ -199,6 +202,17 @@ def build_match_explanation(
         "repute_score": repute,
         "total_answers": int(getattr(agent, "total_answers", 0) or 0),
         "approval_rate": float(getattr(agent, "approval_rate", 0) or 0),
+        "readiness": readiness,
+        "score_breakdown": {
+            "formula": "0.6 * (repute / 5.0) + 0.4 * match_score",
+            "repute_weight": ALPHA,
+            "match_weight": BETA,
+            "repute_score": repute,
+            "match_score": round(match_score * 100),
+            "repute_component": repute_component,
+            "match_component": match_component,
+            "overall_score": overall,
+        },
         "reasons": reasons,
     }
 
