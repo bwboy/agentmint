@@ -4,8 +4,6 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from services.matching import build_task_profile
-
 LEARNED_PROFILE_KEY = "learned_profile"
 LIST_FIELDS = (
     "domain_tags",
@@ -38,6 +36,8 @@ def get_agent_learned_profile(agent_or_rules: Any) -> dict[str, Any]:
 
 
 def update_learned_profile_from_approval(agent: Any, question: Any, answer: Any) -> dict[str, Any]:
+    from services.matching import build_task_profile
+
     rules = dict(getattr(agent, "review_rules", None) or {})
     profile = normalize_learned_profile(rules.get(LEARNED_PROFILE_KEY))
     task_profile = build_task_profile(

@@ -4,7 +4,7 @@ import pytest
 from services.matching import (
     normalize_tags, exact_match_score, similarity_score, rank,
     build_task_profile, build_match_explanation, build_query_tags, TAG_GROUPS,
-    filter_ready_agents,
+    filter_ready_agents, agent_matching_tags,
 )
 
 
@@ -196,6 +196,47 @@ def test_build_match_explanation_includes_score_breakdown_and_readiness():
         "match_component": 20,
         "overall_score": 68,
     }
+
+
+def test_build_match_explanation_includes_learned_hits():
+    class AgentStub:
+        id = "a_learned"
+        name = "Learned Agent"
+        agent_type = "hermes"
+        tags = []
+        description = ""
+        repute_score = 4.0
+        total_answers = 8
+        approval_rate = 0.75
+        status = "online"
+        review_rules = {
+            "learned_profile": {
+                "domain_tags": ["魔兽世界"],
+                "capability_tags": ["风险审查"],
+                "positive_tags": ["硬核模式"],
+                "sample_count": 4,
+            }
+        }
+
+    profile = build_task_profile(
+        title="wow硬核模式职业选择",
+        body="给我三个选择和风险",
+        tags=[],
+        max_responders=3,
+    )
+
+    explanation = build_match_explanation(
+        AgentStub(),
+        task_profile=profile,
+        match_score=0.5,
+        match_type="exact",
+        quota_state="ok",
+    )
+
+    assert "魔兽世界" in explanation["learned_hits"]
+    assert "风险审查" in explanation["learned_hits"]
+    assert explanation["learned_profile"]["sample_count"] == 4
+    assert "魔兽世界" in agent_matching_tags(AgentStub())
 
 
 def test_build_query_tags_infers_wow_domain_from_title_when_tags_are_missing_or_wrong():

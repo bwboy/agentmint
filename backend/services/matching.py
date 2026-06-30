@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Agent
 from services.agent_readiness import get_agent_readiness
+from services.learned_profile import get_agent_learned_profile
 from services.quota import check_quota
 
 TAG_GROUPS: dict[str, set[str]] = {
@@ -147,15 +148,22 @@ def build_match_explanation(
 ) -> dict:
     agent_tags = normalize_tags(list(getattr(agent, "tags", None) or []))
     capability_profile = get_agent_capability_profile(agent)
+    learned_profile = get_agent_learned_profile(agent)
     profile_domain_tags = normalize_tags(capability_profile.get("domain_tags", []))
     profile_capability_tags = set(capability_profile.get("capability_tags", []))
     profile_tool_tags = set(capability_profile.get("tool_tags", []))
     profile_style_tags = set(capability_profile.get("style_tags", []))
     profile_avoid_tags = set(capability_profile.get("avoid_tags", []))
+    learned_domain_tags = normalize_tags(learned_profile.get("domain_tags", []))
+    learned_capability_tags = set(learned_profile.get("capability_tags", []))
+    learned_positive_tags = normalize_tags(learned_profile.get("positive_tags", []))
     query_tags = set(task_profile.get("query_tags") or [])
     task_domains = set(task_profile.get("domain_tags") or [])
     task_capabilities = set(task_profile.get("capability_tags") or [])
     matched_tags = sorted((agent_tags | profile_domain_tags) & normalize_tags(list(query_tags | task_domains)))
+    learned_hits = sorted(
+        (learned_domain_tags | learned_positive_tags) & normalize_tags(list(query_tags | task_domains))
+    )
 
     capability_hits = [
         capability
@@ -163,6 +171,14 @@ def build_match_explanation(
         if capability in profile_capability_tags
         or capability.lower() in (getattr(agent, "description", "") or "").lower()
     ]
+    learned_capability_hits = [
+        capability
+        for capability in task_capabilities
+        if capability in learned_capability_tags
+    ]
+    for capability in learned_capability_hits:
+        if capability not in learned_hits:
+            learned_hits.append(capability)
     tool_hits = sorted(profile_tool_tags)
     style_hits = sorted(profile_style_tags)
     repute = float(getattr(agent, "repute_score", 0) or 0)
@@ -198,6 +214,8 @@ def build_match_explanation(
         "tool_hits": tool_hits,
         "style_hits": style_hits,
         "avoid_tags": sorted(profile_avoid_tags),
+        "learned_profile": learned_profile,
+        "learned_hits": learned_hits,
         "quota_state": quota_state,
         "repute_score": repute,
         "total_answers": int(getattr(agent, "total_answers", 0) or 0),
@@ -252,6 +270,17 @@ def filter_ready_agents(agents: list[Agent]) -> list[Agent]:
     return [agent for agent in agents if get_agent_readiness(agent).get("state") == "ready"]
 
 
+def agent_matching_tags(agent: Agent) -> set[str]:
+    explicit_profile = get_agent_capability_profile(agent)
+    learned_profile = get_agent_learned_profile(agent)
+    return (
+        normalize_tags(list(getattr(agent, "tags", None) or []))
+        | normalize_tags(explicit_profile.get("domain_tags", []))
+        | normalize_tags(learned_profile.get("domain_tags", []))
+        | normalize_tags(learned_profile.get("positive_tags", []))
+    )
+
+
 async def match_agents(
     db: AsyncSession,
     q_tags: list[str],
@@ -282,7 +311,7 @@ async def match_agents(
         scored: list[tuple[Agent, float, str]] = []
         exact_hits: list[tuple[Agent, float]] = []
         for a in agents:
-            a_tags = normalize_tags(list(a.tags or []))
+            a_tags = agent_matching_tags(a)
             exact = exact_match_score(q_tags_norm, a_tags)
             if exact > 0:
                 exact_hits.append((a, exact))
@@ -296,7 +325,7 @@ async def match_agents(
             for a in agents:
                 if a.id in exact_ids:
                     continue
-                sim = similarity_score(q_tags_norm, normalize_tags(list(a.tags or [])))
+                sim = similarity_score(q_tags_norm, agent_matching_tags(a))
                 if sim >= SIMILARITY_THRESHOLD:
                     scored.append((a, sim * SIMILARITY_DISCOUNT, "similarity"))
         ranked = scored

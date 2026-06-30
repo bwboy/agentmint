@@ -113,12 +113,17 @@ def test_agent_to_dict_includes_readiness():
         status="online",
         is_public=True,
         created_at=None,
-        review_rules={"agentmint_readiness": {"state": "ready"}},
+        review_rules={
+            "agentmint_readiness": {"state": "ready"},
+            "learned_profile": {"domain_tags": ["魔兽世界"], "sample_count": 2},
+        },
     )
 
     out = agents._agent_to_dict(agent, "owner")
 
     assert out["readiness"]["state"] == "ready"
+    assert out["learned_profile"]["domain_tags"] == ["魔兽世界"]
+    assert out["learned_profile"]["sample_count"] == 2
 
 
 @pytest.mark.asyncio

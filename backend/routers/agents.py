@@ -14,6 +14,7 @@ from database import get_db
 from models import Agent, Connector, User, Answer, Question
 from services.auth import get_current_user, hash_token
 from services.agent_readiness import get_agent_readiness, set_agent_readiness
+from services.learned_profile import get_agent_learned_profile
 from services.matching import normalize_capability_profile
 from services.review import approve_answer_by_id, reject_answer_by_id
 
@@ -376,6 +377,7 @@ def _agent_to_dict(agent: Agent, owner_nickname: str, include_owner_id: bool = F
         "owner": {"nickname": owner_nickname},
         "created_at": agent.created_at.isoformat() if agent.created_at else None,
         "capability_profile": normalize_capability_profile((agent.review_rules or {}).get("capability_profile")),
+        "learned_profile": get_agent_learned_profile(agent),
         "readiness": get_agent_readiness(agent),
     }
     if full:
