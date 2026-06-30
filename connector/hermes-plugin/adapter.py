@@ -62,6 +62,15 @@ TOOL_TRACE_PREFIXES = (
     "search_query:",
     "tool_call:",
     "execute_code:",
+    "terminal:",
+    "shell:",
+    "bash:",
+)
+TOOL_TRACE_RE = re.compile(
+    r"(^|[\s\W])("
+    r"session_search|browser_[a-z0-9_]*|web_search|search_query|tool_call|execute_code|terminal|shell|bash"
+    r")\s*:",
+    re.IGNORECASE,
 )
 PAIRING_CODE_RE = re.compile(r"pairing code:\s*([A-Z0-9-]+)", re.IGNORECASE)
 PAIRING_COMMAND_RE = re.compile(r"(hermes\s+pairing\s+approve\s+agentmint\s+[A-Z0-9-]+)", re.IGNORECASE)
@@ -417,7 +426,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
                 )
             return SendResult(success=True, message_id=request_id)
 
-        if not meta.get("notify") and _looks_like_tool_trace(content):
+        if _looks_like_tool_trace(content):
             self._streaming_answers[request_id] = {
                 "content": str(content),
                 "metadata": dict(meta),
@@ -1016,10 +1025,21 @@ def _truthy(value: Any) -> bool:
 
 
 def _looks_like_tool_trace(content: Any) -> bool:
-    text = str(content or "").strip().lower()
+    raw = str(content or "").strip()
+    text = raw.lower()
     while text and not (text[0].isalnum() or text[0] == "_"):
         text = text[1:].lstrip()
-    return any(text.startswith(prefix) for prefix in TOOL_TRACE_PREFIXES)
+    if any(text.startswith(prefix) for prefix in TOOL_TRACE_PREFIXES):
+        return True
+
+    matches = list(TOOL_TRACE_RE.finditer(raw))
+    if not matches:
+        return False
+
+    first = matches[0].start()
+    lead = raw[:first].strip()
+    lead_without_symbols = re.sub(r"^[\s\W_]+", "", lead)
+    return not lead_without_symbols and (first <= 8 or len(matches) >= 2)
 
 
 def _metadata_debug_summary(value: Any) -> str:

@@ -139,5 +139,5 @@ Start or restart:
   hermes gateway
 
 Expected startup log:
-  agentmint ws client 2026-06-30.2 loaded from ...
+  agentmint ws client 2026-06-30.3 loaded from ...
 EOF

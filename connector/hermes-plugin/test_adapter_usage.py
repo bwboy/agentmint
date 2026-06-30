@@ -100,6 +100,11 @@ class UsageExtractionTests(unittest.TestCase):
         self.assertIn("do not ask for approval", prompt)
         self.assertIn("fetch it as data first", prompt)
 
+    def test_tool_trace_detection_does_not_block_explanatory_answers(self):
+        self.assertFalse(self.adapter._looks_like_tool_trace(
+            "我先说明一下：browser_navigate 和 terminal 是工具名，不是最终答案。"
+        ))
+
     def test_on_question_uses_stable_agentmint_identity_for_pairing(self):
         adapter_mod = self.adapter
 
@@ -655,6 +660,68 @@ class UsageExtractionTests(unittest.TestCase):
         self.assertIsNone(sent)
         self.assertEqual(tasks, set())
         self.assertEqual(streaming["req_tool"]["content"], 'browser_navigate: "https://www.google.com/search?q=finops"')
+
+    def test_combined_tool_trace_send_is_cached_not_uploaded(self):
+        adapter_mod = self.adapter
+
+        class FakeQueue:
+            def mark(self, request_id, status, **kwargs):
+                raise AssertionError("combined tool trace must not be saved as an answer")
+
+            def by_request_id(self, request_id):
+                return {
+                    "request_id": request_id,
+                    "status": "pending",
+                    "question": {"title": "Question", "body": "", "tags": [], "asker": {"nickname": "tester"}},
+                    "answer": None,
+                }
+
+        class FakeClient:
+            def __init__(self):
+                self.sent = None
+
+            async def send_answer(self, request_id, **kwargs):
+                self.sent = (request_id, kwargs)
+                return True
+
+        class TestAdapter(adapter_mod.ArenaAdapter):
+            def __init__(self):
+                self._last_turn_metadata = {}
+                self._turn_metadata_events = {}
+                self._pending_answer_uploads = set()
+                self._background_upload_tasks = set()
+                self._streaming_answers = {}
+                self.usage_wait_seconds = 0
+                self._prompt_text_by_request = {"req_tool_combo": "Question prompt text"}
+                self._job_started_at = {}
+                self._queue = FakeQueue()
+                self._client = FakeClient()
+
+        content = '🌐 browser_navigate: "https://www.gamersky.com/handbook/201..." 💻 terminal: "curl -sL \\"https://www.zelda.com/breath-of-the-wild\\""'
+
+        async def run_case():
+            adapter = TestAdapter()
+            original_send_result = adapter_mod.SendResult
+            adapter_mod.SendResult = lambda **kwargs: SimpleNamespace(**kwargs)
+            try:
+                result = await adapter.send(
+                    "req_tool_combo",
+                    content,
+                    metadata={
+                        "notify": True,
+                        "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12},
+                    },
+                )
+            finally:
+                adapter_mod.SendResult = original_send_result
+            return result, adapter._client.sent, adapter._background_upload_tasks, adapter._streaming_answers
+
+        result, sent, tasks, streaming = asyncio.run(run_case())
+
+        self.assertTrue(result.success)
+        self.assertIsNone(sent)
+        self.assertEqual(tasks, set())
+        self.assertEqual(streaming["req_tool_combo"]["content"], content)
 
     def test_pairing_required_message_is_reported_not_uploaded_as_answer(self):
         adapter_mod = self.adapter
