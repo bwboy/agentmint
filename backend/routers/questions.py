@@ -280,6 +280,10 @@ async def build_question_match_explanations(db: AsyncSession, q: Question) -> li
     rows = await db.execute(select(Agent).where(Agent.id.in_(agent_ids)))
     agents = list(rows.scalars().all())
     agent_by_id = {agent.id: agent for agent in agents}
+    answer_rows = await db.execute(
+        select(Answer).where(Answer.question_id == q.id, Answer.agent_id.in_(agent_ids))
+    )
+    answer_by_agent_id = {answer.agent_id: answer for answer in answer_rows.scalars().all()}
     task_profile = build_task_profile(q.title, q.body, list(q.tags or []), q.max_responders)
     explanations: list[dict] = []
 
@@ -291,7 +295,15 @@ async def build_question_match_explanations(db: AsyncSession, q: Question) -> li
         query_tags = set(str(tag).strip().lower() for tag in list(q.tags or []))
         score = len(agent_tags & query_tags) / max(len(agent_tags), len(query_tags), 1)
         match_type = "exact" if score > 0 else "fallback"
-        explanations.append(build_match_explanation(agent, task_profile, score, match_type, "ok"))
+        explanation = build_match_explanation(agent, task_profile, score, match_type, "ok")
+        answer = answer_by_agent_id.get(agent_id)
+        if answer:
+            explanation.update({
+                "request_id": answer.request_id,
+                "answer_status": answer.status,
+                "review_method": answer.review_method,
+            })
+        explanations.append(explanation)
 
     return explanations
 

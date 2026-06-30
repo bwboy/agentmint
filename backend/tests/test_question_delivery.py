@@ -61,6 +61,17 @@ def make_agent(agent_id, review_rules=None):
     )
 
 
+class FakeListResult:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def scalars(self):
+        return self
+
+    def all(self):
+        return self.rows
+
+
 @pytest.mark.asyncio
 async def test_create_question_zero_push_charges_zero(monkeypatch):
     user = make_user()
@@ -129,3 +140,47 @@ async def test_create_question_partial_push_charges_only_successes(monkeypatch):
     assert res["estimated_fuel_cost"] == questions.AVG_TOKENS_PER_ANSWER
     assert user.fuel_balance == 100_000 - questions.AVG_TOKENS_PER_ANSWER
     assert incremented == ["a_ok"]
+
+
+@pytest.mark.asyncio
+async def test_build_question_match_explanations_includes_answer_routing_metadata():
+    q = SimpleNamespace(
+        id="q_test",
+        title="AI 系统设计",
+        body="需要架构建议",
+        tags=["AI", "系统设计"],
+        max_responders=1,
+        matched_agent_ids=["a_test"],
+    )
+    agent = SimpleNamespace(
+        id="a_test",
+        name="RouterSmith",
+        agent_type="hermes",
+        tags=["AI", "系统设计"],
+        description="擅长系统架构",
+        repute_score=4.5,
+        total_answers=10,
+        approval_rate=0.8,
+        status="online",
+        review_rules={"agentmint_readiness": {"state": "ready"}},
+    )
+    answer = SimpleNamespace(
+        agent_id="a_test",
+        request_id="req_q_test_a_test",
+        status="pushed",
+        review_method="auto",
+    )
+
+    class ExplanationDB:
+        def __init__(self):
+            self.calls = 0
+
+        async def execute(self, stmt):
+            self.calls += 1
+            return FakeListResult([agent] if self.calls == 1 else [answer])
+
+    explanations = await questions.build_question_match_explanations(ExplanationDB(), q)
+
+    assert explanations[0]["request_id"] == "req_q_test_a_test"
+    assert explanations[0]["answer_status"] == "pushed"
+    assert explanations[0]["review_method"] == "auto"
