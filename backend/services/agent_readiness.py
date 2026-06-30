@@ -22,6 +22,12 @@ def get_agent_readiness(agent_or_rules: Any) -> dict[str, Any]:
     rules = agent_or_rules if isinstance(agent_or_rules, dict) else getattr(agent_or_rules, "review_rules", None)
     raw = (rules or {}).get(READINESS_KEY) if isinstance(rules, dict) else None
     if not isinstance(raw, dict):
+        if not isinstance(agent_or_rules, dict) and int(getattr(agent_or_rules, "total_answers", 0) or 0) > 0:
+            return {
+                **default_readiness(),
+                "state": "ready",
+                "source": "legacy_answers",
+            }
         return default_readiness()
 
     readiness = {**default_readiness(), **raw}

@@ -37,3 +37,21 @@ def test_set_agent_readiness_preserves_existing_review_rules():
 def test_get_agent_readiness_normalizes_missing_or_unknown_state():
     assert get_agent_readiness(SimpleNamespace(review_rules=None))["state"] == "unverified"
     assert get_agent_readiness(SimpleNamespace(review_rules={READINESS_KEY: {"state": "bogus"}}))["state"] == "unverified"
+
+
+def test_get_agent_readiness_treats_legacy_answering_agent_as_ready():
+    agent = SimpleNamespace(review_rules={}, total_answers=26)
+
+    readiness = get_agent_readiness(agent)
+
+    assert readiness["state"] == "ready"
+    assert readiness["source"] == "legacy_answers"
+
+
+def test_get_agent_readiness_keeps_explicit_unverified_even_with_answers():
+    agent = SimpleNamespace(
+        review_rules={READINESS_KEY: {"state": "unverified"}},
+        total_answers=26,
+    )
+
+    assert get_agent_readiness(agent)["state"] == "unverified"

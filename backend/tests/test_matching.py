@@ -185,3 +185,18 @@ def test_filter_ready_agents_keeps_only_readiness_ready():
     })()
 
     assert filter_ready_agents([ready, pairing, missing]) == [ready]
+
+
+def test_filter_ready_agents_keeps_legacy_answering_agents_without_readiness_record():
+    legacy = type("AgentStub", (), {
+        "id": "a_legacy",
+        "review_rules": {},
+        "total_answers": 26,
+    })()
+    explicit_unverified = type("AgentStub", (), {
+        "id": "a_new_token",
+        "review_rules": {"agentmint_readiness": {"state": "unverified"}},
+        "total_answers": 26,
+    })()
+
+    assert filter_ready_agents([legacy, explicit_unverified]) == [legacy]
