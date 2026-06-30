@@ -56,6 +56,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="$HERMES_HOME_DIR/plugins/platforms/agentmint"
 PLUGIN_PARENT="$(dirname "$PLUGIN_DIR")"
 PYTHON_BIN="${PYTHON:-}"
+SOURCE_COMMIT="unknown"
+
+if command -v git >/dev/null 2>&1; then
+  SOURCE_COMMIT="$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || true)"
+  SOURCE_COMMIT="${SOURCE_COMMIT:-unknown}"
+fi
 
 if [[ -z "$PYTHON_BIN" ]]; then
   if [[ -x "$SCRIPT_DIR/../../backend/.venv/bin/python" ]]; then
@@ -88,6 +94,11 @@ if [[ "$MODE" == "link" ]]; then
     echo "AgentMint plugin linked: $PLUGIN_DIR -> $SCRIPT_DIR"
   fi
 else
+  if [[ -L "$PLUGIN_DIR" ]]; then
+    link_target="$(readlink "$PLUGIN_DIR")"
+    rm "$PLUGIN_DIR"
+    echo "Existing plugin symlink removed: $PLUGIN_DIR -> $link_target"
+  fi
   if command -v rsync >/dev/null 2>&1; then
     mkdir -p "$PLUGIN_DIR"
     rsync -a --delete "$SCRIPT_DIR/" "$PLUGIN_DIR/"
@@ -102,6 +113,8 @@ else
   fi
   echo "AgentMint plugin copied to $PLUGIN_DIR"
 fi
+
+printf '%s\n' "$SOURCE_COMMIT" > "$PLUGIN_DIR/.agentmint-plugin-build"
 
 HERMES_HOME="$HERMES_HOME_DIR" "$PYTHON_BIN" "$SCRIPT_DIR/check-install.py"
 

@@ -25,13 +25,15 @@ STALE_PATTERNS = {
 def inspect(path: Path) -> dict[str, str | bool]:
     ws_client = path / "ws_client.py"
     if not ws_client.exists():
-        return {"exists": False, "version": "", "stale": "", "target": ""}
+        return {"exists": False, "version": "", "stale": "", "target": "", "commit": ""}
 
     target = ""
     if path.is_symlink():
         target = str(path.resolve())
     text = ws_client.read_text(encoding="utf-8", errors="replace")
     version_match = VERSION_RE.search(text)
+    commit_file = path / ".agentmint-plugin-build"
+    commit = commit_file.read_text(encoding="utf-8", errors="replace").strip() if commit_file.exists() else ""
     stale = [
         label
         for pattern, label in STALE_PATTERNS.items()
@@ -42,6 +44,7 @@ def inspect(path: Path) -> dict[str, str | bool]:
         "version": version_match.group(1) if version_match else "missing",
         "stale": ", ".join(stale),
         "target": target,
+        "commit": commit,
     }
 
 
@@ -52,6 +55,8 @@ def print_row(label: str, path: Path) -> None:
         print("  status: missing")
         return
     print(f"  version: {info['version']}")
+    if info["commit"]:
+        print(f"  installed_commit: {info['commit']}")
     if info["target"]:
         print(f"  symlink_target: {info['target']}")
     print(f"  stale_markers: {info['stale'] or 'none'}")
