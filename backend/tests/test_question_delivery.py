@@ -72,6 +72,14 @@ class FakeListResult:
         return self.rows
 
 
+class FeedbackResult:
+    def __init__(self, value):
+        self.value = value
+
+    def scalar_one_or_none(self):
+        return self.value
+
+
 @pytest.mark.asyncio
 async def test_create_question_zero_push_charges_zero(monkeypatch):
     user = make_user()
@@ -184,3 +192,43 @@ async def test_build_question_match_explanations_includes_answer_routing_metadat
     assert explanations[0]["request_id"] == "req_q_test_a_test"
     assert explanations[0]["answer_status"] == "pushed"
     assert explanations[0]["review_method"] == "auto"
+
+
+@pytest.mark.asyncio
+async def test_submit_feedback_updates_agent_learned_profile():
+    answer = SimpleNamespace(id="ans_test", question_id="q_test", agent_id="a_test", status="approved")
+    existing = SimpleNamespace(id="fb_test", vote="up", comment="", created_at=datetime.utcnow())
+    agent = SimpleNamespace(id="a_test", repute_score=4.0, review_rules={
+        "learned_profile": {"positive_feedback": 1, "positive_tags": ["魔兽世界"]}
+    })
+    question = SimpleNamespace(id="q_test", tags=["魔兽世界", "硬核模式"])
+
+    class FeedbackDB:
+        def __init__(self):
+            self.calls = 0
+            self.commits = 0
+
+        async def execute(self, stmt):
+            self.calls += 1
+            values = [answer, existing, agent, question]
+            return FeedbackResult(values[self.calls - 1])
+
+        async def commit(self):
+            self.commits += 1
+
+    db = FeedbackDB()
+
+    out = await questions.submit_feedback(
+        "q_test",
+        "ans_test",
+        questions.FeedbackReq(vote="down", comment="不准确"),
+        user_payload={"sub": "u_test"},
+        db=db,
+    )
+
+    learned = agent.review_rules["learned_profile"]
+    assert out["vote"] == "down"
+    assert learned["positive_feedback"] == 0
+    assert learned["negative_feedback"] == 1
+    assert learned["negative_tags"] == ["魔兽世界", "硬核模式"]
+    assert db.commits == 1

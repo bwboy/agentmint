@@ -51,6 +51,49 @@ def make_answer(status="approved"):
 
 
 @pytest.mark.asyncio
+async def test_approve_inline_updates_agent_learned_profile(monkeypatch):
+    answer = make_answer(status="draft")
+    answer.capability = {"tools": [{"name": "知识库", "used": True}], "style_tags": ["实战"]}
+    agent = SimpleNamespace(id="a_test", fuel_earned=0, total_answers=0, review_rules={})
+    question = SimpleNamespace(
+        id="q_test",
+        asker_id="u_asker",
+        title="wow硬核模式职业选择",
+        body="给我三个选择和风险",
+        tags=["魔兽世界"],
+        max_responders=3,
+    )
+
+    class ApprovalSession:
+        def __init__(self):
+            self.executes = 0
+            self.commits = 0
+
+        async def execute(self, stmt):
+            self.executes += 1
+            return FakeExecuteResult(agent if self.executes == 1 else question)
+
+        async def commit(self):
+            self.commits += 1
+
+    async def fake_create_notification(*args, **kwargs):
+        return None
+
+    session = ApprovalSession()
+    monkeypatch.setattr(review, "create_notification", fake_create_notification)
+
+    await review._approve_inline(session, answer)
+
+    learned = agent.review_rules["learned_profile"]
+    assert answer.status == "approved"
+    assert learned["sample_count"] == 1
+    assert "魔兽世界" in learned["domain_tags"]
+    assert "风险审查" in learned["capability_tags"]
+    assert "知识库" in learned["tool_tags"]
+    assert session.commits == 1
+
+
+@pytest.mark.asyncio
 async def test_duplicate_upload_does_not_overwrite_terminal_answer(monkeypatch):
     answer = make_answer(status="approved")
     session = FakeSession(answer)

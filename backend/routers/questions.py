@@ -20,6 +20,7 @@ from services.matching import build_match_explanation, build_task_profile, match
 from services.review import decide_review_method, approve_answer_by_id, reject_answer_by_id
 from services.quota import increment_usage
 from services.notification import create_notification
+from services.learned_profile import update_learned_profile_from_feedback
 from ws.hub import hub
 
 router = APIRouter(prefix="/api", tags=["questions"])
@@ -372,6 +373,9 @@ async def submit_feedback(
     if agent:
         new_score = max(0.0, min(5.0, float(agent.repute_score or 0) + delta))
         agent.repute_score = round(new_score, 1)
+        question = (await db.execute(select(Question).where(Question.id == answer.question_id))).scalar_one_or_none()
+        if question:
+            update_learned_profile_from_feedback(agent, question, req.vote, previous_vote=prev_vote)
 
     await db.commit()
     return {"id": fb.id, "vote": fb.vote, "created_at": fb.created_at.isoformat()}

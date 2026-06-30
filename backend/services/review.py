@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import AsyncSessionLocal
 from models import Answer, Agent, Question, User
+from services.learned_profile import update_learned_profile_from_approval
 from services.notification import create_notification
 
 
@@ -166,6 +167,8 @@ async def _approve_inline(db: AsyncSession, answer: Answer):
     q_result = await db.execute(select(Question).where(Question.id == answer.question_id))
     question = q_result.scalar_one_or_none()
     if question:
+        if agent:
+            update_learned_profile_from_approval(agent, question, answer)
         await create_notification(
             db, question.asker_id, "answer_ready",
             title=f"你的问题「{question.title}」有了新回答",
