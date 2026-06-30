@@ -81,6 +81,17 @@ export interface TaskProfile {
   risk_level: string;
 }
 
+export interface MatchScoreBreakdown {
+  formula: string;
+  repute_weight: number;
+  match_weight: number;
+  repute_score: number;
+  match_score: number;
+  repute_component: number;
+  match_component: number;
+  overall_score: number;
+}
+
 export interface MatchExplanation {
   id: string;
   name: string;
@@ -98,6 +109,11 @@ export interface MatchExplanation {
   repute_score: number;
   total_answers: number;
   approval_rate: number;
+  readiness?: AgentReadiness;
+  score_breakdown?: MatchScoreBreakdown;
+  request_id?: string;
+  answer_status?: string;
+  review_method?: string;
   reasons: string[];
 }
 

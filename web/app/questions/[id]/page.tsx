@@ -159,18 +159,19 @@ function QuestionRoutingWorkbench({ question }: { question: Question }) {
             <ProfileSignal label="输出" value={profile.expected_output} />
           </div>
           <div className="mt-4 space-y-3">
+            <ChipGroup label="查询标签" values={profile.query_tags || []} />
             <ChipGroup label="领域" values={profile.domain_tags} />
             <ChipGroup label="能力" values={profile.capability_tags} />
           </div>
         </section>
       )}
 
-      {explanations.length > 0 && (
+      {explanations.length > 0 ? (
         <section className="rounded-lg border border-gray-100 bg-white p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
               <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Agent Casting</p>
-              <h2 className="mt-1 text-base font-semibold text-gray-950">为什么匹配这些 Agent</h2>
+              <h2 className="mt-1 text-base font-semibold text-gray-950">完整匹配解释</h2>
             </div>
             <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-500">
               {explanations.length} selected
@@ -178,35 +179,130 @@ function QuestionRoutingWorkbench({ question }: { question: Question }) {
           </div>
           <div className="space-y-3">
             {explanations.map(agent => (
-              <div key={agent.id} className="rounded-lg border border-gray-100 bg-gray-50 p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-semibold text-gray-950">{agent.name}</h3>
-                      <span className="rounded-full bg-white px-2 py-0.5 text-[11px] text-gray-500">
-                        {agent.match_type}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs text-gray-500">
-                      声誉 {agent.repute_score.toFixed(1)} · {agent.total_answers} 回答 · {Math.round(agent.approval_rate * 100)}% 好评
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-lg font-semibold text-primary">{agent.overall_score}</p>
-                    <p className="text-[11px] text-gray-400">overall</p>
-                  </div>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {agent.reasons.map(reason => (
-                    <span key={reason} className="rounded-md bg-white px-2 py-1 text-xs text-gray-600">
-                      {reason}
-                    </span>
-                  ))}
-                </div>
-              </div>
+              <AgentMatchInspection key={agent.id} agent={agent} />
             ))}
           </div>
         </section>
+      ) : profile ? (
+        <section className="rounded-lg border border-gray-100 bg-white p-5">
+          <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Agent Casting</p>
+          <h2 className="mt-1 text-base font-semibold text-gray-950">没有匹配到可派单 Agent</h2>
+          <div className="mt-4 grid gap-2 text-sm text-gray-500">
+            {["没有在线公开 Agent", "Agent 未完成 readiness 验证", "标签或相似领域没有命中", "Agent 配额已被阻塞"].map(reason => (
+              <div key={reason} className="rounded-md bg-gray-50 px-3 py-2">{reason}</div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+function AgentMatchInspection({ agent }: { agent: NonNullable<Question["match_explanations"]>[number] }) {
+  const breakdown = agent.score_breakdown;
+  const readinessState = agent.readiness?.state || "unknown";
+  const evidence = [
+    ["命中标签", agent.matched_tags],
+    ["能力", agent.capability_hits],
+    ["工具", agent.tool_hits || []],
+    ["风格", agent.style_hits || []],
+    ["避开", agent.avoid_tags || []],
+  ] as const;
+
+  return (
+    <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="font-semibold text-gray-950">{agent.name}</h3>
+            <SignalPill label={agent.agent_type} />
+            <SignalPill label={agent.status} />
+            <SignalPill label={`ready: ${readinessState}`} />
+            {agent.review_method && <SignalPill label={`review: ${agent.review_method}`} />}
+          </div>
+          <p className="mt-1 text-xs text-gray-500">
+            {agent.request_id || "no request"} · answer {agent.answer_status || "unknown"} · quota {agent.quota_state}
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-2xl font-semibold text-primary">{agent.overall_score}</p>
+          <p className="text-[11px] text-gray-400">overall</p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-2 sm:grid-cols-4">
+        <ScoreBox label="match" value={agent.match_score} />
+        <ScoreBox label="repute" value={Number(agent.repute_score).toFixed(1)} />
+        <ScoreBox label="repute part" value={breakdown?.repute_component ?? "-"} />
+        <ScoreBox label="match part" value={breakdown?.match_component ?? "-"} />
+      </div>
+
+      {breakdown && (
+        <p className="mt-2 rounded-md bg-white px-3 py-2 font-mono text-[11px] text-gray-500">
+          {breakdown.formula}
+        </p>
+      )}
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <RouteSignal label="match_type" value={agent.match_type} />
+        <RouteSignal label="quota_state" value={agent.quota_state} />
+        <RouteSignal label="answers" value={String(agent.total_answers)} />
+        <RouteSignal label="approval" value={`${Math.round(agent.approval_rate * 100)}%`} />
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {evidence.map(([label, values]) => (
+          <EvidenceGroup key={label} label={label} values={values} />
+        ))}
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {agent.reasons.map(reason => (
+          <span key={reason} className="rounded-md bg-white px-2 py-1 text-xs text-gray-600">
+            {reason}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SignalPill({ label }: { label: string }) {
+  return <span className="rounded bg-white px-2 py-0.5 text-[11px] text-gray-500">{label}</span>;
+}
+
+function ScoreBox({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-md bg-white p-3">
+      <p className="text-[11px] uppercase text-gray-400">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-gray-900">{value}</p>
+    </div>
+  );
+}
+
+function RouteSignal({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md bg-white px-3 py-2">
+      <p className="text-[11px] text-gray-400">{label}</p>
+      <p className="mt-1 text-xs font-medium text-gray-700">{value}</p>
+    </div>
+  );
+}
+
+function EvidenceGroup({ label, values }: { label: string; values: string[] }) {
+  return (
+    <div>
+      <p className="mb-1 text-xs text-gray-400">{label}</p>
+      {values.length ? (
+        <div className="flex flex-wrap gap-1.5">
+          {values.map(value => (
+            <span key={value} className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-600">
+              {value}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-gray-300">none</p>
       )}
     </div>
   );
