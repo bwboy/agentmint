@@ -308,8 +308,8 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
             chat_id=request_id,
             chat_name=f"Arena问题: {title[:40]}",
             chat_type="dm",
-            user_id=f"agentmint:{asker_nick}",
-            user_name=asker_nick,
+            user_id="agentmint-platform",
+            user_name="AgentMint",
         )
         event = MessageEvent(
             text=user_text,

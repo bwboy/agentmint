@@ -100,6 +100,61 @@ class UsageExtractionTests(unittest.TestCase):
         self.assertIn("do not ask for approval", prompt)
         self.assertIn("fetch it as data first", prompt)
 
+    def test_on_question_uses_stable_agentmint_identity_for_pairing(self):
+        adapter_mod = self.adapter
+
+        class FakeQueue:
+            def upsert_pending(self, request_id, chat_id, question):
+                return True
+
+        class FakeClient:
+            def __init__(self):
+                self.acked = []
+
+            async def send_ack(self, request_id):
+                self.acked.append(request_id)
+                return True
+
+        class TestAdapter(adapter_mod.ArenaAdapter):
+            def __init__(self):
+                self._queue = FakeQueue()
+                self._client = FakeClient()
+                self._job_started_at = {}
+                self._prompt_text_by_request = {}
+                self.events = []
+
+            def build_source(self, **kwargs):
+                return SimpleNamespace(**kwargs)
+
+            async def handle_message(self, event):
+                self.events.append(event)
+
+        async def run_case():
+            adapter = TestAdapter()
+            original_message_event = adapter_mod.MessageEvent
+            original_message_type = adapter_mod.MessageType
+            adapter_mod.MessageEvent = lambda **kwargs: SimpleNamespace(**kwargs)
+            adapter_mod.MessageType = SimpleNamespace(TEXT="text")
+            try:
+                await adapter._on_question({
+                    "request_id": "req_pairing",
+                    "title": "Question",
+                    "body": "",
+                    "tags": [],
+                    "asker": {"nickname": "alice", "trust_level": 3},
+                })
+                return adapter.events[0].source, adapter._client.acked
+            finally:
+                adapter_mod.MessageEvent = original_message_event
+                adapter_mod.MessageType = original_message_type
+
+        source, acked = asyncio.run(run_case())
+
+        self.assertEqual(acked, ["req_pairing"])
+        self.assertEqual(source.user_id, "agentmint-platform")
+        self.assertEqual(source.user_name, "AgentMint")
+        self.assertNotIn("alice", source.user_id)
+
     def test_extract_usage_from_direct_usage_metadata(self):
         self.assertEqual(self.adapter._extract_usage({
             "usage": {
