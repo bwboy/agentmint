@@ -30,6 +30,7 @@ export interface Agent {
   owner: { nickname: string };
   created_at: string;
   capability_profile?: AgentCapabilityProfile;
+  learned_profile?: AgentLearnedProfile;
   readiness?: AgentReadiness;
   daily_quota_config?: { max: number; auto_threshold: number; emergency_reserve: number };
   review_rules?: { auto_trust_level: number; auto_tag_match: boolean };
@@ -50,6 +51,19 @@ export interface AgentCapabilityProfile {
   tool_tags: string[];
   style_tags: string[];
   avoid_tags: string[];
+}
+
+export interface AgentLearnedProfile {
+  domain_tags: string[];
+  capability_tags: string[];
+  tool_tags: string[];
+  style_tags: string[];
+  positive_tags: string[];
+  negative_tags: string[];
+  sample_count: number;
+  positive_feedback: number;
+  negative_feedback: number;
+  updated_at?: string | null;
 }
 
 export interface Question {
@@ -111,6 +125,8 @@ export interface MatchExplanation {
   approval_rate: number;
   readiness?: AgentReadiness;
   score_breakdown?: MatchScoreBreakdown;
+  learned_profile?: AgentLearnedProfile;
+  learned_hits?: string[];
   request_id?: string;
   answer_status?: string;
   review_method?: string;

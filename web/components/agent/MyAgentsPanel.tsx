@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { getToken } from "@/lib/auth";
-import type { Agent, AgentCapabilityProfile, AgentReadinessState, AgentType } from "@/lib/types";
+import type { Agent, AgentCapabilityProfile, AgentLearnedProfile, AgentReadinessState, AgentType } from "@/lib/types";
 import { getConnectorInstructions } from "./connectorInstructions";
 
 const emptyProfile: AgentCapabilityProfile = {
@@ -229,6 +229,7 @@ export function MyAgentsPanel() {
                   ))}
                 </div>
                 <CapabilityProfileView profile={a.capability_profile} />
+                <LearnedProfileView profile={a.learned_profile} />
                 <div className="flex items-center gap-4 mt-3 text-xs text-gray-400">
                   <span>⭐ {Number(a.repute_score).toFixed(1)}</span>
                   <span>{a.total_answers} 回答</span>
@@ -480,6 +481,42 @@ function CapabilityProfileView({ profile }: { profile?: AgentCapabilityProfile }
           ))}
         </div>
       ) : null)}
+    </div>
+  );
+}
+
+function LearnedProfileView({ profile }: { profile?: AgentLearnedProfile }) {
+  if (!profile) return null;
+  const groups = [
+    ["领域", profile.domain_tags],
+    ["能力", profile.capability_tags],
+    ["工具", profile.tool_tags],
+    ["风格", profile.style_tags],
+    ["正向", profile.positive_tags],
+    ["负向", profile.negative_tags],
+  ] as const;
+  if (!profile.sample_count && !groups.some(([, values]) => values?.length)) return null;
+
+  return (
+    <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+      <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+        <span className="font-medium text-gray-600">系统学习</span>
+        <span className="text-gray-400">{profile.sample_count || 0} 样本</span>
+        <span className="text-gray-400">+{profile.positive_feedback || 0}</span>
+        <span className="text-gray-400">-{profile.negative_feedback || 0}</span>
+      </div>
+      <div className="space-y-1.5">
+        {groups.map(([label, values]) => values?.length ? (
+          <div key={label} className="flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="text-gray-400">{label}</span>
+            {values.map(value => (
+              <span key={`${label}-${value}`} className="rounded bg-white px-2 py-0.5 text-gray-600">
+                {value}
+              </span>
+            ))}
+          </div>
+        ) : null)}
+      </div>
     </div>
   );
 }

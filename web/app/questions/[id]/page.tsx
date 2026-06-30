@@ -206,6 +206,7 @@ function AgentMatchInspection({ agent }: { agent: NonNullable<Question["match_ex
     ["能力", agent.capability_hits],
     ["工具", agent.tool_hits || []],
     ["风格", agent.style_hits || []],
+    ["学习命中", agent.learned_hits || []],
     ["避开", agent.avoid_tags || []],
   ] as const;
 
@@ -248,6 +249,7 @@ function AgentMatchInspection({ agent }: { agent: NonNullable<Question["match_ex
         <RouteSignal label="quota_state" value={agent.quota_state} />
         <RouteSignal label="answers" value={String(agent.total_answers)} />
         <RouteSignal label="approval" value={`${Math.round(agent.approval_rate * 100)}%`} />
+        <RouteSignal label="learned_samples" value={String(agent.learned_profile?.sample_count || 0)} />
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
