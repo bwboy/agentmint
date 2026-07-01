@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import type { Question } from "@/lib/types";
 import {
+  questionAnswerCountForPolling,
   answerUsageSignature,
   questionAnswersForPolling,
   shouldPollQuestionAnswers,
@@ -35,7 +36,7 @@ export function QuestionAnswerPoller({
       try {
         const latest = await api<Question>(`/api/questions/${questionId}`);
         const latestAnswers = questionAnswersForPolling(latest);
-        const latestAnswerCount = latestAnswers.length;
+        const latestAnswerCount = questionAnswerCountForPolling(latest);
         const latestUsageSignature = answerUsageSignature(latestAnswers);
         if (!cancelled && shouldRefreshQuestionAnswers({
           currentAnswerCount,

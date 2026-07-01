@@ -3,6 +3,8 @@ import { test } from "node:test";
 
 import {
   answerUsageSignature,
+  questionAnswerCountForPolling,
+  questionAnswersForPolling,
   shouldRefreshQuestionAnswers,
 } from "./QuestionAnswerPoller.logic.ts";
 
@@ -107,5 +109,29 @@ test("includes follow-up answers when provided in the combined answer array", ()
       },
     ]),
     "ans_root:40:120:160:provider|ans_followup:30:90:120:estimated",
+  );
+});
+
+test("builds the polling answer list from root and follow-up answers", () => {
+  assert.deepEqual(
+    questionAnswersForPolling({
+      answers: [{ id: "ans_root" }],
+      followups: [
+        { id: "fu_1", answers: [{ id: "ans_followup_1" }, { id: "ans_followup_2" }] },
+        { id: "fu_2", answers: [] },
+      ],
+    }).map(answer => answer.id),
+    ["ans_root", "ans_followup_1", "ans_followup_2"],
+  );
+});
+
+test("uses answer_count as the polling count fallback when answers are not hydrated", () => {
+  assert.equal(
+    questionAnswerCountForPolling({
+      answer_count: 3,
+      answers: [],
+      followups: [],
+    }),
+    3,
   );
 });

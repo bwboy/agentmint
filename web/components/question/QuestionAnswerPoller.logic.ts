@@ -52,3 +52,7 @@ export function questionAnswersForPolling(question: Pick<Question, "answers" | "
     ...(question.followups || []).flatMap(thread => thread.answers || []),
   ];
 }
+
+export function questionAnswerCountForPolling(question: Pick<Question, "answer_count" | "answers" | "followups">) {
+  return questionAnswersForPolling(question).length || question.answer_count || 0;
+}

@@ -101,7 +101,7 @@ export function FollowUpComposer({
   }
 
   return (
-    <div className="space-y-3 rounded-lg border border-gray-100 bg-gray-50 p-3">
+    <div className="w-full basis-full space-y-3 rounded-lg border border-gray-100 bg-gray-50 p-3">
       <div className="flex flex-wrap gap-2">
         {agents.map(agent => {
           const selected = selectedAgentIds.includes(agent.id);
