@@ -81,3 +81,31 @@ test("builds an answer usage signature from token counts and estimate state", ()
     "ans_1:75:990:1065:estimated|ans_2:70:816:886:provider",
   );
 });
+
+test("includes follow-up answers when provided in the combined answer array", () => {
+  assert.equal(
+    answerUsageSignature([
+      {
+        id: "ans_root",
+        usage: {
+          prompt_tokens: 40,
+          completion_tokens: 120,
+          total_tokens: 160,
+          estimated: false,
+        },
+      },
+      {
+        id: "ans_followup",
+        turn_type: "followup",
+        parent_answer_id: "ans_root",
+        usage: {
+          prompt_tokens: 30,
+          completion_tokens: 90,
+          total_tokens: 120,
+          estimated: true,
+        },
+      },
+    ]),
+    "ans_root:40:120:160:provider|ans_followup:30:90:120:estimated",
+  );
+});

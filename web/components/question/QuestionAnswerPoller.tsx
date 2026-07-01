@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import type { Question } from "@/lib/types";
 import {
   answerUsageSignature,
+  questionAnswersForPolling,
   shouldPollQuestionAnswers,
   shouldRefreshQuestionAnswers,
 } from "./QuestionAnswerPoller.logic";
@@ -33,8 +34,9 @@ export function QuestionAnswerPoller({
     async function checkForAnswers() {
       try {
         const latest = await api<Question>(`/api/questions/${questionId}`);
-        const latestAnswerCount = latest.answers?.length ?? latest.answer_count ?? 0;
-        const latestUsageSignature = answerUsageSignature(latest.answers || []);
+        const latestAnswers = questionAnswersForPolling(latest);
+        const latestAnswerCount = latestAnswers.length;
+        const latestUsageSignature = answerUsageSignature(latestAnswers);
         if (!cancelled && shouldRefreshQuestionAnswers({
           currentAnswerCount,
           latestAnswerCount,

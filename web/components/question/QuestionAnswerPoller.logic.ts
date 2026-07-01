@@ -45,3 +45,10 @@ export function answerUsageSignature(answers: Question["answers"] = []) {
     ].join(":"))
     .join("|");
 }
+
+export function questionAnswersForPolling(question: Pick<Question, "answers" | "followups">) {
+  return [
+    ...(question.answers || []),
+    ...(question.followups || []).flatMap(thread => thread.answers || []),
+  ];
+}
