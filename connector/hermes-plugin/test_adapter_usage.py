@@ -1105,6 +1105,61 @@ class UsageExtractionTests(unittest.TestCase):
         self.assertEqual(tasks, set())
         self.assertEqual(streaming["req_tool_combo"]["content"], content)
 
+    def test_working_status_send_is_cached_not_uploaded(self):
+        adapter_mod = self.adapter
+
+        class FakeQueue:
+            def mark(self, request_id, status, **kwargs):
+                raise AssertionError("Hermes progress status must not be saved as an answer")
+
+            def by_request_id(self, request_id):
+                return {
+                    "request_id": request_id,
+                    "status": "pending",
+                    "question": {"title": "Question", "body": "", "tags": [], "asker": {"nickname": "tester"}},
+                    "answer": None,
+                }
+
+        class FakeClient:
+            def __init__(self):
+                self.sent = None
+
+            async def send_answer(self, request_id, **kwargs):
+                self.sent = (request_id, kwargs)
+                return True
+
+        class TestAdapter(adapter_mod.ArenaAdapter):
+            def __init__(self):
+                self._last_turn_metadata = {}
+                self._turn_metadata_events = {}
+                self._pending_answer_uploads = set()
+                self._background_upload_tasks = set()
+                self._streaming_answers = {}
+                self.usage_wait_seconds = 0
+                self._prompt_text_by_request = {"req_working": "Question prompt text"}
+                self._job_started_at = {}
+                self._queue = FakeQueue()
+                self._client = FakeClient()
+
+        content = "⏳ Working — 3 min — iteration 1/150, receiving stream response"
+
+        async def run_case():
+            adapter = TestAdapter()
+            original_send_result = adapter_mod.SendResult
+            adapter_mod.SendResult = lambda **kwargs: SimpleNamespace(**kwargs)
+            try:
+                result = await adapter.send("req_working", content, metadata={})
+            finally:
+                adapter_mod.SendResult = original_send_result
+            return result, adapter._client.sent, adapter._background_upload_tasks, adapter._streaming_answers
+
+        result, sent, tasks, streaming = asyncio.run(run_case())
+
+        self.assertTrue(result.success)
+        self.assertIsNone(sent)
+        self.assertEqual(tasks, set())
+        self.assertEqual(streaming["req_working"]["content"], content)
+
     def test_pairing_required_message_is_reported_not_uploaded_as_answer(self):
         adapter_mod = self.adapter
 

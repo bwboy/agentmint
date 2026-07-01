@@ -73,6 +73,10 @@ TOOL_TRACE_RE = re.compile(
     r")\s*:",
     re.IGNORECASE,
 )
+WORKING_STATUS_RE = re.compile(
+    r"^\s*(?:[^\w\s]+\s*)?working\s+[-—]\s+.+\biteration\s+\d+/\d+\b.*\breceiving\s+stream\s+response\b",
+    re.IGNORECASE,
+)
 PAIRING_CODE_RE = re.compile(r"pairing code:\s*([A-Z0-9-]+)", re.IGNORECASE)
 PAIRING_COMMAND_RE = re.compile(r"(hermes\s+pairing\s+approve\s+agentmint\s+[A-Z0-9-]+)", re.IGNORECASE)
 
@@ -500,7 +504,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
                 )
             return SendResult(success=True, message_id=request_id)
 
-        if _looks_like_tool_trace(content):
+        if _looks_like_tool_trace(content) or _looks_like_working_status(content):
             self._streaming_answers[request_id] = {
                 "content": str(content),
                 "metadata": dict(meta),
@@ -1213,6 +1217,10 @@ def _looks_like_tool_trace(content: Any) -> bool:
     lead = raw[:first].strip()
     lead_without_symbols = re.sub(r"^[\s\W_]+", "", lead)
     return not lead_without_symbols and (first <= 8 or len(matches) >= 2)
+
+
+def _looks_like_working_status(content: Any) -> bool:
+    return bool(WORKING_STATUS_RE.search(str(content or "").strip()))
 
 
 def _metadata_debug_summary(value: Any) -> str:
