@@ -14,6 +14,7 @@ from services.followups import (
     build_conversation_id,
     build_followup_payload,
     ensure_followup_targets,
+    serialize_followup_thread,
 )
 from services.schema_migrations import FOLLOWUP_SCHEMA_SQL
 
@@ -57,6 +58,43 @@ def test_ensure_followup_targets_rejects_agent_without_root_answer():
         ensure_followup_targets(["a_1", "a_2"], approved)
     assert err.value.status_code == 400
     assert "没有已发布回答" in err.value.detail
+
+
+def test_serialize_followup_thread_exposes_thread_and_answer_linkage():
+    followup = SimpleNamespace(
+        id="q_fu",
+        root_question_id="q_root",
+        quoted_answer_id="ans_root",
+        body="More?",
+        created_at=datetime(2026, 7, 1, 12, 0, 0),
+    )
+    answer = SimpleNamespace(
+        id="ans_fu",
+        question_id="q_fu",
+        agent_id="a_1",
+        request_id="req_q_fu_a_1",
+        conversation_id="conv_q_root_a_1",
+        parent_answer_id="ans_root",
+        content={"text": "Follow-up answer"},
+        model="hermes",
+        usage={},
+        capability={},
+        status="approved",
+        review_method="auto",
+        created_at=datetime(2026, 7, 1, 12, 1, 0),
+        turn_type="followup",
+    )
+    out = serialize_followup_thread(
+        followup,
+        [(answer, "Mac上的爱马仕", "hermes", 4.8)],
+        {},
+    )
+
+    assert out["id"] == "q_fu"
+    assert out["quoted_answer_id"] == "ans_root"
+    assert out["text"] == "More?"
+    assert out["answers"][0]["conversation_id"] == "conv_q_root_a_1"
+    assert out["answers"][0]["parent_answer_id"] == "ans_root"
 
 
 def test_followup_schema_migration_adds_question_columns():

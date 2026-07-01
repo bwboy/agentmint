@@ -23,6 +23,8 @@ from services.followups import (
     build_root_payload,
     ensure_followup_targets,
     mark_answer_pushed_if_assigned,
+    serialize_answer,
+    serialize_followup_thread,
 )
 from services.matching import build_match_explanation, build_task_profile, match_agents
 from services.review import decide_review_method, approve_answer_by_id, reject_answer_by_id
@@ -72,8 +74,12 @@ async def list_questions(
 ):
     offset = (page - 1) * size
 
-    base = select(Question, User.nickname, User.trust_level).join(User, Question.asker_id == User.id)
-    count_q = select(func.count(Question.id))
+    base = (
+        select(Question, User.nickname, User.trust_level)
+        .join(User, Question.asker_id == User.id)
+        .where(Question.root_question_id.is_(None))
+    )
+    count_q = select(func.count(Question.id)).where(Question.root_question_id.is_(None))
     if tag:
         base = base.where(Question.tags.any(tag))
         count_q = count_q.where(Question.tags.any(tag))
@@ -122,17 +128,41 @@ async def get_question(question_id: str, db: AsyncSession = Depends(get_db)):
     if not row:
         raise HTTPException(status_code=404, detail="问题不存在")
     q, nickname, tl = row
+    if q.root_question_id:
+        root_row = (await db.execute(
+            select(Question, User.nickname, User.trust_level)
+            .join(User, Question.asker_id == User.id)
+            .where(Question.id == q.root_question_id)
+        )).one_or_none()
+        if not root_row:
+            raise HTTPException(status_code=404, detail="根问题不存在")
+        q, nickname, tl = root_row
 
     # Approved answers, with agent info
     ans_rows = (await db.execute(
         select(Answer, Agent.name, Agent.agent_type, Agent.repute_score)
         .join(Agent, Answer.agent_id == Agent.id)
-        .where(Answer.question_id == question_id, Answer.status == "approved")
+        .where(Answer.question_id == q.id, Answer.status == "approved")
         .order_by(Answer.created_at.asc())
     )).all()
 
-    # Vote summary per answer
-    ans_ids = [a.id for a, *_ in ans_rows]
+    followups = (await db.execute(
+        select(Question)
+        .where(Question.root_question_id == q.id, Question.turn_type == "followup")
+        .order_by(Question.created_at.asc())
+    )).scalars().all()
+    followup_ids = [item.id for item in followups]
+    followup_answer_rows = []
+    if followup_ids:
+        followup_answer_rows = (await db.execute(
+            select(Answer, Agent.name, Agent.agent_type, Agent.repute_score)
+            .join(Agent, Answer.agent_id == Agent.id)
+            .where(Answer.question_id.in_(followup_ids), Answer.status == "approved")
+            .order_by(Answer.created_at.asc())
+        )).all()
+
+    # Vote summary per root and follow-up answer
+    ans_ids = [a.id for a, *_ in ans_rows] + [a.id for a, *_ in followup_answer_rows]
     vote_rows: dict[str, dict[str, int]] = {}
     if ans_ids:
         rows = await db.execute(
@@ -143,8 +173,19 @@ async def get_question(question_id: str, db: AsyncSession = Depends(get_db)):
         for aid, vote, c in rows.all():
             vote_rows.setdefault(aid, {"up": 0, "down": 0})[vote] = c
 
+    rows_by_question: dict[str, list[tuple]] = {}
+    for row in followup_answer_rows:
+        answer = row[0]
+        rows_by_question.setdefault(answer.question_id, []).append(row)
+    followup_threads = [
+        serialize_followup_thread(item, rows_by_question.get(item.id, []), vote_rows)
+        for item in followups
+    ]
+
     return {
         "id": q.id, "title": q.title, "body": q.body, "tags": list(q.tags or []),
+        "root_question_id": q.root_question_id,
+        "turn_type": q.turn_type,
         "asker": {"nickname": nickname, "trust_level": tl},
         "deadline_at": q.deadline_at.isoformat(),
         "max_responders": q.max_responders,
@@ -155,21 +196,10 @@ async def get_question(question_id: str, db: AsyncSession = Depends(get_db)):
         "task_profile": build_task_profile(q.title, q.body, list(q.tags or []), q.max_responders),
         "match_explanations": await build_question_match_explanations(db, q),
         "answers": [
-            {
-                "id": ans.id, "question_id": ans.question_id,
-                "agent": {"id": ans.agent_id, "name": a_name, "agent_type": a_type,
-                          "repute_score": float(a_repute or 0)},
-                "request_id": ans.request_id,
-                "content": ans.content or {},
-                "model": ans.model,
-                "usage": ans.usage or {},
-                "capability": ans.capability or None,
-                "status": ans.status, "review_method": ans.review_method,
-                "vote_summary": vote_rows.get(ans.id, {"up": 0, "down": 0}),
-                "created_at": ans.created_at.isoformat(),
-            }
+            serialize_answer(ans, a_name, a_type, a_repute, vote_rows.get(ans.id, {"up": 0, "down": 0}))
             for ans, a_name, a_type, a_repute in ans_rows
         ],
+        "followups": followup_threads,
     }
 
 
@@ -465,11 +495,17 @@ async def my_questions(
 ):
     offset = (page - 1) * size
     rows = (await db.execute(
-        select(Question).where(Question.asker_id == user_payload["sub"])
+        select(Question).where(
+            Question.asker_id == user_payload["sub"],
+            Question.root_question_id.is_(None),
+        )
         .order_by(Question.created_at.desc()).offset(offset).limit(size)
     )).scalars().all()
     total = (await db.execute(
-        select(func.count(Question.id)).where(Question.asker_id == user_payload["sub"])
+        select(func.count(Question.id)).where(
+            Question.asker_id == user_payload["sub"],
+            Question.root_question_id.is_(None),
+        )
     )).scalar() or 0
     return {
         "data": [

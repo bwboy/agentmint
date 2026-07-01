@@ -68,6 +68,8 @@ export interface AgentLearnedProfile {
 
 export interface Question {
   id: string;
+  root_question_id?: string | null;
+  turn_type?: "root" | "followup";
   title: string;
   body: string;
   tags: string[];
@@ -82,6 +84,16 @@ export interface Question {
   task_profile?: TaskProfile;
   match_explanations?: MatchExplanation[];
   answers?: Answer[];
+  followups?: FollowUpThread[];
+}
+
+export interface FollowUpThread {
+  id: string;
+  root_question_id: string;
+  quoted_answer_id: string;
+  text: string;
+  created_at: string;
+  answers: Answer[];
 }
 
 export interface TaskProfile {
@@ -149,6 +161,9 @@ export interface Answer {
   question_id: string;
   agent: { id: string; name: string; agent_type: AgentType; repute_score: number };
   request_id: string;
+  conversation_id?: string | null;
+  parent_answer_id?: string | null;
+  turn_type?: "root" | "followup";
   content: { text: string; attachments?: Attachment[] };
   model: string;
   usage: {

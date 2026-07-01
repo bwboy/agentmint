@@ -28,6 +28,57 @@ def answer_text(answer: Any) -> str:
     return ""
 
 
+def serialize_answer(
+    answer: Any,
+    agent_name: str,
+    agent_type: str,
+    repute_score: float,
+    vote_summary: dict | None = None,
+) -> dict:
+    return {
+        "id": answer.id,
+        "question_id": answer.question_id,
+        "agent": {
+            "id": answer.agent_id,
+            "name": agent_name,
+            "agent_type": agent_type,
+            "repute_score": float(repute_score or 0),
+        },
+        "request_id": answer.request_id,
+        "conversation_id": answer.conversation_id,
+        "parent_answer_id": answer.parent_answer_id,
+        "turn_type": answer.turn_type,
+        "content": answer.content or {},
+        "model": answer.model,
+        "usage": answer.usage or {},
+        "capability": answer.capability or None,
+        "status": answer.status,
+        "review_method": answer.review_method,
+        "vote_summary": vote_summary or {"up": 0, "down": 0},
+        "created_at": answer.created_at.isoformat(),
+    }
+
+
+def serialize_followup_thread(followup: Any, answer_rows: list[tuple], vote_rows: dict[str, dict[str, int]]) -> dict:
+    return {
+        "id": followup.id,
+        "root_question_id": followup.root_question_id,
+        "quoted_answer_id": followup.quoted_answer_id,
+        "text": followup.body,
+        "created_at": followup.created_at.isoformat(),
+        "answers": [
+            serialize_answer(
+                answer,
+                agent_name,
+                agent_type,
+                repute_score,
+                vote_rows.get(answer.id, {"up": 0, "down": 0}),
+            )
+            for answer, agent_name, agent_type, repute_score in answer_rows
+        ],
+    }
+
+
 def ensure_followup_targets(agent_ids: list[str], approved_root_answers: list[Any]) -> list[str]:
     requested = [str(agent_id).strip() for agent_id in agent_ids if str(agent_id).strip()]
     deduped = list(dict.fromkeys(requested))
