@@ -95,7 +95,9 @@ class JobQueue:
         with self._lock:
             row = self._conn.execute(
                 "SELECT request_id, chat_id, question_json, status, answer_json, error "
-                "FROM jobs WHERE chat_id=? ORDER BY created_at DESC LIMIT 1",
+                "FROM jobs WHERE chat_id=? "
+                "ORDER BY CASE WHEN status IN ('pending','answered') THEN 0 ELSE 1 END, "
+                "created_at DESC LIMIT 1",
                 (chat_id,),
             ).fetchone()
         return _row_to_dict(row) if row else None

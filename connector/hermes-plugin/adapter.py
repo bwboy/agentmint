@@ -337,6 +337,31 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
             log.info("re-ack for known request_id=%s, skipping dispatch", request_id)
             return
 
+        await self._dispatch_question_record(
+            request_id=request_id,
+            conversation_id=conversation_id,
+            turn_type=turn_type,
+            question_record=question_record,
+        )
+
+    async def _dispatch_question_record(
+        self,
+        *,
+        request_id: str,
+        conversation_id: str,
+        turn_type: str,
+        question_record: dict,
+    ) -> None:
+        request_id = str(request_id)
+        conversation_id = str(conversation_id or request_id)
+        turn_type = str(turn_type or "root")
+
+        title = question_record.get("title") or ""
+        body = (question_record.get("body") or "").strip()
+        tags = question_record.get("tags") or []
+        asker = question_record.get("asker") or {}
+        asker_nick = asker.get("nickname", "anonymous")
+
         self._job_started_at[request_id] = time.monotonic()
 
         # Build the conversational prompt Hermes will see.
@@ -344,8 +369,8 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
             followup_text = _format_followup_text(title, body, tags)
             user_text = _format_followup_prompt(
                 followup_text,
-                root_question=msg.get("root_question"),
-                quoted_answer=msg.get("quoted_answer"),
+                root_question=question_record.get("root_question"),
+                quoted_answer=question_record.get("quoted_answer"),
                 include_context=conversation_id not in getattr(self, "_warm_conversations", set()),
             )
         else:
@@ -397,23 +422,26 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
                 )
                 if ok:
                     self._queue.mark(job["request_id"], "uploaded")
+                    if job.get("chat_id"):
+                        getattr(self, "_warm_conversations", set()).add(str(job["chat_id"]))
             elif job["status"] == "pending":
                 # Hermes never sent us send() — re-dispatch the question.
                 # This is best-effort; in the worst case the platform's
                 # `deadline_at` will expire it server-side.
                 q = job["question"]
-                fake_msg = {
-                    "request_id": job["request_id"],
-                    "conversation_id": q.get("conversation_id") or job.get("chat_id") or job["request_id"],
-                    "turn_type": q.get("turn_type") or "root",
-                    "title": q["title"], "body": q["body"], "tags": q["tags"],
-                    "asker": q.get("asker"), "deadline_at": q.get("deadline_at"),
-                    "root_question": q.get("root_question"),
-                    "quoted_answer": q.get("quoted_answer"),
-                }
-                # Mark as gone so upsert_pending succeeds on the re-dispatch.
-                self._queue.mark(job["request_id"], "failed", error="re-dispatching after reconnect")
-                await self._on_question(fake_msg)
+                request_id = str(job["request_id"])
+                conversation_id = str(q.get("conversation_id") or job.get("chat_id") or request_id)
+                await self._client.send_ack(request_id)
+                await self._dispatch_question_record(
+                    request_id=request_id,
+                    conversation_id=conversation_id,
+                    turn_type=q.get("turn_type") or "root",
+                    question_record={
+                        **q,
+                        "conversation_id": conversation_id,
+                        "turn_type": q.get("turn_type") or "root",
+                    },
+                )
 
     # ─── Outbound: Hermes → Arena ───
 
@@ -701,8 +729,21 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
     def _resolve_request_for_chat(self, chat_id: Any) -> tuple[str, str]:
         conversation_id = str(chat_id)
         active_by_chat = getattr(self, "_active_request_by_chat", {})
-        request_id = active_by_chat.get(conversation_id, conversation_id)
-        return conversation_id, request_id
+        request_id = active_by_chat.get(conversation_id)
+        if request_id:
+            return conversation_id, request_id
+
+        queue = getattr(self, "_queue", None)
+        if queue is not None and hasattr(queue, "by_chat"):
+            try:
+                job = queue.by_chat(conversation_id)
+            except Exception:
+                log.exception("failed to resolve AgentMint request for chat_id=%s", conversation_id)
+                job = None
+            if job and job.get("request_id"):
+                return conversation_id, str(job["request_id"])
+
+        return conversation_id, conversation_id
 
     async def get_chat_info(self, chat_id):  # type: ignore[override]
         job = self._queue.by_chat(str(chat_id))

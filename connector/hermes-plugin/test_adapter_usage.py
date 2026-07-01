@@ -336,6 +336,212 @@ class UsageExtractionTests(unittest.TestCase):
         self.assertEqual(marked[-1][0], "req_fu")
         self.assertIn("conv_q_root_a_1", warm)
 
+    def test_reconnected_pending_followup_replays_existing_conversation_chat(self):
+        adapter_mod = self.adapter
+
+        class FakeQueue:
+            def __init__(self):
+                self.marked = []
+
+            def counts(self):
+                return {"pending": 1, "answered": 0, "uploaded": 0, "failed": 0}
+
+            def list_resumable(self):
+                return [{
+                    "request_id": "req_replay_fu",
+                    "chat_id": "conv_q_root_a_1",
+                    "status": "pending",
+                    "question": {
+                        "conversation_id": "conv_q_root_a_1",
+                        "turn_type": "followup",
+                        "title": "More?",
+                        "body": "Can you expand?",
+                        "tags": ["python"],
+                        "asker": {"nickname": "alice"},
+                        "deadline_at": "2026-07-01T00:00:00Z",
+                        "root_question": {"title": "Root", "body": "Root body", "tags": ["python"]},
+                        "quoted_answer": {"text": "Original answer"},
+                    },
+                    "answer": None,
+                }]
+
+            def mark(self, request_id, status, **kwargs):
+                self.marked.append((request_id, status, kwargs))
+                return True
+
+        class FakeClient:
+            def __init__(self):
+                self.acked = []
+
+            async def send_ack(self, request_id):
+                self.acked.append(request_id)
+                return True
+
+        class TestAdapter(adapter_mod.ArenaAdapter):
+            def __init__(self):
+                self._queue = FakeQueue()
+                self._client = FakeClient()
+                self._job_started_at = {}
+                self._prompt_text_by_request = {}
+                self._active_request_by_chat = {}
+                self._warm_conversations = set()
+                self._conversation_locks = {}
+                self.events = []
+
+            def build_source(self, **kwargs):
+                return SimpleNamespace(**kwargs)
+
+            async def handle_message(self, event):
+                self.events.append(event)
+
+        async def run_case():
+            adapter = TestAdapter()
+            original_message_event = adapter_mod.MessageEvent
+            original_message_type = adapter_mod.MessageType
+            adapter_mod.MessageEvent = lambda **kwargs: SimpleNamespace(**kwargs)
+            adapter_mod.MessageType = SimpleNamespace(TEXT="text")
+            try:
+                await adapter._on_reconnected()
+            finally:
+                adapter_mod.MessageEvent = original_message_event
+                adapter_mod.MessageType = original_message_type
+            return adapter
+
+        adapter = asyncio.run(run_case())
+
+        self.assertEqual(adapter._client.acked, ["req_replay_fu"])
+        self.assertEqual(adapter.events[0].source.chat_id, "conv_q_root_a_1")
+        self.assertEqual(adapter.events[0].message_id, "req_replay_fu")
+        self.assertIn("Original answer", adapter.events[0].text)
+        self.assertEqual(adapter._queue.marked, [])
+
+    def test_send_pairing_uses_queue_chat_lookup_without_active_mapping(self):
+        adapter_mod = self.adapter
+
+        class FakeQueue:
+            def __init__(self):
+                self.marked = []
+
+            def by_chat(self, chat_id):
+                self.by_chat_arg = chat_id
+                return {
+                    "request_id": "req_late_pairing",
+                    "chat_id": "conv_q_root_a_1",
+                    "status": "pending",
+                    "question": {"title": "Follow-up", "body": "", "tags": []},
+                    "answer": None,
+                }
+
+            def by_request_id(self, request_id):
+                self.by_request_id_arg = request_id
+                return {
+                    "request_id": request_id,
+                    "chat_id": "conv_q_root_a_1",
+                    "status": "pending",
+                    "question": {"title": "Follow-up", "body": "", "tags": []},
+                    "answer": None,
+                }
+
+            def mark(self, request_id, status, **kwargs):
+                self.marked.append((request_id, status, kwargs))
+                return True
+
+        class FakeClient:
+            def __init__(self):
+                self.pairing = []
+
+            async def send_pairing_required(self, request_id, *, code, command):
+                self.pairing.append((request_id, code, command))
+                return True
+
+        class TestAdapter(adapter_mod.ArenaAdapter):
+            def __init__(self):
+                self._active_request_by_chat = {}
+                self._last_turn_metadata = {}
+                self._turn_metadata_events = {}
+                self._pending_answer_uploads = set()
+                self._background_upload_tasks = set()
+                self._streaming_answers = {}
+                self.usage_wait_seconds = 0
+                self._prompt_text_by_request = {}
+                self._job_started_at = {}
+                self._queue = FakeQueue()
+                self._client = FakeClient()
+
+        pairing_text = "pairing code: ABCD-1234\nhermes pairing approve agentmint ABCD-1234"
+
+        async def run_case():
+            adapter = TestAdapter()
+            original_send_result = adapter_mod.SendResult
+            adapter_mod.SendResult = lambda **kwargs: SimpleNamespace(**kwargs)
+            try:
+                result = await adapter.send("conv_q_root_a_1", pairing_text, metadata={"notify": True})
+            finally:
+                adapter_mod.SendResult = original_send_result
+            return result, adapter
+
+        result, adapter = asyncio.run(run_case())
+
+        self.assertTrue(result.success)
+        self.assertEqual(adapter._queue.by_chat_arg, "conv_q_root_a_1")
+        self.assertEqual(adapter._queue.by_request_id_arg, "req_late_pairing")
+        self.assertEqual(adapter._client.pairing[0][0], "req_late_pairing")
+        self.assertEqual(adapter._queue.marked, [("req_late_pairing", "failed", {"error": "pairing_required"})])
+
+    def test_reconnected_answered_upload_marks_conversation_warm(self):
+        adapter_mod = self.adapter
+
+        class FakeQueue:
+            def __init__(self):
+                self.marked = []
+
+            def counts(self):
+                return {"pending": 0, "answered": 1, "uploaded": 0, "failed": 0}
+
+            def list_resumable(self):
+                return [{
+                    "request_id": "req_answered_fu",
+                    "chat_id": "conv_q_root_a_1",
+                    "status": "answered",
+                    "question": {"title": "More?", "body": "", "tags": []},
+                    "answer": {
+                        "text": "Answer",
+                        "model": "hermes",
+                        "usage": {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3},
+                        "capability": {"engine": {"provider": "hermes", "model": "hermes"}},
+                        "duration_ms": 42,
+                    },
+                }]
+
+            def mark(self, request_id, status, **kwargs):
+                self.marked.append((request_id, status, kwargs))
+                return True
+
+        class FakeClient:
+            def __init__(self):
+                self.answers = []
+
+            async def send_answer(self, request_id, **kwargs):
+                self.answers.append((request_id, kwargs))
+                return True
+
+        class TestAdapter(adapter_mod.ArenaAdapter):
+            def __init__(self):
+                self._queue = FakeQueue()
+                self._client = FakeClient()
+                self._warm_conversations = set()
+
+        async def run_case():
+            adapter = TestAdapter()
+            await adapter._on_reconnected()
+            return adapter
+
+        adapter = asyncio.run(run_case())
+
+        self.assertEqual(adapter._client.answers[0][0], "req_answered_fu")
+        self.assertEqual(adapter._queue.marked, [("req_answered_fu", "uploaded", {})])
+        self.assertIn("conv_q_root_a_1", adapter._warm_conversations)
+
     def test_extract_usage_from_direct_usage_metadata(self):
         self.assertEqual(self.adapter._extract_usage({
             "usage": {
@@ -1302,6 +1508,20 @@ class QueueTests(unittest.TestCase):
                 self.assertTrue(queue.upsert_pending("req_1", "req_1", {"title": "Question"}))
                 self.assertTrue(queue.mark("req_1", "answered", answer={"text": "ok"}))
                 self.assertEqual(queue.by_request_id("req_1")["answer"], {"text": "ok"})
+            finally:
+                queue.close()
+
+    def test_by_chat_prefers_non_terminal_job_before_latest_uploaded(self):
+        queue_mod = __import__(f"{self.adapter.__package__}.queue", fromlist=["JobQueue"])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            queue = queue_mod.JobQueue(str(Path(tmp) / "jobs.db"))
+            try:
+                self.assertTrue(queue.upsert_pending("req_pending", "conv_1", {"title": "Pending"}))
+                self.assertTrue(queue.upsert_pending("req_uploaded", "conv_1", {"title": "Uploaded"}))
+                self.assertTrue(queue.mark("req_uploaded", "uploaded", answer={"text": "done"}))
+
+                self.assertEqual(queue.by_chat("conv_1")["request_id"], "req_pending")
             finally:
                 queue.close()
 
