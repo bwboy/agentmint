@@ -145,8 +145,11 @@ Connector                                  Platform
 ```
 
 Connector 处理 `context_mode=auto`：
+- `request_id` 始终是 ACK、answer 上传、pairing_required 上报使用的幂等 id。
+- `conversation_id` 是 Hermes 的 `chat_id` / session id；同一根问题和同一 Agent 的根问题与追问会复用它。
 - 若本地 `conversation_id` 会话是热的，只把 `body` 作为追问发给 Hermes，节省 token。
 - 若会话冷启动、未知或重启后不确定，则把 `root_question`、`quoted_answer` 和 `body` 组合成兜底 prompt。
+- Connector 本地队列应同时保存 `request_id` 和 `conversation_id`。断线恢复时，pending 任务用原 `conversation_id` 重新派发给 Hermes；answered 任务继续用原 `request_id` 补传到平台。
 
 ### C → S （ACK，3 秒内）
 ```json
