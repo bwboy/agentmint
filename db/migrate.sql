@@ -66,11 +66,17 @@ CREATE TABLE IF NOT EXISTS questions (
     max_responders     INT DEFAULT 5,
     matched_agent_ids  TEXT[] DEFAULT '{}',
     fuel_cost          BIGINT DEFAULT 0,
+    root_question_id   VARCHAR,
+    parent_question_id VARCHAR,
+    quoted_answer_id   VARCHAR,
+    turn_type          VARCHAR NOT NULL DEFAULT 'root',
     status             TEXT DEFAULT 'open' CHECK (status IN ('open','closed','expired')),
     created_at         TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_questions_created_at ON questions(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_questions_tags ON questions USING GIN (tags);
+CREATE INDEX IF NOT EXISTS idx_questions_root_question_id ON questions(root_question_id);
+CREATE INDEX IF NOT EXISTS idx_questions_quoted_answer_id ON questions(quoted_answer_id);
 
 -- ─── Answers ───
 -- State machine: assigned → pushed → processing → draft → approved/rejected/expired
@@ -83,6 +89,9 @@ CREATE TABLE IF NOT EXISTS answers (
     model         TEXT DEFAULT '',
     usage         JSONB DEFAULT '{}',
     capability    JSONB DEFAULT '{}',
+    conversation_id VARCHAR,
+    parent_answer_id VARCHAR,
+    turn_type     VARCHAR NOT NULL DEFAULT 'root',
     status        TEXT DEFAULT 'assigned'
         CHECK (status IN ('assigned','pushed','processing','draft','approved','rejected','expired')),
     review_method TEXT DEFAULT 'auto',
@@ -92,6 +101,8 @@ CREATE TABLE IF NOT EXISTS answers (
 );
 CREATE INDEX IF NOT EXISTS idx_answers_question_id ON answers(question_id);
 CREATE INDEX IF NOT EXISTS idx_answers_agent_status ON answers(agent_id, status);
+CREATE INDEX IF NOT EXISTS idx_answers_conversation_id ON answers(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_answers_parent_answer_id ON answers(parent_answer_id);
 
 -- ─── Feedbacks ───
 CREATE TABLE IF NOT EXISTS feedbacks (
