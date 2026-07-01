@@ -16,6 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from models import Question, Answer, Feedback, Agent, User
 from services.auth import get_current_user
+from services.followups import (
+    build_conversation_id,
+    build_followup_payload,
+    build_root_payload,
+    ensure_followup_targets,
+)
 from services.matching import build_match_explanation, build_task_profile, match_agents
 from services.review import decide_review_method, approve_answer_by_id, reject_answer_by_id
 from services.quota import increment_usage
@@ -36,6 +42,13 @@ class CreateQuestionReq(BaseModel):
     deadline_minutes: int = 30
     max_responders: int = 5
     is_emergency: bool = False
+
+
+class CreateFollowUpReq(BaseModel):
+    quoted_answer_id: str = Field(min_length=1)
+    agent_ids: list[str] = Field(min_length=1)
+    text: str = Field(min_length=1, max_length=4000)
+    deadline_minutes: int = 30
 
 
 class FeedbackReq(BaseModel):
@@ -222,6 +235,8 @@ async def create_question(
             question_id=q.id,
             agent_id=agent.id,
             request_id=f"req_{q.id}_{agent.id}",
+            conversation_id=build_conversation_id(q.id, agent.id),
+            turn_type="root",
             status="assigned",
             review_method=review_method,
         )
@@ -235,15 +250,11 @@ async def create_question(
     # the answer row to 'pushed'.
     pushed_count = 0
     for ans, agent, _mt, _qs in answer_records:
-        payload = {
-            "request_id": ans.request_id,
-            "title": q.title,
-            "body": q.body,
-            "tags": list(q.tags or []),
-            "asker": {"nickname": user.nickname, "trust_level": user.trust_level},
-            "auto_release": ans.review_method == "auto",
-            "deadline_at": q.deadline_at.isoformat(),
-        }
+        payload = build_root_payload(
+            q,
+            ans,
+            {"nickname": user.nickname, "trust_level": user.trust_level},
+        )
         delivered = await hub.push_question(agent.id, payload)
         if delivered:
             pushed_count += 1
@@ -270,6 +281,141 @@ async def create_question(
         "status": q.status,
         "deadline_at": q.deadline_at.isoformat(),
         "created_at": q.created_at.isoformat(),
+    }
+
+
+@router.post("/questions/{question_id}/followups", status_code=201)
+async def create_followup(
+    question_id: str,
+    req: CreateFollowUpReq,
+    user_payload: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    user = (await db.execute(select(User).where(User.id == user_payload["sub"]))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=401, detail="用户不存在")
+
+    question = (await db.execute(select(Question).where(Question.id == question_id))).scalar_one_or_none()
+    if not question:
+        raise HTTPException(status_code=404, detail="问题不存在")
+
+    root_id = question.root_question_id or question.id
+    root = question if question.id == root_id else (
+        await db.execute(select(Question).where(Question.id == root_id))
+    ).scalar_one_or_none()
+    if not root:
+        raise HTTPException(status_code=404, detail="根问题不存在")
+    if root.asker_id != user.id:
+        raise HTTPException(status_code=403, detail="只有提问者可以追问")
+
+    quoted_answer = (await db.execute(
+        select(Answer).where(
+            Answer.id == req.quoted_answer_id,
+            Answer.question_id == root.id,
+            Answer.status == "approved",
+        )
+    )).scalar_one_or_none()
+    if not quoted_answer:
+        raise HTTPException(status_code=400, detail="引用回答不存在或尚未发布")
+
+    approved_answers = (await db.execute(
+        select(Answer).where(Answer.question_id == root.id, Answer.status == "approved")
+    )).scalars().all()
+    target_agent_ids = ensure_followup_targets(req.agent_ids, list(approved_answers))
+
+    agents = (await db.execute(select(Agent).where(Agent.id.in_(target_agent_ids)))).scalars().all()
+    agent_by_id = {agent.id: agent for agent in agents}
+    missing_agents = [agent_id for agent_id in target_agent_ids if agent_id not in agent_by_id]
+    if missing_agents:
+        raise HTTPException(status_code=400, detail=f"Agent 不存在: {', '.join(missing_agents)}")
+
+    max_possible_fuel_cost = len(target_agent_ids) * AVG_TOKENS_PER_ANSWER
+    if int(user.fuel_balance or 0) < max_possible_fuel_cost:
+        raise HTTPException(status_code=402, detail="燃值不足")
+
+    deadline = datetime.utcnow() + timedelta(minutes=max(1, req.deadline_minutes))
+    followup = Question(
+        asker_id=user.id,
+        title=f"追问：{root.title}",
+        body=req.text,
+        tags=list(root.tags or []),
+        deadline_at=deadline,
+        max_responders=len(target_agent_ids),
+        matched_agent_ids=target_agent_ids,
+        fuel_cost=0,
+        root_question_id=root.id,
+        parent_question_id=question.id,
+        quoted_answer_id=quoted_answer.id,
+        turn_type="followup",
+    )
+    db.add(followup)
+    await db.flush()
+
+    answer_records: list[tuple[Answer, Agent]] = []
+    for agent_id in target_agent_ids:
+        agent = agent_by_id[agent_id]
+        review_method = decide_review_method(
+            quota_state="ok",
+            asker_trust_level=int(user.trust_level or 1),
+            review_rules=agent.review_rules,
+            match_type="followup",
+        )
+        answer = Answer(
+            question_id=followup.id,
+            agent_id=agent.id,
+            request_id=f"req_{followup.id}_{agent.id}",
+            conversation_id=build_conversation_id(root.id, agent.id),
+            parent_answer_id=quoted_answer.id,
+            turn_type="followup",
+            status="assigned",
+            review_method=review_method,
+        )
+        db.add(answer)
+        answer_records.append((answer, agent))
+
+    await db.commit()
+    await db.refresh(followup)
+
+    pushed_count = 0
+    requests = []
+    asker = {"nickname": user.nickname, "trust_level": user.trust_level}
+    for answer, agent in answer_records:
+        payload = build_followup_payload(
+            root_question=root,
+            followup_question=followup,
+            answer=answer,
+            quoted_answer=quoted_answer,
+            asker=asker,
+        )
+        delivered = await hub.push_question(agent.id, payload)
+        status = "assigned"
+        if delivered:
+            pushed_count += 1
+            answer.status = "pushed"
+            status = "pushed"
+            try:
+                await increment_usage(db, agent.id)
+            except Exception as e:
+                print(f"[questions] quota increment failed for {agent.id}: {e}")
+        requests.append({
+            "agent_id": agent.id,
+            "request_id": answer.request_id,
+            "conversation_id": answer.conversation_id,
+            "status": status,
+        })
+
+    fuel_cost = pushed_count * AVG_TOKENS_PER_ANSWER
+    followup.fuel_cost = fuel_cost
+    user.fuel_balance = int(user.fuel_balance or 0) - fuel_cost
+    await db.commit()
+
+    return {
+        "id": followup.id,
+        "root_question_id": root.id,
+        "quoted_answer_id": quoted_answer.id,
+        "pushed_count": pushed_count,
+        "fuel_cost": fuel_cost,
+        "requests": requests,
     }
 
 
