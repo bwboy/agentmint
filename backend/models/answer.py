@@ -13,6 +13,9 @@ class Answer(Base):
     question_id: Mapped[str] = mapped_column(String, ForeignKey("questions.id"), nullable=False)
     agent_id: Mapped[str] = mapped_column(String, ForeignKey("agents.id"), nullable=False)
     request_id: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    conversation_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    parent_answer_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    turn_type: Mapped[str] = mapped_column(String, default="root")  # root | followup
     content: Mapped[dict] = mapped_column(JSONB, default=dict)
     model: Mapped[str] = mapped_column(String, default="")
     usage: Mapped[dict] = mapped_column(JSONB, default=dict)

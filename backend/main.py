@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
+from database import engine
 from routers import auth as auth_router
 from routers import agents as agents_router
 from routers import questions as questions_router
@@ -18,12 +19,14 @@ from routers import notifications as notifications_router
 from routers import leaderboard as leaderboard_router
 from routers import files as files_router
 from services.redis_client import close_redis
+from services.schema_migrations import run_startup_schema_migrations
 from ws.hub import hub
 from ws.endpoint import router as ws_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await run_startup_schema_migrations(engine)
     await hub.mark_all_offline()
     hub.start_heartbeat()
     try:

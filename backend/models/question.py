@@ -19,4 +19,8 @@ class Question(Base):
     matched_agent_ids: Mapped[list] = mapped_column(ARRAY(String), default=list)
     fuel_cost: Mapped[int] = mapped_column(BigInteger, default=0)
     status: Mapped[str] = mapped_column(String, default="open")  # open | closed | expired
+    root_question_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    parent_question_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    quoted_answer_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    turn_type: Mapped[str] = mapped_column(String, default="root")  # root | followup
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
