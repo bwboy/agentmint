@@ -428,6 +428,155 @@ async def test_create_followup_rejects_target_without_approved_root_answer():
 
 
 @pytest.mark.asyncio
+async def test_create_followup_from_child_normalizes_to_root_context(monkeypatch):
+    user = make_route_user()
+    root = make_route_question(
+        title="Root title",
+        body="Root body",
+        tags=["root-tag"],
+        matched_agent_ids=["a_ok"],
+    )
+    child = make_route_question(
+        id="q_child",
+        title="Child title",
+        body="Child body",
+        tags=["child-tag"],
+        root_question_id=root.id,
+        parent_question_id=root.id,
+        quoted_answer_id="ans_quote",
+        turn_type="followup",
+    )
+    quoted = make_route_answer(agent_id="a_ok", question_id=root.id)
+    db = FollowupRouteDB(
+        user=user,
+        questions_by_id={root.id: root, child.id: child},
+        answers_by_id={quoted.id: quoted},
+        agents_by_id={"a_ok": make_route_agent("a_ok")},
+    )
+    pushed_payloads = []
+
+    async def fake_push_question(agent_id, payload):
+        pushed_payloads.append((agent_id, payload))
+        return True
+
+    async def fake_increment_usage(db_arg, agent_id):
+        return 1
+
+    monkeypatch.setattr(questions.hub, "push_question", fake_push_question)
+    monkeypatch.setattr(questions, "increment_usage", fake_increment_usage)
+
+    res = await questions.create_followup(
+        child.id,
+        questions.CreateFollowUpReq(quoted_answer_id=quoted.id, agent_ids=["a_ok"], text="More from child?"),
+        user_payload={"sub": user.id},
+        db=db,
+    )
+
+    followup = next(q for q in db.added if q.__class__.__name__ == "Question")
+    created_answer = next(a for a in db.added if a.__class__.__name__ == "Answer")
+    assert followup.title == "追问：Root title"
+    assert followup.tags == ["root-tag"]
+    assert followup.root_question_id == root.id
+    assert followup.parent_question_id == child.id
+    assert created_answer.conversation_id == "conv_q_root_a_ok"
+    assert res["root_question_id"] == root.id
+    assert res["requests"][0]["conversation_id"] == "conv_q_root_a_ok"
+    assert pushed_payloads == [
+        (
+            "a_ok",
+            {
+                "request_id": "req_q_follow_1_a_ok",
+                "conversation_id": "conv_q_root_a_ok",
+                "turn_type": "followup",
+                "context_mode": "auto",
+                "title": "追问：Root title",
+                "body": "More from child?",
+                "tags": ["root-tag"],
+                "root_question": {
+                    "id": "q_root",
+                    "title": "Root title",
+                    "body": "Root body",
+                    "tags": ["root-tag"],
+                },
+                "quoted_answer": {
+                    "id": "ans_quote",
+                    "agent_id": "a_ok",
+                    "text": "Root answer",
+                },
+                "followup": {"text": "More from child?"},
+                "asker": {"nickname": "Tester", "trust_level": 3},
+                "auto_release": True,
+                "deadline_at": followup.deadline_at.isoformat(),
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_create_followup_rejects_missing_agent_row_for_approved_root_answer(monkeypatch):
+    user = make_route_user()
+    root = make_route_question(matched_agent_ids=["a_missing"])
+    quoted = make_route_answer(agent_id="a_missing")
+    db = FollowupRouteDB(
+        user=user,
+        questions_by_id={root.id: root},
+        answers_by_id={quoted.id: quoted},
+        agents_by_id={},
+    )
+
+    async def fail_push_question(agent_id, payload):
+        raise AssertionError("must not push when selected Agent row is missing")
+
+    monkeypatch.setattr(questions.hub, "push_question", fail_push_question)
+
+    with pytest.raises(HTTPException) as err:
+        await questions.create_followup(
+            root.id,
+            questions.CreateFollowUpReq(quoted_answer_id=quoted.id, agent_ids=["a_missing"], text="More?"),
+            user_payload={"sub": user.id},
+            db=db,
+        )
+
+    assert err.value.status_code == 400
+    assert err.value.detail == "Agent 不存在: a_missing"
+    assert db.added == []
+    assert db.fuel_deductions == []
+
+
+@pytest.mark.asyncio
+async def test_create_followup_insufficient_fuel_reservation_does_not_push(monkeypatch):
+    user = make_route_user(balance=questions.AVG_TOKENS_PER_ANSWER - 1)
+    root = make_route_question(matched_agent_ids=["a_ok"])
+    quoted = make_route_answer(agent_id="a_ok")
+    db = FollowupRouteDB(
+        user=user,
+        questions_by_id={root.id: root},
+        answers_by_id={quoted.id: quoted},
+        agents_by_id={"a_ok": make_route_agent("a_ok")},
+    )
+
+    async def fail_push_question(agent_id, payload):
+        raise AssertionError("must not push when fuel reservation fails")
+
+    monkeypatch.setattr(questions.hub, "push_question", fail_push_question)
+
+    with pytest.raises(HTTPException) as err:
+        await questions.create_followup(
+            root.id,
+            questions.CreateFollowUpReq(quoted_answer_id=quoted.id, agent_ids=["a_ok"], text="More?"),
+            user_payload={"sub": user.id},
+            db=db,
+        )
+
+    assert err.value.status_code == 402
+    assert err.value.detail == "燃值不足"
+    assert db.added == []
+    assert db.fuel_deductions == [
+        {"user_id": user.id, "fuel_cost": questions.AVG_TOKENS_PER_ANSWER, "rowcount": 0}
+    ]
+
+
+@pytest.mark.asyncio
 async def test_create_followup_partial_push_reserves_max_refunds_undelivered_and_persists_context(monkeypatch):
     user = make_route_user()
     root = make_route_question()

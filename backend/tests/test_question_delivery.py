@@ -157,6 +157,7 @@ async def test_create_question_partial_push_reserves_max_and_refunds_undelivered
     db = FakeDB(user)
     agents = [make_agent("a_ok"), make_agent("a_fail")]
     incremented = []
+    pushed_payloads = []
 
     async def fake_match_agents(db_arg, tags, max_responders, title="", body=""):
         return [
@@ -165,6 +166,7 @@ async def test_create_question_partial_push_reserves_max_and_refunds_undelivered
         ]
 
     async def fake_push_question(agent_id, payload):
+        pushed_payloads.append((agent_id, payload))
         return agent_id == "a_ok"
 
     async def fake_increment_usage(db_arg, agent_id):
@@ -187,6 +189,11 @@ async def test_create_question_partial_push_reserves_max_and_refunds_undelivered
     assert res["estimated_fuel_cost"] == questions.AVG_TOKENS_PER_ANSWER
     assert user.fuel_balance == 100_000 - questions.AVG_TOKENS_PER_ANSWER
     assert incremented == ["a_ok"]
+    assert [(agent_id, payload["conversation_id"], payload["turn_type"], payload["context_mode"])
+            for agent_id, payload in pushed_payloads] == [
+        ("a_ok", "conv_q_test_a_ok", "root", "root"),
+        ("a_fail", "conv_q_test_a_fail", "root", "root"),
+    ]
     assert db.fuel_deductions == [
         {"user_id": user.id, "fuel_cost": 2 * questions.AVG_TOKENS_PER_ANSWER, "rowcount": 1}
     ]
