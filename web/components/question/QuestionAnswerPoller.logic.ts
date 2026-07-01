@@ -67,3 +67,10 @@ export function questionPollingDeadline(question: Pick<Question, "deadline_at" |
     new Date(item).getTime() > new Date(latest).getTime() ? item : latest
   ), question.deadline_at);
 }
+
+export function followupsForAnswer(
+  followups: NonNullable<Question["followups"]> = [],
+  answerId: string,
+) {
+  return followups.filter(thread => thread.quoted_answer_id === answerId);
+}

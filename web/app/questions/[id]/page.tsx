@@ -5,7 +5,13 @@ import { FeedbackButtons } from "@/components/answer/FeedbackButtons";
 import { AnswerMarkdown } from "@/components/answer/AnswerMarkdown";
 import { FollowUpComposer } from "@/components/question/FollowUpComposer";
 import { QuestionAnswerPoller } from "@/components/question/QuestionAnswerPoller";
-import { answerUsageSignature, questionAnswersForPolling, questionPollingDeadline } from "@/components/question/QuestionAnswerPoller.logic";
+import {
+  answerUsageSignature,
+  followupsForAnswer,
+  questionAnswersForPolling,
+  questionPollingDeadline,
+} from "@/components/question/QuestionAnswerPoller.logic";
+import type { Answer, FollowUpThread } from "@/lib/types";
 
 async function fetchQuestion(id: string): Promise<Question | null> {
   try { return await api<Question>(`/api/questions/${id}`); }
@@ -69,10 +75,7 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
           </div>
         )}
 
-        {answers.map(ans => {
-          const answerFollowups = followups.filter(thread => thread.quoted_answer_id === ans.id);
-
-          return (
+        {answers.map(ans => (
             <div key={ans.id} className="bg-white rounded-2xl border border-gray-100 p-6">
               <div className="flex items-center gap-3 mb-4">
                 <span className="text-2xl">{ans.agent.agent_type === "openclaw" ? "🦞" : "👜"}</span>
@@ -140,31 +143,71 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
                   />
                 </div>
 
-                {answerFollowups.length > 0 && (
-                  <div className="mt-4 space-y-3">
-                    {answerFollowups.map(thread => (
-                      <div key={thread.id} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                        <p className="text-sm font-medium text-gray-800">追问：{thread.text}</p>
-                        <div className="mt-3 space-y-3">
-                          {(thread.answers || []).map(followupAnswer => (
-                            <div key={followupAnswer.id} className="rounded-lg bg-white px-3 py-3">
-                              <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-gray-400">
-                                <span className="font-medium text-gray-700">{followupAnswer.agent.name}</span>
-                                <span>{new Date(followupAnswer.created_at).toLocaleString()}</span>
-                              </div>
-                              <AnswerMarkdown text={followupAnswer.content?.text || ""} />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <FollowUpThreads
+                  questionId={question.id}
+                  quotedAnswerId={ans.id}
+                  followups={followups}
+                  approvedAnswers={answers}
+                  depth={0}
+                />
               </div>
             </div>
-          );
-        })}
+        ))}
       </div>
+    </div>
+  );
+}
+
+function FollowUpThreads({
+  questionId,
+  quotedAnswerId,
+  followups,
+  approvedAnswers,
+  depth,
+}: {
+  questionId: string;
+  quotedAnswerId: string;
+  followups: FollowUpThread[];
+  approvedAnswers: Answer[];
+  depth: number;
+}) {
+  const threads = followupsForAnswer(followups, quotedAnswerId);
+  if (threads.length === 0) return null;
+
+  return (
+    <div className="mt-4 space-y-3">
+      {threads.map(thread => (
+        <div key={thread.id} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+          <p className="text-sm font-medium text-gray-800">追问：{thread.text}</p>
+          <div className="mt-3 space-y-3">
+            {(thread.answers || []).map(followupAnswer => (
+              <div key={followupAnswer.id} className="rounded-lg bg-white px-3 py-3">
+                <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-gray-400">
+                  <span className="font-medium text-gray-700">{followupAnswer.agent.name}</span>
+                  <span>{new Date(followupAnswer.created_at).toLocaleString()}</span>
+                </div>
+                <AnswerMarkdown text={followupAnswer.content?.text || ""} />
+                <div className="mt-3 flex flex-wrap justify-end gap-2 border-t border-gray-100 pt-3">
+                  <FollowUpComposer
+                    questionId={questionId}
+                    quotedAnswer={followupAnswer}
+                    approvedAnswers={approvedAnswers}
+                  />
+                </div>
+                <div className={depth >= 2 ? "ml-0" : "ml-3 sm:ml-5"}>
+                  <FollowUpThreads
+                    questionId={questionId}
+                    quotedAnswerId={followupAnswer.id}
+                    followups={followups}
+                    approvedAnswers={approvedAnswers}
+                    depth={depth + 1}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

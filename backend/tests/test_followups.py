@@ -517,7 +517,7 @@ async def test_create_followup_from_child_normalizes_to_root_context(monkeypatch
     assert followup.title == "追问：Root title"
     assert followup.tags == ["root-tag"]
     assert followup.root_question_id == root.id
-    assert followup.parent_question_id == child.id
+    assert followup.parent_question_id == root.id
     assert created_answer.conversation_id == "conv_q_root_a_ok"
     assert res["root_question_id"] == root.id
     assert res["requests"][0]["conversation_id"] == "conv_q_root_a_ok"
@@ -550,6 +550,69 @@ async def test_create_followup_from_child_normalizes_to_root_context(monkeypatch
             },
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_create_followup_can_quote_approved_followup_answer(monkeypatch):
+    user = make_route_user()
+    root = make_route_question(matched_agent_ids=["a_ok"])
+    first_followup = make_route_question(
+        id="q_followup_existing",
+        root_question_id=root.id,
+        parent_question_id=root.id,
+        quoted_answer_id="ans_quote",
+        turn_type="followup",
+    )
+    root_answer = make_route_answer(id="ans_quote", agent_id="a_ok", question_id=root.id)
+    quoted_followup_answer = make_route_answer(
+        id="ans_followup_quote",
+        agent_id="a_ok",
+        question_id=first_followup.id,
+        parent_answer_id=root_answer.id,
+        turn_type="followup",
+        content={"text": "Follow-up answer"},
+    )
+    db = FollowupRouteDB(
+        user=user,
+        questions_by_id={root.id: root, first_followup.id: first_followup},
+        answers_by_id={root_answer.id: root_answer, quoted_followup_answer.id: quoted_followup_answer},
+        agents_by_id={"a_ok": make_route_agent("a_ok")},
+    )
+    pushed_payloads = []
+
+    async def fake_push_question(agent_id, payload):
+        pushed_payloads.append((agent_id, payload))
+        return True
+
+    async def fake_increment_usage(db_arg, agent_id):
+        return 1
+
+    monkeypatch.setattr(questions.hub, "push_question", fake_push_question)
+    monkeypatch.setattr(questions, "increment_usage", fake_increment_usage)
+
+    res = await questions.create_followup(
+        root.id,
+        questions.CreateFollowUpReq(
+            quoted_answer_id=quoted_followup_answer.id,
+            agent_ids=["a_ok"],
+            text="Continue from follow-up?",
+        ),
+        user_payload={"sub": user.id},
+        db=db,
+    )
+
+    followup = next(q for q in db.added if q.__class__.__name__ == "Question")
+    created_answer = next(a for a in db.added if a.__class__.__name__ == "Answer")
+    assert followup.root_question_id == root.id
+    assert followup.parent_question_id == first_followup.id
+    assert followup.quoted_answer_id == quoted_followup_answer.id
+    assert created_answer.parent_answer_id == quoted_followup_answer.id
+    assert res["quoted_answer_id"] == quoted_followup_answer.id
+    assert pushed_payloads[0][1]["quoted_answer"] == {
+        "id": quoted_followup_answer.id,
+        "agent_id": "a_ok",
+        "text": "Follow-up answer",
+    }
 
 
 @pytest.mark.asyncio

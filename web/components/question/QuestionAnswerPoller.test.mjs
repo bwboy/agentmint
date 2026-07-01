@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   answerUsageSignature,
+  followupsForAnswer,
   questionPollingDeadline,
   questionAnswerCountForPolling,
   questionAnswersForPolling,
@@ -147,5 +148,17 @@ test("uses the latest follow-up deadline when it extends beyond the root questio
       ],
     }),
     "2026-07-01T12:30:00.000Z",
+  );
+});
+
+test("finds follow-up threads for any quoted answer id", () => {
+  const followups = [
+    { id: "fu_root", quoted_answer_id: "ans_root", answers: [{ id: "ans_fu" }] },
+    { id: "fu_nested", quoted_answer_id: "ans_fu", answers: [{ id: "ans_nested" }] },
+  ];
+
+  assert.deepEqual(
+    followupsForAnswer(followups, "ans_fu").map(thread => thread.id),
+    ["fu_nested"],
   );
 });

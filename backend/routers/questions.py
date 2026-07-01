@@ -343,12 +343,17 @@ async def create_followup(
     quoted_answer = (await db.execute(
         select(Answer).where(
             Answer.id == req.quoted_answer_id,
-            Answer.question_id == root.id,
             Answer.status == "approved",
         )
     )).scalar_one_or_none()
     if not quoted_answer:
         raise HTTPException(status_code=400, detail="引用回答不存在或尚未发布")
+
+    quoted_question = (await db.execute(
+        select(Question).where(Question.id == quoted_answer.question_id)
+    )).scalar_one_or_none()
+    if not quoted_question or (quoted_question.root_question_id or quoted_question.id) != root.id:
+        raise HTTPException(status_code=400, detail="引用回答不属于当前问题")
 
     approved_answers = (await db.execute(
         select(Answer).where(Answer.question_id == root.id, Answer.status == "approved")
@@ -376,7 +381,7 @@ async def create_followup(
         matched_agent_ids=target_agent_ids,
         fuel_cost=0,
         root_question_id=root.id,
-        parent_question_id=question.id,
+        parent_question_id=quoted_question.id,
         quoted_answer_id=quoted_answer.id,
         turn_type="followup",
     )
