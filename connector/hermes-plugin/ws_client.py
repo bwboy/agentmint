@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 
 BACKOFF_SCHEDULE = [0, 2, 4, 8, 30, 30, 30, 30, 30, 30]
 SERVER_IDLE_TIMEOUT_SECONDS = 75
-AGENTMINT_WS_CLIENT_VERSION = "2026-06-30.3"
+AGENTMINT_WS_CLIENT_VERSION = "2026-07-01.1"
 
 
 class ArenaAuthError(Exception):

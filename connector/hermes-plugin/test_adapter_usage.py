@@ -160,6 +160,182 @@ class UsageExtractionTests(unittest.TestCase):
         self.assertEqual(source.user_name, "AgentMint")
         self.assertNotIn("alice", source.user_id)
 
+    def test_on_question_uses_conversation_id_as_chat_id(self):
+        adapter_mod = self.adapter
+
+        class FakeQueue:
+            def __init__(self):
+                self.saved = None
+
+            def upsert_pending(self, request_id, chat_id, question):
+                self.saved = SimpleNamespace(
+                    request_id=request_id,
+                    chat_id=chat_id,
+                    question=question,
+                )
+                return True
+
+        class FakeClient:
+            def __init__(self):
+                self.acked = []
+
+            async def send_ack(self, request_id):
+                self.acked.append(request_id)
+                return True
+
+        class TestAdapter(adapter_mod.ArenaAdapter):
+            def __init__(self):
+                self._queue = FakeQueue()
+                self._client = FakeClient()
+                self._job_started_at = {}
+                self._prompt_text_by_request = {}
+                self._active_request_by_chat = {}
+                self._warm_conversations = set()
+                self._conversation_locks = {}
+                self.events = []
+
+            def build_source(self, **kwargs):
+                return SimpleNamespace(**kwargs)
+
+            async def handle_message(self, event):
+                self.events.append(event)
+
+        async def run_case():
+            adapter = TestAdapter()
+            original_message_event = adapter_mod.MessageEvent
+            original_message_type = adapter_mod.MessageType
+            adapter_mod.MessageEvent = lambda **kwargs: SimpleNamespace(**kwargs)
+            adapter_mod.MessageType = SimpleNamespace(TEXT="text")
+            try:
+                await adapter._on_question({
+                    "request_id": "req_fu",
+                    "conversation_id": "conv_q_root_a_1",
+                    "turn_type": "followup",
+                    "title": "More?",
+                    "body": "Can you expand?",
+                    "tags": ["python"],
+                    "asker": {"nickname": "alice", "trust_level": 3},
+                    "root_question": {
+                        "title": "Root",
+                        "body": "How do decorators work?",
+                        "tags": ["python"],
+                    },
+                    "quoted_answer": {
+                        "text": "Original answer about wrappers.",
+                    },
+                })
+                return adapter
+            finally:
+                adapter_mod.MessageEvent = original_message_event
+                adapter_mod.MessageType = original_message_type
+
+        adapter = asyncio.run(run_case())
+
+        self.assertEqual(adapter._client.acked, ["req_fu"])
+        self.assertEqual(adapter._queue.saved.request_id, "req_fu")
+        self.assertEqual(adapter._queue.saved.chat_id, "conv_q_root_a_1")
+        self.assertEqual(adapter._queue.saved.question["conversation_id"], "conv_q_root_a_1")
+        self.assertEqual(adapter._queue.saved.question["turn_type"], "followup")
+        self.assertEqual(adapter.events[0].source.chat_id, "conv_q_root_a_1")
+        self.assertEqual(adapter.events[0].message_id, "req_fu")
+        self.assertIn("Original answer about wrappers.", adapter.events[0].text)
+        self.assertIn("Root", adapter.events[0].text)
+
+    def test_format_followup_prompt_warm_omits_quote_context(self):
+        prompt = self.adapter._format_followup_prompt(
+            "More?",
+            root_question={"title": "Root", "body": "Root body", "tags": ["python"]},
+            quoted_answer={"text": "Original answer"},
+            include_context=False,
+        )
+
+        self.assertIn("More?", prompt)
+        self.assertIn("AgentMint tool policy", prompt)
+        self.assertNotIn("Root body", prompt)
+        self.assertNotIn("Original answer", prompt)
+
+    def test_format_followup_prompt_cold_includes_quote_context(self):
+        prompt = self.adapter._format_followup_prompt(
+            "More?",
+            root_question={"title": "Root", "body": "Root body", "tags": ["python"]},
+            quoted_answer={"text": "Original answer"},
+            include_context=True,
+        )
+
+        self.assertIn("Root", prompt)
+        self.assertIn("Root body", prompt)
+        self.assertIn("Original answer", prompt)
+        self.assertIn("More?", prompt)
+        self.assertIn("AgentMint tool policy", prompt)
+
+    def test_send_uses_active_request_for_conversation_chat_id(self):
+        adapter_mod = self.adapter
+
+        class FakeQueue:
+            def __init__(self):
+                self.marked = []
+
+            def mark(self, request_id, status, **kwargs):
+                self.marked.append((request_id, status, kwargs))
+                return True
+
+            def by_request_id(self, request_id):
+                return {
+                    "request_id": request_id,
+                    "chat_id": "conv_q_root_a_1",
+                    "status": "pending",
+                    "question": {"title": "Follow-up", "body": "", "tags": [], "asker": {"nickname": "tester"}},
+                    "answer": None,
+                }
+
+        class FakeClient:
+            def __init__(self):
+                self.sent = None
+
+            async def send_answer(self, request_id, **kwargs):
+                self.sent = (request_id, kwargs)
+                return True
+
+        class TestAdapter(adapter_mod.ArenaAdapter):
+            def __init__(self):
+                self._active_request_by_chat = {"conv_q_root_a_1": "req_fu"}
+                self._last_turn_metadata = {
+                    "req_fu": {
+                        "prompt_tokens": 10,
+                        "completion_tokens": 15,
+                        "total_tokens": 25,
+                        "model": "test-model",
+                    }
+                }
+                self._turn_metadata_events = {}
+                self._pending_answer_uploads = set()
+                self._background_upload_tasks = set()
+                self._streaming_answers = {}
+                self.usage_wait_seconds = 0
+                self._prompt_text_by_request = {"req_fu": "Prompt"}
+                self._job_started_at = {}
+                self._warm_conversations = set()
+                self._queue = FakeQueue()
+                self._client = FakeClient()
+
+        async def run_case():
+            adapter = TestAdapter()
+            original_send_result = adapter_mod.SendResult
+            adapter_mod.SendResult = lambda **kwargs: SimpleNamespace(**kwargs)
+            try:
+                result = await adapter.send("conv_q_root_a_1", "answer text", metadata={"notify": True})
+            finally:
+                adapter_mod.SendResult = original_send_result
+            return result, adapter._client.sent, adapter._queue.marked, adapter._warm_conversations
+
+        result, sent, marked, warm = asyncio.run(run_case())
+
+        self.assertTrue(result.success)
+        self.assertEqual(sent[0], "req_fu")
+        self.assertEqual(marked[0][0], "req_fu")
+        self.assertEqual(marked[-1][0], "req_fu")
+        self.assertIn("conv_q_root_a_1", warm)
+
     def test_extract_usage_from_direct_usage_metadata(self):
         self.assertEqual(self.adapter._extract_usage({
             "usage": {

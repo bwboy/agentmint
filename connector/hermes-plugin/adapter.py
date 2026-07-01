@@ -13,8 +13,9 @@ Telegram or IRC. Incoming questions flow:
           │                                       │
           │  ◄────────── upload answer  ArenaAdapter.send(chat_id, content)
 
-The platform uses `request_id` as both the wire-level idempotency key *and*
-the chat session identifier (each question = its own one-shot DM).
+The platform uses `request_id` as the wire-level upload/idempotency key.
+Hermes chat/session routing uses the backend-provided `conversation_id` when
+available, so follow-ups from the same AgentMint conversation reuse memory.
 
 Tested against the Arena backend's `/ws` endpoint (see
 agentmint/backend/ws/hub.py for the protocol).
@@ -138,6 +139,12 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         # Keep the prompt text around so the plugin can still report an
         # explicitly-estimated usage value when Hermes/provider gives no usage.
         self._prompt_text_by_request: dict[str, str] = {}
+        # Hermes sees AgentMint conversations as chats, while AgentMint uploads
+        # still need the per-turn request_id. This map is populated only while a
+        # conversation turn is actively running.
+        self._active_request_by_chat: dict[str, str] = {}
+        self._warm_conversations: set[str] = set()
+        self._conversation_locks: dict[str, asyncio.Lock] = {}
 
     def set_message_handler(self, handler):  # type: ignore[override]
         async def _wrapped(event):
@@ -151,11 +158,15 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         debug_usage = getattr(self, "debug_usage", False)
         source = getattr(event, "source", None)
         chat_id = getattr(source, "chat_id", None)
+        conversation_id = str(chat_id) if chat_id else ""
+        active_by_chat = getattr(self, "_active_request_by_chat", {})
+        request_id = active_by_chat.get(conversation_id, conversation_id)
         if not isinstance(result, dict):
             if debug_usage:
                 log.info(
-                    "agentmint usage capture skipped chat_id=%s result=%s",
+                    "agentmint usage capture skipped chat_id=%s request_id=%s result=%s",
                     chat_id or "missing",
+                    request_id or "missing",
                     _metadata_debug_summary(result),
                 )
             return
@@ -163,8 +174,9 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         model = result.get("model") or result.get("active_model")
         if debug_usage:
             log.info(
-                "agentmint usage capture chat_id=%s result=%s extracted=%s model=%s",
+                "agentmint usage capture chat_id=%s request_id=%s result=%s extracted=%s model=%s",
                 chat_id or "missing",
+                request_id or "missing",
                 _metadata_debug_summary(result),
                 _usage_log_label(usage),
                 model or "",
@@ -174,17 +186,17 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         if not usage and not model:
             return
         if usage:
-            self._schedule_usage_correction(str(chat_id), usage, model)
+            self._schedule_usage_correction(request_id, usage, model)
         captured: dict[str, Any] = {}
         if usage:
             captured.update(usage)
         if model:
             captured["model"] = model
-        self._last_turn_metadata[str(chat_id)] = captured
+        self._last_turn_metadata[request_id] = captured
         events = getattr(self, "_turn_metadata_events", {})
-        event = events.get(str(chat_id))
-        if event:
-            event.set()
+        metadata_event = events.get(request_id)
+        if metadata_event:
+            metadata_event.set()
 
     def _schedule_usage_correction(self, request_id: str, usage: dict, model: Any = None) -> None:
         """Replace a previously-uploaded estimate when Hermes reports real usage late."""
@@ -297,6 +309,9 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         if not request_id:
             log.warning("question without request_id, dropping")
             return
+        request_id = str(request_id)
+        conversation_id = str(msg.get("conversation_id") or request_id)
+        turn_type = str(msg.get("turn_type") or "root")
 
         title = msg.get("title") or ""
         body = (msg.get("body") or "").strip()
@@ -308,11 +323,15 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         question_record = {
             "title": title, "body": body, "tags": tags,
             "asker": asker, "deadline_at": msg.get("deadline_at"),
+            "conversation_id": conversation_id,
+            "turn_type": turn_type,
+            "root_question": msg.get("root_question"),
+            "quoted_answer": msg.get("quoted_answer"),
         }
 
         # Idempotent insert. If the platform redelivers the same question after
         # a reconnect, we still ack but don't double-dispatch to Hermes.
-        is_new = self._queue.upsert_pending(request_id, chat_id=request_id, question=question_record)
+        is_new = self._queue.upsert_pending(request_id, chat_id=conversation_id, question=question_record)
         await self._client.send_ack(request_id)
         if not is_new:
             log.info("re-ack for known request_id=%s, skipping dispatch", request_id)
@@ -321,11 +340,20 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         self._job_started_at[request_id] = time.monotonic()
 
         # Build the conversational prompt Hermes will see.
-        user_text = _format_prompt(title, body, tags, asker_nick)
+        if turn_type == "followup":
+            followup_text = _format_followup_text(title, body, tags)
+            user_text = _format_followup_prompt(
+                followup_text,
+                root_question=msg.get("root_question"),
+                quoted_answer=msg.get("quoted_answer"),
+                include_context=conversation_id not in getattr(self, "_warm_conversations", set()),
+            )
+        else:
+            user_text = _format_prompt(title, body, tags, asker_nick)
         self._prompt_text_by_request[request_id] = user_text
 
         source = self.build_source(
-            chat_id=request_id,
+            chat_id=conversation_id,
             chat_name=f"Arena问题: {title[:40]}",
             chat_type="dm",
             user_id="agentmint-platform",
@@ -337,7 +365,20 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
             source=source,
             message_id=request_id,
         )
-        await self.handle_message(event)
+        locks = getattr(self, "_conversation_locks", None)
+        if locks is None:
+            locks = self._conversation_locks = {}
+        lock = locks.setdefault(conversation_id, asyncio.Lock())
+        active_by_chat = getattr(self, "_active_request_by_chat", None)
+        if active_by_chat is None:
+            active_by_chat = self._active_request_by_chat = {}
+        async with lock:
+            active_by_chat[conversation_id] = request_id
+            try:
+                await self.handle_message(event)
+            finally:
+                if active_by_chat.get(conversation_id) == request_id:
+                    active_by_chat.pop(conversation_id, None)
 
     async def _on_reconnected(self) -> None:
         """After a WS reconnect, replay anything the platform hasn't acknowledged."""
@@ -363,8 +404,12 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
                 q = job["question"]
                 fake_msg = {
                     "request_id": job["request_id"],
+                    "conversation_id": q.get("conversation_id") or job.get("chat_id") or job["request_id"],
+                    "turn_type": q.get("turn_type") or "root",
                     "title": q["title"], "body": q["body"], "tags": q["tags"],
                     "asker": q.get("asker"), "deadline_at": q.get("deadline_at"),
+                    "root_question": q.get("root_question"),
+                    "quoted_answer": q.get("quoted_answer"),
                 }
                 # Mark as gone so upsert_pending succeeds on the re-dispatch.
                 self._queue.mark(job["request_id"], "failed", error="re-dispatching after reconnect")
@@ -375,12 +420,13 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
     async def send(self, chat_id, content, reply_to=None, metadata=None):  # type: ignore[override]
         """Hermes finished a turn — upload the answer to Arena.
 
-        `chat_id` is the request_id (we set it that way in `_on_question`).
+        `chat_id` is the Hermes conversation_id. The active turn map resolves
+        it to AgentMint's per-turn request_id for queue lookup and upload.
         `metadata` may carry `model` / token usage from the LLM; we pull what
         we can while tolerating Hermes versions that only pass thread routing
         metadata to platform adapters.
         """
-        request_id = str(chat_id)
+        conversation_id, request_id = self._resolve_request_for_chat(chat_id)
         existing_job = self._queue.by_request_id(request_id)
         if existing_job and existing_job.get("answer") and existing_job.get("status") in {"answered", "uploaded"}:
             log.info("duplicate answer ignored for %s (status=%s)", request_id, existing_job.get("status"))
@@ -406,7 +452,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
                 final_meta = dict(meta)
                 final_meta.pop("expect_edits", None)
                 return await self.send(
-                    chat_id=request_id,
+                    chat_id=conversation_id,
                     content=str(content),
                     reply_to=reply_to,
                     metadata=final_meta,
@@ -468,6 +514,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
             task = asyncio.create_task(
                 self._upload_answer_after_usage_wait(
                     request_id=request_id,
+                    conversation_id=conversation_id,
                     content=str(content),
                     metadata=meta,
                     model=model,
@@ -485,6 +532,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         self._last_turn_metadata.pop(request_id, None)
         return await self._upload_answer(
             request_id=request_id,
+            conversation_id=conversation_id,
             content=str(content),
             model=model,
             usage=usage,
@@ -496,6 +544,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         self,
         *,
         request_id: str,
+        conversation_id: str,
         content: str,
         metadata: dict,
         model: str,
@@ -534,6 +583,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
             final_capability = metadata.get("capability") or capability or _capability_hint(final_model)
             await self._upload_answer(
                 request_id=request_id,
+                conversation_id=conversation_id,
                 content=content,
                 model=final_model,
                 usage=usage,
@@ -566,7 +616,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         not a live chat surface, so previews stay local and only the final edit
         is uploaded through the normal answer pipeline.
         """
-        request_id = str(chat_id)
+        conversation_id, request_id = self._resolve_request_for_chat(chat_id)
         meta = metadata or {}
         stream_state = self._streaming_answers.setdefault(request_id, {})
         stream_state.update({
@@ -592,7 +642,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
             final_metadata["notify"] = True
         self._streaming_answers.pop(request_id, None)
         return await self.send(
-            chat_id=request_id,
+            chat_id=conversation_id,
             content=str(content),
             reply_to=None,
             metadata=final_metadata,
@@ -602,6 +652,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         self,
         *,
         request_id: str,
+        conversation_id: str | None = None,
         content: str,
         model: str,
         usage: dict,
@@ -624,7 +675,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
             )
             self._queue.upsert_pending(
                 request_id,
-                chat_id=request_id,
+                chat_id=conversation_id or request_id,
                 question=_synthetic_question_record(request_id),
             )
             self._queue.mark(request_id, "answered", answer=answer_payload)
@@ -639,10 +690,19 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         )
         if ok:
             self._queue.mark(request_id, "uploaded")
+            job = self._queue.by_request_id(request_id)
+            if job and job.get("chat_id"):
+                getattr(self, "_warm_conversations", set()).add(str(job["chat_id"]))
             log.info("uploaded %s (%dms, usage=%s)", request_id, duration_ms, _usage_log_label(usage))
             return SendResult(success=True, message_id=request_id)
         # WS down — leave job at 'answered'; _on_reconnected will retry.
         return SendResult(success=False, message_id=request_id)
+
+    def _resolve_request_for_chat(self, chat_id: Any) -> tuple[str, str]:
+        conversation_id = str(chat_id)
+        active_by_chat = getattr(self, "_active_request_by_chat", {})
+        request_id = active_by_chat.get(conversation_id, conversation_id)
+        return conversation_id, request_id
 
     async def get_chat_info(self, chat_id):  # type: ignore[override]
         job = self._queue.by_chat(str(chat_id))
@@ -934,10 +994,57 @@ def _format_prompt(title: str, body: str, tags: list, asker_nick: str) -> str:
     return "\n".join(parts)
 
 
+def _format_followup_text(title: str, body: str, tags: list) -> str:
+    parts: list[str] = []
+    if title:
+        parts.append(str(title))
+    if body:
+        parts.append(str(body).strip())
+    if tags:
+        parts.append(f"[标签: {', '.join(tags)}]")
+    return "\n\n".join(part for part in parts if part)
+
+
+def _format_followup_prompt(
+    followup_text: str,
+    *,
+    root_question: Any,
+    quoted_answer: Any,
+    include_context: bool,
+) -> str:
+    """Render a follow-up turn, optionally seeding cold Hermes conversations."""
+    parts: list[str] = []
+    if include_context:
+        root_title, root_body, root_tags = _extract_root_question_parts(root_question)
+        quoted_text = _extract_quoted_answer_text(quoted_answer)
+        if root_title or root_body or root_tags:
+            parts.append("Original root question:")
+            if root_title:
+                parts.append(f"# {root_title}")
+            if root_body:
+                parts.append(root_body)
+            if root_tags:
+                parts.append(f"[标签: {', '.join(root_tags)}]")
+        if quoted_text:
+            parts.append("Original answer:")
+            parts.append(quoted_text)
+    parts.append("Follow-up question:")
+    parts.append(str(followup_text or "").strip())
+    parts.append(AGENTMINT_PROMPT_SAFETY_GUIDANCE)
+    return "\n\n".join(part for part in parts if part)
+
+
 def _prompt_from_job(job: dict | None) -> str:
     if not job:
         return ""
     q = job.get("question") or {}
+    if q.get("turn_type") == "followup":
+        return _format_followup_prompt(
+            _format_followup_text(q.get("title") or "", (q.get("body") or "").strip(), q.get("tags") or []),
+            root_question=q.get("root_question"),
+            quoted_answer=q.get("quoted_answer"),
+            include_context=True,
+        )
     asker = q.get("asker") or {}
     return _format_prompt(
         q.get("title") or "",
@@ -945,6 +1052,31 @@ def _prompt_from_job(job: dict | None) -> str:
         q.get("tags") or [],
         asker.get("nickname", "anonymous"),
     )
+
+
+def _extract_root_question_parts(root_question: Any) -> tuple[str, str, list[str]]:
+    if isinstance(root_question, dict):
+        tags = root_question.get("tags") or []
+        if not isinstance(tags, list):
+            tags = [str(tags)]
+        return (
+            str(root_question.get("title") or "").strip(),
+            str(root_question.get("body") or "").strip(),
+            [str(tag) for tag in tags],
+        )
+    text = str(root_question or "").strip()
+    return (text, "", []) if text else ("", "", [])
+
+
+def _extract_quoted_answer_text(quoted_answer: Any) -> str:
+    if isinstance(quoted_answer, dict):
+        return str(
+            quoted_answer.get("text")
+            or quoted_answer.get("body")
+            or quoted_answer.get("content")
+            or ""
+        ).strip()
+    return str(quoted_answer or "").strip()
 
 
 def _synthetic_question_record(request_id: str) -> dict:
