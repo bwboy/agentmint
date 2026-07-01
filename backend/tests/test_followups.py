@@ -159,6 +159,7 @@ class FollowupRouteDB:
         self.flushed = 0
         self.answer_status_updates = []
         self.fuel_deductions = []
+        self.fuel_refunds = []
 
     async def execute(self, stmt):
         if isinstance(stmt, Update):
@@ -234,14 +235,25 @@ class FollowupRouteDB:
 
         if table_name == "users":
             user_id = self._where_value(stmt, "id")
-            cost = self._fuel_cost_from_update(stmt)
-            if self.user and self.user.id == user_id and int(self.balance_snapshot or 0) >= cost:
-                self.balance_snapshot = int(self.balance_snapshot or 0) - cost
+            amount = self._fuel_amount_from_update(stmt)
+            operator_name = next(iter(stmt._values.values())).operator.__name__
+            if operator_name == "sub":
+                if self.user and self.user.id == user_id and int(self.balance_snapshot or 0) >= amount:
+                    self.balance_snapshot = int(self.balance_snapshot or 0) - amount
+                    self.user.fuel_balance = int(self.user.fuel_balance or 0) - amount
+                    rowcount = 1
+                else:
+                    rowcount = 0
+                self.fuel_deductions.append({"user_id": user_id, "fuel_cost": amount, "rowcount": rowcount})
+                return FakeUpdateResult(rowcount)
+            if operator_name == "add":
+                if self.user and self.user.id == user_id:
+                    self.balance_snapshot = int(self.balance_snapshot or 0) + amount
+                    self.user.fuel_balance = int(self.user.fuel_balance or 0) + amount
                 rowcount = 1
-            else:
-                rowcount = 0
-            self.fuel_deductions.append({"user_id": user_id, "fuel_cost": cost, "rowcount": rowcount})
-            return FakeUpdateResult(rowcount)
+                self.fuel_refunds.append({"user_id": user_id, "fuel_amount": amount})
+                return FakeUpdateResult(rowcount)
+            raise AssertionError(f"unexpected user update operator: {operator_name}")
 
         raise AssertionError(f"unexpected update: {stmt}")
 
@@ -260,7 +272,7 @@ class FollowupRouteDB:
                 return False
         return True
 
-    def _fuel_cost_from_update(self, stmt):
+    def _fuel_amount_from_update(self, stmt):
         value = next(iter(stmt._values.values()))
         return int(value.right.value)
 
@@ -416,7 +428,7 @@ async def test_create_followup_rejects_target_without_approved_root_answer():
 
 
 @pytest.mark.asyncio
-async def test_create_followup_partial_push_charges_only_delivered_and_persists_context(monkeypatch):
+async def test_create_followup_partial_push_reserves_max_refunds_undelivered_and_persists_context(monkeypatch):
     user = make_route_user()
     root = make_route_question()
     quoted = make_route_answer(agent_id="a_ok")
@@ -481,7 +493,10 @@ async def test_create_followup_partial_push_charges_only_delivered_and_persists_
     ]
     assert incremented == ["a_ok"]
     assert db.fuel_deductions == [
-        {"user_id": user.id, "fuel_cost": questions.AVG_TOKENS_PER_ANSWER, "rowcount": 1}
+        {"user_id": user.id, "fuel_cost": 2 * questions.AVG_TOKENS_PER_ANSWER, "rowcount": 1}
+    ]
+    assert db.fuel_refunds == [
+        {"user_id": user.id, "fuel_amount": questions.AVG_TOKENS_PER_ANSWER}
     ]
     assert db.answer_status_updates == [
         {"answer_id": "ans_follow_1", "expected_status": "assigned", "new_status": "pushed", "rowcount": 1}

@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from models import Question, Answer, Feedback, Agent, User
 from services.auth import get_current_user
-from services.billing import deduct_fuel_if_available
+from services.billing import deduct_fuel_if_available, refund_fuel
 from services.followups import (
     build_conversation_id,
     build_followup_payload,
@@ -208,7 +208,7 @@ async def create_question(
     rate = EMERGENCY_FUEL_MULTIPLIER if req.is_emergency else 1
     max_possible_fuel_cost = len(matched) * AVG_TOKENS_PER_ANSWER * rate
 
-    if int(user.fuel_balance or 0) < max_possible_fuel_cost:
+    if not await deduct_fuel_if_available(db, user.id, max_possible_fuel_cost):
         raise HTTPException(status_code=402, detail="燃值不足")
 
     q = Question(
@@ -268,10 +268,7 @@ async def create_question(
 
     fuel_cost = pushed_count * AVG_TOKENS_PER_ANSWER * rate
     q.fuel_cost = fuel_cost
-    if not await deduct_fuel_if_available(db, user.id, fuel_cost):
-        raise HTTPException(status_code=402, detail="燃值扣除冲突，请刷新后重试")
-    if fuel_cost:
-        user.fuel_balance = int(user.fuel_balance or 0) - fuel_cost
+    await refund_fuel(db, user.id, max_possible_fuel_cost - fuel_cost)
 
     await db.commit()
 
@@ -335,7 +332,7 @@ async def create_followup(
         raise HTTPException(status_code=400, detail=f"Agent 不存在: {', '.join(missing_agents)}")
 
     max_possible_fuel_cost = len(target_agent_ids) * AVG_TOKENS_PER_ANSWER
-    if int(user.fuel_balance or 0) < max_possible_fuel_cost:
+    if not await deduct_fuel_if_available(db, user.id, max_possible_fuel_cost):
         raise HTTPException(status_code=402, detail="燃值不足")
 
     deadline = datetime.utcnow() + timedelta(minutes=max(1, req.deadline_minutes))
@@ -411,10 +408,7 @@ async def create_followup(
 
     fuel_cost = pushed_count * AVG_TOKENS_PER_ANSWER
     followup.fuel_cost = fuel_cost
-    if not await deduct_fuel_if_available(db, user.id, fuel_cost):
-        raise HTTPException(status_code=402, detail="燃值扣除冲突，请刷新后重试")
-    if fuel_cost:
-        user.fuel_balance = int(user.fuel_balance or 0) - fuel_cost
+    await refund_fuel(db, user.id, max_possible_fuel_cost - fuel_cost)
     await db.commit()
 
     return {

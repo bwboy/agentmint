@@ -2,8 +2,10 @@ from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.sql.dml import Update
 
 from routers import questions
+from services import billing
 
 
 class FakeScalarResult:
@@ -21,8 +23,12 @@ class FakeDB:
         self.commits = 0
         self.flushed = 0
         self.refreshed = []
+        self.fuel_deductions = []
+        self.fuel_refunds = []
 
     async def execute(self, stmt):
+        if isinstance(stmt, Update):
+            return self._execute_update(stmt)
         return FakeScalarResult(self.user)
 
     def add(self, obj):
@@ -43,6 +49,33 @@ class FakeDB:
             obj.id = "q_test"
         if getattr(obj, "created_at", None) is None:
             obj.created_at = datetime.utcnow()
+
+    def _execute_update(self, stmt):
+        if stmt.table.name == "answers":
+            return SimpleNamespace(rowcount=0)
+
+        user_id = self._where_value(stmt, "id")
+        value = next(iter(stmt._values.values()))
+        amount = int(value.right.value)
+        if value.operator.__name__ == "sub":
+            rowcount = 0
+            if self.user.id == user_id and int(self.user.fuel_balance or 0) >= amount:
+                self.user.fuel_balance = int(self.user.fuel_balance or 0) - amount
+                rowcount = 1
+            self.fuel_deductions.append({"user_id": user_id, "fuel_cost": amount, "rowcount": rowcount})
+            return SimpleNamespace(rowcount=rowcount)
+        if value.operator.__name__ == "add":
+            if self.user.id == user_id:
+                self.user.fuel_balance = int(self.user.fuel_balance or 0) + amount
+            self.fuel_refunds.append({"user_id": user_id, "fuel_amount": amount})
+            return SimpleNamespace(rowcount=1)
+        raise AssertionError(f"unexpected update: {stmt}")
+
+    def _where_value(self, stmt, field_name):
+        for criterion in stmt._where_criteria:
+            if criterion.left.name == field_name:
+                return criterion.right.value
+        raise AssertionError(f"missing where value for {field_name}: {stmt}")
 
 
 def make_user(balance=100_000):
@@ -81,7 +114,7 @@ class FeedbackResult:
 
 
 @pytest.mark.asyncio
-async def test_create_question_zero_push_charges_zero(monkeypatch):
+async def test_create_question_zero_push_reserves_then_refunds_all(monkeypatch):
     user = make_user()
     db = FakeDB(user)
     agent = make_agent("a_zero")
@@ -110,10 +143,16 @@ async def test_create_question_zero_push_charges_zero(monkeypatch):
     assert res["fuel_cost"] == 0
     assert res["estimated_fuel_cost"] == 0
     assert user.fuel_balance == 100_000
+    assert db.fuel_deductions == [
+        {"user_id": user.id, "fuel_cost": questions.AVG_TOKENS_PER_ANSWER, "rowcount": 1}
+    ]
+    assert db.fuel_refunds == [
+        {"user_id": user.id, "fuel_amount": questions.AVG_TOKENS_PER_ANSWER}
+    ]
 
 
 @pytest.mark.asyncio
-async def test_create_question_partial_push_charges_only_successes(monkeypatch):
+async def test_create_question_partial_push_reserves_max_and_refunds_undelivered(monkeypatch):
     user = make_user()
     db = FakeDB(user)
     agents = [make_agent("a_ok"), make_agent("a_fail")]
@@ -148,6 +187,34 @@ async def test_create_question_partial_push_charges_only_successes(monkeypatch):
     assert res["estimated_fuel_cost"] == questions.AVG_TOKENS_PER_ANSWER
     assert user.fuel_balance == 100_000 - questions.AVG_TOKENS_PER_ANSWER
     assert incremented == ["a_ok"]
+    assert db.fuel_deductions == [
+        {"user_id": user.id, "fuel_cost": 2 * questions.AVG_TOKENS_PER_ANSWER, "rowcount": 1}
+    ]
+    assert db.fuel_refunds == [
+        {"user_id": user.id, "fuel_amount": questions.AVG_TOKENS_PER_ANSWER}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_billing_deduct_zero_is_noop():
+    user = make_user()
+    db = FakeDB(user)
+
+    assert await billing.deduct_fuel_if_available(db, user.id, 0) is True
+
+    assert user.fuel_balance == 100_000
+    assert db.fuel_deductions == []
+
+
+@pytest.mark.asyncio
+async def test_billing_refund_zero_is_noop():
+    user = make_user()
+    db = FakeDB(user)
+
+    await billing.refund_fuel(db, user.id, 0)
+
+    assert user.fuel_balance == 100_000
+    assert db.fuel_refunds == []
 
 
 @pytest.mark.asyncio
