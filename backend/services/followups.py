@@ -1,10 +1,24 @@
 from typing import Any
 
 from fastapi import HTTPException
+from sqlalchemy import update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from models import Answer
 
 
 def build_conversation_id(root_question_id: str, agent_id: str) -> str:
     return f"conv_{root_question_id}_{agent_id}"
+
+
+async def mark_answer_pushed_if_assigned(db: AsyncSession, answer_id: str) -> bool:
+    result = await db.execute(
+        update(Answer)
+        .where(Answer.id == answer_id, Answer.status == "assigned")
+        .values(status="pushed")
+    )
+    rowcount = getattr(result, "rowcount", None)
+    return rowcount is None or int(rowcount or 0) > 0
 
 
 def answer_text(answer: Any) -> str:

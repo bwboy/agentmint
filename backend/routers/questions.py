@@ -16,11 +16,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from models import Question, Answer, Feedback, Agent, User
 from services.auth import get_current_user
+from services.billing import deduct_fuel_if_available
 from services.followups import (
     build_conversation_id,
     build_followup_payload,
     build_root_payload,
     ensure_followup_targets,
+    mark_answer_pushed_if_assigned,
 )
 from services.matching import build_match_explanation, build_task_profile, match_agents
 from services.review import decide_review_method, approve_answer_by_id, reject_answer_by_id
@@ -258,7 +260,7 @@ async def create_question(
         delivered = await hub.push_question(agent.id, payload)
         if delivered:
             pushed_count += 1
-            ans.status = "pushed"
+            await mark_answer_pushed_if_assigned(db, ans.id)
             try:
                 await increment_usage(db, agent.id)
             except Exception as e:
@@ -266,7 +268,10 @@ async def create_question(
 
     fuel_cost = pushed_count * AVG_TOKENS_PER_ANSWER * rate
     q.fuel_cost = fuel_cost
-    user.fuel_balance = int(user.fuel_balance or 0) - fuel_cost
+    if not await deduct_fuel_if_available(db, user.id, fuel_cost):
+        raise HTTPException(status_code=402, detail="燃值扣除冲突，请刷新后重试")
+    if fuel_cost:
+        user.fuel_balance = int(user.fuel_balance or 0) - fuel_cost
 
     await db.commit()
 
@@ -391,7 +396,7 @@ async def create_followup(
         status = "assigned"
         if delivered:
             pushed_count += 1
-            answer.status = "pushed"
+            await mark_answer_pushed_if_assigned(db, answer.id)
             status = "pushed"
             try:
                 await increment_usage(db, agent.id)
@@ -406,7 +411,10 @@ async def create_followup(
 
     fuel_cost = pushed_count * AVG_TOKENS_PER_ANSWER
     followup.fuel_cost = fuel_cost
-    user.fuel_balance = int(user.fuel_balance or 0) - fuel_cost
+    if not await deduct_fuel_if_available(db, user.id, fuel_cost):
+        raise HTTPException(status_code=402, detail="燃值扣除冲突，请刷新后重试")
+    if fuel_cost:
+        user.fuel_balance = int(user.fuel_balance or 0) - fuel_cost
     await db.commit()
 
     return {
