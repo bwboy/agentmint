@@ -56,3 +56,14 @@ export function questionAnswersForPolling(question: Pick<Question, "answers" | "
 export function questionAnswerCountForPolling(question: Pick<Question, "answer_count" | "answers" | "followups">) {
   return questionAnswersForPolling(question).length || question.answer_count || 0;
 }
+
+export function questionPollingDeadline(question: Pick<Question, "deadline_at" | "followups">) {
+  const deadlines = [
+    question.deadline_at,
+    ...(question.followups || []).map(thread => thread.deadline_at).filter(Boolean),
+  ] as string[];
+
+  return deadlines.reduce((latest, item) => (
+    new Date(item).getTime() > new Date(latest).getTime() ? item : latest
+  ), question.deadline_at);
+}

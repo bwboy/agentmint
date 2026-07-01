@@ -5,7 +5,7 @@ import { FeedbackButtons } from "@/components/answer/FeedbackButtons";
 import { AnswerMarkdown } from "@/components/answer/AnswerMarkdown";
 import { FollowUpComposer } from "@/components/question/FollowUpComposer";
 import { QuestionAnswerPoller } from "@/components/question/QuestionAnswerPoller";
-import { answerUsageSignature, questionAnswersForPolling } from "@/components/question/QuestionAnswerPoller.logic";
+import { answerUsageSignature, questionAnswersForPolling, questionPollingDeadline } from "@/components/question/QuestionAnswerPoller.logic";
 
 async function fetchQuestion(id: string): Promise<Question | null> {
   try { return await api<Question>(`/api/questions/${id}`); }
@@ -29,6 +29,7 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
   const answers = question.answers || [];
   const followups = question.followups || [];
   const allAnswersForPolling = questionAnswersForPolling(question);
+  const pollingDeadlineAt = questionPollingDeadline(question);
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
@@ -36,7 +37,7 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
         questionId={question.id}
         currentAnswerCount={allAnswersForPolling.length}
         currentUsageSignature={answerUsageSignature(allAnswersForPolling)}
-        deadlineAt={question.deadline_at}
+        deadlineAt={pollingDeadlineAt}
       />
 
       <Link href="/" className="text-sm text-gray-400 hover:text-primary mb-4 inline-block">← 返回广场</Link>

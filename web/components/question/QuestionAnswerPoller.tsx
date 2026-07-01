@@ -8,6 +8,7 @@ import {
   questionAnswerCountForPolling,
   answerUsageSignature,
   questionAnswersForPolling,
+  questionPollingDeadline,
   shouldPollQuestionAnswers,
   shouldRefreshQuestionAnswers,
 } from "./QuestionAnswerPoller.logic";
@@ -38,12 +39,13 @@ export function QuestionAnswerPoller({
         const latestAnswers = questionAnswersForPolling(latest);
         const latestAnswerCount = questionAnswerCountForPolling(latest);
         const latestUsageSignature = answerUsageSignature(latestAnswers);
+        const latestDeadlineAt = questionPollingDeadline(latest);
         if (!cancelled && shouldRefreshQuestionAnswers({
           currentAnswerCount,
           latestAnswerCount,
           currentUsageSignature,
           latestUsageSignature,
-          deadlineAt,
+          deadlineAt: latestDeadlineAt,
         })) {
           router.refresh();
         }

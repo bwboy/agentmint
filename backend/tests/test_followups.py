@@ -67,6 +67,7 @@ def test_serialize_followup_thread_exposes_thread_and_answer_linkage():
         quoted_answer_id="ans_root",
         body="More?",
         created_at=datetime(2026, 7, 1, 12, 0, 0),
+        deadline_at=datetime(2026, 7, 1, 12, 30, 0),
     )
     answer = SimpleNamespace(
         id="ans_fu",
@@ -93,6 +94,7 @@ def test_serialize_followup_thread_exposes_thread_and_answer_linkage():
     assert out["id"] == "q_fu"
     assert out["quoted_answer_id"] == "ans_root"
     assert out["text"] == "More?"
+    assert out["deadline_at"] == "2026-07-01T12:30:00"
     assert out["answers"][0]["conversation_id"] == "conv_q_root_a_1"
     assert out["answers"][0]["parent_answer_id"] == "ans_root"
 

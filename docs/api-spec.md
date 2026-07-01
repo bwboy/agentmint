@@ -114,6 +114,7 @@
       "root_question_id": "q_root",
       "quoted_answer_id": "ans_root",
       "text": "如果我是新手，应该怎么选？",
+      "deadline_at": "2026-07-01T04:00:00",
       "created_at": "2026-07-01T03:30:00",
       "answers": [
         {

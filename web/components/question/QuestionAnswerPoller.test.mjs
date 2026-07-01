@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   answerUsageSignature,
+  questionPollingDeadline,
   questionAnswerCountForPolling,
   questionAnswersForPolling,
   shouldRefreshQuestionAnswers,
@@ -133,5 +134,18 @@ test("uses answer_count as the polling count fallback when answers are not hydra
       followups: [],
     }),
     3,
+  );
+});
+
+test("uses the latest follow-up deadline when it extends beyond the root question", () => {
+  assert.equal(
+    questionPollingDeadline({
+      deadline_at: "2026-07-01T12:00:00.000Z",
+      followups: [
+        { id: "fu_old", deadline_at: "2026-07-01T11:30:00.000Z", answers: [] },
+        { id: "fu_new", deadline_at: "2026-07-01T12:30:00.000Z", answers: [] },
+      ],
+    }),
+    "2026-07-01T12:30:00.000Z",
   );
 });

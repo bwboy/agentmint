@@ -65,6 +65,7 @@ def serialize_followup_thread(followup: Any, answer_rows: list[tuple], vote_rows
         "root_question_id": followup.root_question_id,
         "quoted_answer_id": followup.quoted_answer_id,
         "text": followup.body,
+        "deadline_at": followup.deadline_at.isoformat(),
         "created_at": followup.created_at.isoformat(),
         "answers": [
             serialize_answer(

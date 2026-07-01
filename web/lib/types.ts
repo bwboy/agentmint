@@ -92,6 +92,7 @@ export interface FollowUpThread {
   root_question_id: string;
   quoted_answer_id: string;
   text: string;
+  deadline_at?: string;
   created_at: string;
   answers: Answer[];
 }
