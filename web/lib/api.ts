@@ -9,7 +9,6 @@ export const API_BASE = apiBaseForRuntime({
   isServer: typeof window === "undefined",
   publicApiBase: process.env.NEXT_PUBLIC_API_URL,
   internalApiBase: process.env.INTERNAL_API_URL,
-  browserHostname: typeof window === "undefined" ? undefined : window.location.hostname,
 });
 
 type FetchOpts = RequestInit & { token?: string | null; json?: any };

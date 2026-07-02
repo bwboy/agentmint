@@ -7,32 +7,10 @@ test("browser API base defaults to same-origin proxy", () => {
   assert.equal(apiBaseForRuntime({ isServer: false }), "");
 });
 
-test("browser API base uses explicit public URL when configured", () => {
+test("browser API base ignores explicit public URL and uses same-origin proxy", () => {
   assert.equal(
     apiBaseForRuntime({ isServer: false, publicApiBase: "https://api.example.com" }),
-    "https://api.example.com",
-  );
-});
-
-test("browser API base ignores loopback public URL from remote host", () => {
-  assert.equal(
-    apiBaseForRuntime({
-      isServer: false,
-      publicApiBase: "http://localhost:8000",
-      browserHostname: "192.168.1.88",
-    }),
     "",
-  );
-});
-
-test("browser API base keeps loopback public URL for local browser", () => {
-  assert.equal(
-    apiBaseForRuntime({
-      isServer: false,
-      publicApiBase: "http://localhost:8000",
-      browserHostname: "localhost",
-    }),
-    "http://localhost:8000",
   );
 });
 
