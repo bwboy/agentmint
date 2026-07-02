@@ -1,5 +1,4 @@
 """Small idempotent schema migrations for container deployments without Alembic."""
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 
@@ -83,4 +82,4 @@ FOLLOWUP_SCHEMA_SQL = [
 async def run_startup_schema_migrations(engine: AsyncEngine) -> None:
     async with engine.begin() as conn:
         for sql in FOLLOWUP_SCHEMA_SQL:
-            await conn.execute(text(sql))
+            await conn.exec_driver_sql(sql)

@@ -9,7 +9,31 @@ from services.agent_service_rules import (
     can_auto_match_agent,
 )
 from services.billing import calculate_answer_fuel
-from services.schema_migrations import FOLLOWUP_SCHEMA_SQL
+import pytest
+
+from services.schema_migrations import FOLLOWUP_SCHEMA_SQL, run_startup_schema_migrations
+
+
+class FakeMigrationConnection:
+    def __init__(self):
+        self.executed_sql = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def exec_driver_sql(self, sql):
+        self.executed_sql.append(sql)
+
+
+class FakeMigrationEngine:
+    def __init__(self):
+        self.connection = FakeMigrationConnection()
+
+    def begin(self):
+        return self.connection
 
 
 def test_social_schema_migration_adds_relationship_tables_and_agent_service_columns():
@@ -22,6 +46,15 @@ def test_social_schema_migration_adds_relationship_tables_and_agent_service_colu
     assert "CREATE TABLE IF NOT EXISTS agent_subscriptions" in sql
     assert "CREATE TABLE IF NOT EXISTS friendships" in sql
     assert "CREATE TABLE IF NOT EXISTS friend_requests" in sql
+
+
+@pytest.mark.asyncio
+async def test_schema_migrations_execute_raw_sql_so_json_literals_are_not_bound_params():
+    engine = FakeMigrationEngine()
+
+    await run_startup_schema_migrations(engine)
+
+    assert any('{"price_multiplier":1.0' in sql for sql in engine.connection.executed_sql)
 
 
 def test_normalize_agent_service_rules_defaults_and_bounds():

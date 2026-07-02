@@ -122,8 +122,8 @@ class FakeConnection:
     def __init__(self):
         self.executed = []
 
-    async def execute(self, statement):
-        self.executed.append(statement)
+    async def exec_driver_sql(self, sql):
+        self.executed.append(sql)
 
 
 class FakeBeginContext:
@@ -391,21 +391,12 @@ def make_route_agent(agent_id):
 
 
 @pytest.mark.asyncio
-async def test_startup_schema_migrations_execute_all_sql_through_text_in_order(monkeypatch):
-    wrapped_statements = []
-
-    def fake_text(sql):
-        wrapped_statement = ("text", sql)
-        wrapped_statements.append(sql)
-        return wrapped_statement
-
+async def test_startup_schema_migrations_execute_all_sql_in_order():
     engine = FakeEngine()
-    monkeypatch.setattr(schema_migrations, "text", fake_text)
 
     await schema_migrations.run_startup_schema_migrations(engine)
 
-    assert wrapped_statements == FOLLOWUP_SCHEMA_SQL
-    assert engine.connection.executed == [("text", sql) for sql in FOLLOWUP_SCHEMA_SQL]
+    assert engine.connection.executed == FOLLOWUP_SCHEMA_SQL
 
 
 @pytest.mark.asyncio
