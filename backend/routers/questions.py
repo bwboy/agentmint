@@ -228,6 +228,7 @@ async def create_question(
         max_responders=max(1, req.max_responders),
         title=req.title,
         body=req.body,
+        viewer_id=user.id,
     )
     task_profile = build_task_profile(req.title, req.body, req.tags, req.max_responders)
     match_explanations = [

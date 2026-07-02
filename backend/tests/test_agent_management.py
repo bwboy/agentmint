@@ -44,6 +44,32 @@ class RefreshableDB:
         self.refreshes += 1
 
 
+class RelationshipDB:
+    def __init__(self, results=None):
+        self.results = list(results or [])
+        self.added = []
+        self.deleted = []
+        self.commits = 0
+
+    async def execute(self, stmt):
+        if self.results:
+            return self.results.pop(0)
+        return ScalarResult(None)
+
+    def add(self, obj):
+        self.added.append(obj)
+
+    async def delete(self, obj):
+        self.deleted.append(obj)
+
+    async def commit(self):
+        self.commits += 1
+
+    async def refresh(self, obj):
+        if getattr(obj, "id", None) is None:
+            obj.id = "generated"
+
+
 class FakeDB:
     def __init__(self, agent, answer_count=0, connectors=None):
         self.results = [
@@ -112,6 +138,9 @@ def test_agent_to_dict_includes_readiness():
         approval_rate=0,
         status="online",
         is_public=True,
+        visibility="followers",
+        service_mode="direct_only",
+        service_rules={"price_multiplier": 1.5, "max_followup_depth": 3},
         created_at=None,
         review_rules={
             "agentmint_readiness": {"state": "ready"},
@@ -124,6 +153,91 @@ def test_agent_to_dict_includes_readiness():
     assert out["readiness"]["state"] == "ready"
     assert out["learned_profile"]["domain_tags"] == ["魔兽世界"]
     assert out["learned_profile"]["sample_count"] == 2
+    assert out["visibility"] == "followers"
+    assert out["service_mode"] == "direct_only"
+    assert out["service_rules"]["price_multiplier"] == 1.5
+    assert out["service_rules"]["max_followup_depth"] == 3
+
+
+@pytest.mark.asyncio
+async def test_create_agent_maps_legacy_non_public_to_archived():
+    db = RelationshipDB()
+
+    out = await agents.create_agent(
+        agents.CreateAgentReq(name="Hidden", agent_type="hermes", is_public=False),
+        user={"sub": "u_owner", "nickname": "owner"},
+        db=db,
+    )
+
+    assert db.added[0].visibility == "archived"
+    assert out["visibility"] == "archived"
+
+
+@pytest.mark.asyncio
+async def test_create_agent_visibility_controls_legacy_is_public():
+    db = RelationshipDB()
+
+    out = await agents.create_agent(
+        agents.CreateAgentReq(name="Follower Agent", agent_type="hermes", visibility="followers"),
+        user={"sub": "u_owner", "nickname": "owner"},
+        db=db,
+    )
+
+    assert db.added[0].is_public is False
+    assert out["is_public"] is False
+    assert out["visibility"] == "followers"
+
+
+@pytest.mark.asyncio
+async def test_follow_user_creates_one_way_follow():
+    target = SimpleNamespace(id="u_target")
+    db = RelationshipDB(results=[ScalarResult(target), ScalarResult(None)])
+
+    out = await agents.follow_user("u_target", user={"sub": "u_me"}, db=db)
+
+    assert out == {"following": True, "user_id": "u_target"}
+    assert db.added[0].follower_id == "u_me"
+    assert db.added[0].followed_id == "u_target"
+    assert db.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_subscribe_agent_creates_subscription():
+    agent = SimpleNamespace(id="a_target", user_id="u_owner", visibility="public")
+    db = RelationshipDB(results=[ScalarResult(agent), ListResult([]), ListResult([]), ScalarResult(None)])
+
+    out = await agents.subscribe_agent("a_target", user={"sub": "u_me"}, db=db)
+
+    assert out == {"subscribed": True, "agent_id": "a_target"}
+    assert db.added[0].subscriber_id == "u_me"
+    assert db.added[0].agent_id == "a_target"
+    assert db.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_subscribe_agent_rejects_invisible_agent():
+    agent = SimpleNamespace(id="a_hidden", user_id="u_owner", visibility="followers")
+    db = RelationshipDB(results=[ScalarResult(agent), ListResult([]), ListResult([])])
+
+    with pytest.raises(HTTPException) as exc_info:
+        await agents.subscribe_agent("a_hidden", user={"sub": "u_me"}, db=db)
+
+    assert exc_info.value.status_code == 404
+    assert db.added == []
+    assert db.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_create_friend_request_creates_pending_request():
+    target = SimpleNamespace(id="u_target")
+    db = RelationshipDB(results=[ScalarResult(target), ScalarResult(None), ScalarResult(None)])
+
+    out = await agents.create_friend_request("u_target", user={"sub": "u_me"}, db=db)
+
+    assert out["status"] == "pending"
+    assert db.added[0].requester_id == "u_me"
+    assert db.added[0].recipient_id == "u_target"
+    assert db.commits == 1
 
 
 @pytest.mark.asyncio

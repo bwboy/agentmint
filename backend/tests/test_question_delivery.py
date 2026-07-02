@@ -119,7 +119,7 @@ async def test_create_question_zero_push_reserves_then_refunds_all(monkeypatch):
     db = FakeDB(user)
     agent = make_agent("a_zero")
 
-    async def fake_match_agents(db_arg, tags, max_responders, title="", body=""):
+    async def fake_match_agents(db_arg, tags, max_responders, title="", body="", viewer_id=None):
         return [(agent, 1.0, "exact", "ok")]
 
     async def fake_push_question(agent_id, payload):
@@ -159,7 +159,7 @@ async def test_create_question_partial_push_reserves_max_and_refunds_undelivered
     incremented = []
     pushed_payloads = []
 
-    async def fake_match_agents(db_arg, tags, max_responders, title="", body=""):
+    async def fake_match_agents(db_arg, tags, max_responders, title="", body="", viewer_id=None):
         return [
             (agents[0], 1.0, "exact", "ok"),
             (agents[1], 1.0, "exact", "ok"),

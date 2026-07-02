@@ -120,7 +120,7 @@ async def test_duplicate_upload_does_not_overwrite_terminal_answer(monkeypatch):
 @pytest.mark.asyncio
 async def test_usage_correction_updates_terminal_answer_without_overwriting_content(monkeypatch):
     answer = make_answer(status="approved")
-    agent = SimpleNamespace(id="a_test", fuel_earned=10)
+    agent = SimpleNamespace(id="a_test", fuel_earned=10, service_rules={})
 
     class CorrectionSession(FakeSession):
         async def execute(self, stmt):
@@ -154,7 +154,7 @@ async def test_usage_correction_updates_terminal_answer_without_overwriting_cont
         "completion_tokens": 816,
         "total_tokens": 886,
     }
-    assert answer.fuel_earned == 886
-    assert agent.fuel_earned == 886
+    assert answer.fuel_earned == 1702
+    assert agent.fuel_earned == 1702
     assert answer.status == "approved"
     assert session.commits == 1

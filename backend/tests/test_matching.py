@@ -4,7 +4,7 @@ import pytest
 from services.matching import (
     normalize_tags, exact_match_score, similarity_score, rank,
     build_task_profile, build_match_explanation, build_query_tags, TAG_GROUPS,
-    filter_ready_agents, agent_matching_tags,
+    filter_ready_agents, agent_matching_tags, filter_matchable_agents,
 )
 
 
@@ -235,6 +235,33 @@ def test_build_match_explanation_includes_learned_hits():
 
     assert "魔兽世界" in explanation["learned_hits"]
     assert "风险审查" in explanation["learned_hits"]
+
+
+def test_filter_matchable_agents_uses_visibility_relationships_and_service_mode():
+    public = _agent_for_filter("a_public", "u_public", "public", "auto_match")
+    follower = _agent_for_filter("a_follower", "u_followed", "followers", "auto_match")
+    friend = _agent_for_filter("a_friend", "u_friend", "friends", "auto_match")
+    direct = _agent_for_filter("a_direct", "u_public", "public", "direct_only")
+    archived = _agent_for_filter("a_archived", "u_public", "archived", "stopped")
+
+    visible = filter_matchable_agents(
+        [public, follower, friend, direct, archived],
+        viewer_id="u_me",
+        followed_owner_ids={"u_followed"},
+        friend_owner_ids={"u_friend"},
+    )
+
+    assert [agent.id for agent in visible] == ["a_public", "a_follower", "a_friend"]
+
+
+def _agent_for_filter(agent_id: str, owner_id: str, visibility: str, service_mode: str):
+    return type("AgentFilterStub", (), {
+        "id": agent_id,
+        "user_id": owner_id,
+        "visibility": visibility,
+        "service_mode": service_mode,
+        "review_rules": {"agentmint_readiness": {"state": "ready"}},
+    })()
     assert explanation["learned_profile"]["sample_count"] == 4
     assert "魔兽世界" in agent_matching_tags(AgentStub())
 

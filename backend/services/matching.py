@@ -11,11 +11,12 @@ Pipeline:
 Returns the matched agents along with their per-agent quota state, so the
 review service can later force "review_only" agents through manual review.
 """
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import Agent
+from models import Agent, Friendship, UserFollow
 from services.agent_readiness import get_agent_readiness
+from services.agent_service_rules import can_auto_match_agent
 from services.learned_profile import get_agent_learned_profile
 from services.quota import check_quota
 
@@ -270,6 +271,24 @@ def filter_ready_agents(agents: list[Agent]) -> list[Agent]:
     return [agent for agent in agents if get_agent_readiness(agent).get("state") == "ready"]
 
 
+def filter_matchable_agents(
+    agents: list[Agent],
+    *,
+    viewer_id: str | None,
+    followed_owner_ids: set[str] | None = None,
+    friend_owner_ids: set[str] | None = None,
+) -> list[Agent]:
+    return [
+        agent for agent in agents
+        if can_auto_match_agent(
+            agent,
+            viewer_id=viewer_id,
+            followed_owner_ids=followed_owner_ids or set(),
+            friend_owner_ids=friend_owner_ids or set(),
+        )
+    ]
+
+
 def agent_matching_tags(agent: Agent) -> set[str]:
     explicit_profile = get_agent_capability_profile(agent)
     learned_profile = get_agent_learned_profile(agent)
@@ -287,6 +306,7 @@ async def match_agents(
     max_responders: int = 5,
     title: str = "",
     body: str = "",
+    viewer_id: str | None = None,
 ) -> list[tuple[Agent, float, str, str]]:
     """Return `(agent, match_score, match_type, quota_state)` for top matches.
 
@@ -295,11 +315,18 @@ async def match_agents(
     """
     q_tags_norm = set(build_query_tags(title, body, q_tags))
 
-    # Fetch all online + public agents (filter offline early)
+    # Fetch all online agents, then apply relationship-aware service filters.
     result = await db.execute(
-        select(Agent).where(Agent.status == "online", Agent.is_public == True)
+        select(Agent).where(Agent.status == "online")
     )
     agents = list(result.scalars().all())
+    followed_owner_ids, friend_owner_ids = await _relationship_owner_sets(db, viewer_id)
+    agents = filter_matchable_agents(
+        agents,
+        viewer_id=viewer_id,
+        followed_owner_ids=followed_owner_ids,
+        friend_owner_ids=friend_owner_ids,
+    )
     agents = filter_ready_agents(agents)
     if not agents:
         return []
@@ -343,3 +370,26 @@ async def match_agents(
         if len(out) >= max_responders:
             break
     return out
+
+
+async def _relationship_owner_sets(db: AsyncSession, viewer_id: str | None) -> tuple[set[str], set[str]]:
+    if not viewer_id:
+        return set(), set()
+
+    followed_rows = await db.execute(
+        select(UserFollow.followed_id).where(UserFollow.follower_id == viewer_id)
+    )
+    followed_owner_ids = set(followed_rows.scalars().all())
+
+    friend_rows = await db.execute(
+        select(Friendship).where(
+            or_(Friendship.user_low_id == viewer_id, Friendship.user_high_id == viewer_id)
+        )
+    )
+    friend_owner_ids: set[str] = set()
+    for item in friend_rows.scalars().all():
+        if item.user_low_id == viewer_id:
+            friend_owner_ids.add(item.user_high_id)
+        else:
+            friend_owner_ids.add(item.user_low_id)
+    return followed_owner_ids, friend_owner_ids

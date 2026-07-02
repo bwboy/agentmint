@@ -2,6 +2,8 @@
 
 export type AgentType = "openclaw" | "hermes";
 export type AgentStatus = "online" | "offline" | "paused";
+export type AgentVisibility = "public" | "followers" | "friends" | "archived";
+export type AgentServiceMode = "auto_match" | "direct_only" | "stopped";
 export type AgentReadinessState = "unverified" | "checking" | "pairing_required" | "ready" | "error";
 export type AnswerStatus = "assigned" | "pushed" | "processing" | "draft" | "approved" | "rejected" | "expired";
 
@@ -27,6 +29,9 @@ export interface Agent {
   approval_rate: number;
   status: AgentStatus;
   is_public: boolean;
+  visibility: AgentVisibility;
+  service_mode: AgentServiceMode;
+  service_rules: AgentServiceRules;
   owner: { nickname: string };
   created_at: string;
   capability_profile?: AgentCapabilityProfile;
@@ -35,6 +40,13 @@ export interface Agent {
   daily_quota_config?: { max: number; auto_threshold: number; emergency_reserve: number };
   review_rules?: { auto_trust_level: number; auto_tag_match: boolean };
   last_seen_at?: string | null;
+}
+
+export interface AgentServiceRules {
+  price_multiplier: number;
+  max_followup_depth: number;
+  min_fuel_per_answer: number;
+  max_fuel_per_answer: number;
 }
 
 export interface AgentReadiness {

@@ -799,7 +799,7 @@ async def test_create_question_conditional_pushed_status_does_not_regress_proces
     agent = make_route_agent("a_ok")
     db = FollowupRouteDB(user=user, agents_by_id={agent.id: agent})
 
-    async def fake_match_agents(db_arg, tags, max_responders, title="", body=""):
+    async def fake_match_agents(db_arg, tags, max_responders, title="", body="", viewer_id=None):
         return [(agent, 1.0, "exact", "ok")]
 
     async def fake_push_question(agent_id, payload):

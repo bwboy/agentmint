@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import AsyncSessionLocal
 from models import Answer, Agent, Question, User
+from services.billing import calculate_answer_fuel
 from services.learned_profile import update_learned_profile_from_approval
 from services.notification import create_notification
 
@@ -121,9 +122,6 @@ async def _apply_usage_correction(db: AsyncSession, answer: Answer, msg: dict) -
     if not new_usage:
         return
 
-    old_usage = answer.usage or {}
-    old_tokens = int(old_usage.get("total_tokens") or 0)
-    new_tokens = int(new_usage.get("total_tokens") or 0)
     answer.usage = new_usage
     if msg.get("model"):
         answer.model = msg.get("model", "") or answer.model
@@ -131,12 +129,13 @@ async def _apply_usage_correction(db: AsyncSession, answer: Answer, msg: dict) -
         answer.capability = msg.get("capability", {}) or answer.capability
 
     if answer.status == "approved":
-        answer.fuel_earned = new_tokens
-        delta = new_tokens - old_tokens
-        if delta:
-            agent_result = await db.execute(select(Agent).where(Agent.id == answer.agent_id))
-            agent = agent_result.scalar_one_or_none()
-            if agent:
+        agent_result = await db.execute(select(Agent).where(Agent.id == answer.agent_id))
+        agent = agent_result.scalar_one_or_none()
+        if agent:
+            new_fuel = calculate_answer_fuel(new_usage, agent)
+            delta = new_fuel - int(answer.fuel_earned or 0)
+            answer.fuel_earned = new_fuel
+            if delta:
                 agent.fuel_earned = int(agent.fuel_earned or 0) + delta
 
     await db.commit()
@@ -151,14 +150,14 @@ async def _approve_inline(db: AsyncSession, answer: Answer):
     """
     answer.status = "approved"
     answer.reviewed_at = datetime.utcnow()
-    tokens = int((answer.usage or {}).get("total_tokens", 0))
-    answer.fuel_earned = tokens
 
     # Update agent aggregates
     agent_result = await db.execute(select(Agent).where(Agent.id == answer.agent_id))
     agent = agent_result.scalar_one_or_none()
+    fuel = calculate_answer_fuel(answer.usage or {}, agent) if agent else int((answer.usage or {}).get("total_tokens", 0))
+    answer.fuel_earned = fuel
     if agent:
-        agent.fuel_earned = int(agent.fuel_earned or 0) + tokens
+        agent.fuel_earned = int(agent.fuel_earned or 0) + fuel
         agent.total_answers = int(agent.total_answers or 0) + 1
         # Simple incremental approval-rate update (count of approvals / total_answers)
         # In practice total_answers also bumps on rejection; here we keep it simple.

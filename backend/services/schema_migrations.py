@@ -21,6 +21,62 @@ FOLLOWUP_SCHEMA_SQL = [
     "ALTER TABLE answers ALTER COLUMN turn_type SET NOT NULL",
     "CREATE INDEX IF NOT EXISTS idx_answers_conversation_id ON answers(conversation_id)",
     "CREATE INDEX IF NOT EXISTS idx_answers_parent_answer_id ON answers(parent_answer_id)",
+    "ALTER TABLE agents ADD COLUMN IF NOT EXISTS visibility VARCHAR",
+    "UPDATE agents SET visibility=CASE WHEN is_public THEN 'public' ELSE 'archived' END WHERE visibility IS NULL",
+    "ALTER TABLE agents ALTER COLUMN visibility SET DEFAULT 'public'",
+    "ALTER TABLE agents ADD COLUMN IF NOT EXISTS service_mode VARCHAR",
+    "UPDATE agents SET service_mode='auto_match' WHERE service_mode IS NULL",
+    "ALTER TABLE agents ALTER COLUMN service_mode SET DEFAULT 'auto_match'",
+    "ALTER TABLE agents ADD COLUMN IF NOT EXISTS service_rules JSONB",
+    """UPDATE agents SET service_rules='{"price_multiplier":1.0,"max_followup_depth":2,"min_fuel_per_answer":0,"max_fuel_per_answer":100000}'::jsonb WHERE service_rules IS NULL""",
+    "CREATE INDEX IF NOT EXISTS idx_agents_visibility ON agents(visibility)",
+    "CREATE INDEX IF NOT EXISTS idx_agents_service_mode ON agents(service_mode)",
+    """
+    CREATE TABLE IF NOT EXISTS user_follows (
+        id VARCHAR PRIMARY KEY,
+        follower_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        followed_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ DEFAULT now(),
+        UNIQUE (follower_id, followed_id)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_user_follows_follower_id ON user_follows(follower_id)",
+    "CREATE INDEX IF NOT EXISTS idx_user_follows_followed_id ON user_follows(followed_id)",
+    """
+    CREATE TABLE IF NOT EXISTS agent_subscriptions (
+        id VARCHAR PRIMARY KEY,
+        subscriber_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        agent_id VARCHAR NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ DEFAULT now(),
+        UNIQUE (subscriber_id, agent_id)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_agent_subscriptions_subscriber_id ON agent_subscriptions(subscriber_id)",
+    "CREATE INDEX IF NOT EXISTS idx_agent_subscriptions_agent_id ON agent_subscriptions(agent_id)",
+    """
+    CREATE TABLE IF NOT EXISTS friendships (
+        id VARCHAR PRIMARY KEY,
+        user_low_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        user_high_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ DEFAULT now(),
+        UNIQUE (user_low_id, user_high_id)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_friendships_user_low_id ON friendships(user_low_id)",
+    "CREATE INDEX IF NOT EXISTS idx_friendships_user_high_id ON friendships(user_high_id)",
+    """
+    CREATE TABLE IF NOT EXISTS friend_requests (
+        id VARCHAR PRIMARY KEY,
+        requester_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        recipient_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        status VARCHAR DEFAULT 'pending',
+        created_at TIMESTAMPTZ DEFAULT now(),
+        responded_at TIMESTAMPTZ,
+        UNIQUE (requester_id, recipient_id, status)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_friend_requests_recipient_id ON friend_requests(recipient_id)",
+    "CREATE INDEX IF NOT EXISTS idx_friend_requests_requester_id ON friend_requests(requester_id)",
 ]
 
 

@@ -16,6 +16,17 @@ class Agent(Base):
     tags: Mapped[list] = mapped_column(ARRAY(String), default=list)
     description: Mapped[str] = mapped_column(Text, default="")
     is_public: Mapped[bool] = mapped_column(Boolean, default=True)
+    visibility: Mapped[str] = mapped_column(String, default="public")
+    service_mode: Mapped[str] = mapped_column(String, default="auto_match")
+    service_rules: Mapped[dict] = mapped_column(
+        JSONB,
+        default=lambda: {
+            "price_multiplier": 1.0,
+            "max_followup_depth": 2,
+            "min_fuel_per_answer": 0,
+            "max_fuel_per_answer": 100000,
+        },
+    )
     status: Mapped[str] = mapped_column(String, default="offline")  # online | offline | paused
     repute_score: Mapped[float] = mapped_column(Numeric(3, 1), default=0)
     fuel_earned: Mapped[int] = mapped_column(BigInteger, default=0)
