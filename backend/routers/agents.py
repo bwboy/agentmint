@@ -5,7 +5,7 @@ to prevent users from approving each other's agents.
 """
 import secrets
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from models import Agent, AgentSubscription, Connector, FriendRequest, Friendship, User, UserFollow, Answer, Question
 from models.relationship import friendship_pair
-from services.auth import get_current_user, hash_token
+from services.auth import decode_token, get_current_user, hash_token
 from services.agent_readiness import get_agent_readiness, set_agent_readiness
 from services.agent_service_rules import can_view_agent, normalize_service_mode, normalize_service_rules, normalize_visibility
 from services.learned_profile import get_agent_learned_profile
@@ -86,18 +86,44 @@ async def list_agents(
     }
 
 
+def get_optional_user(request: Request) -> dict | None:
+    auth = request.headers.get("authorization", "")
+    if not auth.startswith("Bearer "):
+        return None
+    payload = decode_token(auth[len("Bearer "):])
+    if not payload or payload.get("type") != "access":
+        return None
+    return payload
+
+
 @router.get("/agents/{agent_id}")
-async def get_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
+async def get_agent(
+    agent_id: str,
+    viewer: dict | None = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(
         select(Agent, User.nickname)
         .join(User, Agent.user_id == User.id)
-        .where(Agent.id == agent_id, Agent.visibility == "public")
+        .where(Agent.id == agent_id)
     )
     row = result.one_or_none()
     if not row:
         raise HTTPException(status_code=404, detail="Agent 不存在")
     agent, nickname = row
-    return _agent_to_dict(agent, nickname, include_owner_id=False, full=True)
+    if viewer:
+        followed_owner_ids, friend_owner_ids = await _relationship_owner_sets(db, viewer["sub"])
+    else:
+        followed_owner_ids, friend_owner_ids = set(), set()
+    if not can_view_agent(
+        agent,
+        viewer_id=viewer["sub"] if viewer else None,
+        followed_owner_ids=followed_owner_ids,
+        friend_owner_ids=friend_owner_ids,
+    ):
+        raise HTTPException(status_code=404, detail="Agent 不存在")
+    relationship = await _relationship_context(db, viewer["sub"], agent) if viewer else None
+    return _agent_to_dict(agent, nickname, include_owner_id=True, full=True, relationship=relationship)
 
 
 # ═══════════════════════════════════════════════════
@@ -534,7 +560,13 @@ async def _get_owned_agent(db: AsyncSession, agent_id: str, user_id: str) -> Age
     return agent
 
 
-def _agent_to_dict(agent: Agent, owner_nickname: str, include_owner_id: bool = False, full: bool = False) -> dict:
+def _agent_to_dict(
+    agent: Agent,
+    owner_nickname: str,
+    include_owner_id: bool = False,
+    full: bool = False,
+    relationship: dict | None = None,
+) -> dict:
     out = {
         "id": agent.id,
         "name": agent.name,
@@ -560,6 +592,10 @@ def _agent_to_dict(agent: Agent, owner_nickname: str, include_owner_id: bool = F
         out["daily_quota_config"] = agent.daily_quota_config
         out["review_rules"] = agent.review_rules
         out["last_seen_at"] = agent.last_seen_at.isoformat() if agent.last_seen_at else None
+    if include_owner_id:
+        out["owner"]["id"] = agent.user_id
+    if relationship is not None:
+        out["relationship"] = relationship
     return out
 
 
@@ -585,3 +621,51 @@ async def _relationship_owner_sets(db: AsyncSession, user_id: str) -> tuple[set[
     for item in friend_rows.scalars().all():
         friend_owner_ids.add(item.user_high_id if item.user_low_id == user_id else item.user_low_id)
     return followed_owner_ids, friend_owner_ids
+
+
+async def _relationship_context(db: AsyncSession, viewer_id: str, agent: Agent) -> dict:
+    owner_id = agent.user_id
+    if viewer_id == owner_id:
+        return {
+            "is_owner": True,
+            "following_owner": False,
+            "subscribed": False,
+            "friendship_status": "self",
+            "friend_request_id": None,
+        }
+
+    following = (await db.execute(
+        select(UserFollow).where(UserFollow.follower_id == viewer_id, UserFollow.followed_id == owner_id)
+    )).scalar_one_or_none()
+    subscription = (await db.execute(
+        select(AgentSubscription).where(
+            AgentSubscription.subscriber_id == viewer_id,
+            AgentSubscription.agent_id == agent.id,
+        )
+    )).scalar_one_or_none()
+    low, high = friendship_pair(viewer_id, owner_id)
+    friendship = (await db.execute(
+        select(Friendship).where(Friendship.user_low_id == low, Friendship.user_high_id == high)
+    )).scalar_one_or_none()
+    pending_request = None
+    friendship_status = "none"
+    if friendship:
+        friendship_status = "accepted"
+    else:
+        pending_request = (await db.execute(
+            select(FriendRequest).where(
+                ((FriendRequest.requester_id == viewer_id) & (FriendRequest.recipient_id == owner_id))
+                | ((FriendRequest.requester_id == owner_id) & (FriendRequest.recipient_id == viewer_id)),
+                FriendRequest.status == "pending",
+            )
+        )).scalar_one_or_none()
+        if pending_request:
+            friendship_status = "pending_outgoing" if pending_request.requester_id == viewer_id else "pending_incoming"
+
+    return {
+        "is_owner": False,
+        "following_owner": bool(following),
+        "subscribed": bool(subscription),
+        "friendship_status": friendship_status,
+        "friend_request_id": pending_request.id if pending_request else None,
+    }

@@ -1,9 +1,12 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
+import { AgentRelationshipActions } from "@/components/agent/AgentRelationshipActions";
 import { api } from "@/lib/api";
 import type { Agent } from "@/lib/types";
 
 async function fetchAgent(id: string): Promise<Agent | null> {
-  try { return await api<Agent>(`/api/agents/${id}`); }
+  const token = cookies().get("agentmint_token")?.value;
+  try { return await api<Agent>(`/api/agents/${id}`, { token }); }
   catch { return null; }
 }
 
@@ -53,6 +56,7 @@ export default async function AgentProfilePage({ params }: { params: { id: strin
           <Stat label="回答数" value={String(agent.total_answers)} color="text-gray-700" />
           <Stat label="好评率" value={`${Math.round(agent.approval_rate * 100)}%`} color="text-gray-700" />
         </div>
+        <AgentRelationshipActions agent={agent} />
       </div>
     </div>
   );

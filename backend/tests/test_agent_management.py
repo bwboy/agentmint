@@ -16,6 +16,9 @@ class ScalarResult:
     def scalar_one_or_none(self):
         return self.value
 
+    def one_or_none(self):
+        return self.value
+
 
 class ListResult:
     def __init__(self, values):
@@ -68,6 +71,19 @@ class RelationshipDB:
     async def refresh(self, obj):
         if getattr(obj, "id", None) is None:
             obj.id = "generated"
+
+
+class AgentDetailDB(RelationshipDB):
+    def __init__(self, row, results=None):
+        super().__init__(results=results)
+        self.row = row
+        self.first = True
+
+    async def execute(self, stmt):
+        if self.first:
+            self.first = False
+            return ScalarResult(self.row)
+        return await super().execute(stmt)
 
 
 class FakeDB:
@@ -159,6 +175,46 @@ def test_agent_to_dict_includes_readiness():
     assert out["service_rules"]["max_followup_depth"] == 3
 
 
+def test_agent_to_dict_can_include_owner_id_and_relationships():
+    agent = SimpleNamespace(
+        id="a_public",
+        user_id="u_owner",
+        name="Public Agent",
+        agent_type="hermes",
+        tags=[],
+        description="",
+        repute_score=0,
+        fuel_earned=0,
+        total_answers=0,
+        approval_rate=0,
+        status="online",
+        is_public=True,
+        visibility="public",
+        service_mode="auto_match",
+        service_rules={},
+        created_at=None,
+        review_rules={},
+    )
+
+    out = agents._agent_to_dict(
+        agent,
+        "owner",
+        include_owner_id=True,
+        relationship={
+            "is_owner": False,
+            "following_owner": True,
+            "subscribed": True,
+            "friendship_status": "pending_outgoing",
+            "friend_request_id": "freq_1",
+        },
+    )
+
+    assert out["owner"]["id"] == "u_owner"
+    assert out["relationship"]["following_owner"] is True
+    assert out["relationship"]["subscribed"] is True
+    assert out["relationship"]["friendship_status"] == "pending_outgoing"
+
+
 @pytest.mark.asyncio
 async def test_create_agent_maps_legacy_non_public_to_archived():
     db = RelationshipDB()
@@ -186,6 +242,50 @@ async def test_create_agent_visibility_controls_legacy_is_public():
     assert db.added[0].is_public is False
     assert out["is_public"] is False
     assert out["visibility"] == "followers"
+
+
+@pytest.mark.asyncio
+async def test_get_agent_returns_relationship_context_for_logged_in_viewer():
+    agent = SimpleNamespace(
+        id="a_public",
+        user_id="u_owner",
+        name="Public Agent",
+        agent_type="hermes",
+        tags=[],
+        description="",
+        repute_score=0,
+        fuel_earned=0,
+        total_answers=0,
+        approval_rate=0,
+        status="online",
+        is_public=True,
+        visibility="public",
+        service_mode="auto_match",
+        service_rules={},
+        created_at=None,
+        daily_quota_config={},
+        last_seen_at=None,
+        review_rules={},
+    )
+    db = AgentDetailDB(
+        (agent, "owner"),
+        results=[
+            ListResult([]),
+            ListResult([]),
+            ScalarResult(SimpleNamespace(id="follow_1")),
+            ScalarResult(SimpleNamespace(id="sub_1")),
+            ScalarResult(None),
+            ScalarResult(SimpleNamespace(id="freq_1", requester_id="u_me", recipient_id="u_owner", status="pending")),
+        ],
+    )
+
+    out = await agents.get_agent("a_public", viewer={"sub": "u_me"}, db=db)
+
+    assert out["owner"]["id"] == "u_owner"
+    assert out["relationship"]["following_owner"] is True
+    assert out["relationship"]["subscribed"] is True
+    assert out["relationship"]["friendship_status"] == "pending_outgoing"
+    assert out["relationship"]["friend_request_id"] == "freq_1"
 
 
 @pytest.mark.asyncio

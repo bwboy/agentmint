@@ -32,7 +32,8 @@ export interface Agent {
   visibility: AgentVisibility;
   service_mode: AgentServiceMode;
   service_rules: AgentServiceRules;
-  owner: { nickname: string };
+  owner: { id?: string; nickname: string };
+  relationship?: AgentRelationship;
   created_at: string;
   capability_profile?: AgentCapabilityProfile;
   learned_profile?: AgentLearnedProfile;
@@ -47,6 +48,16 @@ export interface AgentServiceRules {
   max_followup_depth: number;
   min_fuel_per_answer: number;
   max_fuel_per_answer: number;
+}
+
+export type FriendshipStatus = "none" | "pending_outgoing" | "pending_incoming" | "accepted" | "self";
+
+export interface AgentRelationship {
+  is_owner: boolean;
+  following_owner: boolean;
+  subscribed: boolean;
+  friendship_status: FriendshipStatus;
+  friend_request_id?: string | null;
 }
 
 export interface AgentReadiness {

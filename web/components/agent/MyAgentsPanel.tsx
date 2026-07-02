@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { getToken } from "@/lib/auth";
-import type { Agent, AgentCapabilityProfile, AgentLearnedProfile, AgentReadinessState, AgentType } from "@/lib/types";
+import type { Agent, AgentCapabilityProfile, AgentLearnedProfile, AgentReadinessState, AgentServiceMode, AgentServiceRules, AgentType, AgentVisibility } from "@/lib/types";
 import { getConnectorInstructions } from "./connectorInstructions";
 
 const emptyProfile: AgentCapabilityProfile = {
@@ -21,6 +21,15 @@ type ProfileInputState = {
   tool_tags: string;
   style_tags: string;
   avoid_tags: string;
+};
+
+type AgentEditState = {
+  tags: string;
+  description: string;
+  profile: ProfileInputState;
+  visibility: AgentVisibility;
+  service_mode: AgentServiceMode;
+  service_rules: AgentServiceRules;
 };
 
 export function MyAgentsPanel() {
@@ -43,7 +52,7 @@ export function MyAgentsPanel() {
     avoid_tags: "",
   });
   const [editing, setEditing] = useState<string | null>(null);
-  const [editState, setEditState] = useState<{ tags: string; description: string; profile: ProfileInputState } | null>(null);
+  const [editState, setEditState] = useState<AgentEditState | null>(null);
 
   useEffect(() => {
     const t = getToken();
@@ -90,6 +99,9 @@ export function MyAgentsPanel() {
       tags: (agent.tags || []).join(", "),
       description: agent.description || "",
       profile: inputFromProfile(agent.capability_profile),
+      visibility: agent.visibility || "public",
+      service_mode: agent.service_mode || "auto_match",
+      service_rules: normalizeServiceRules(agent.service_rules),
     });
   }
 
@@ -104,6 +116,9 @@ export function MyAgentsPanel() {
           tags: splitList(editState.tags),
           description: editState.description,
           capability_profile: profileFromInput(editState.profile),
+          visibility: editState.visibility,
+          service_mode: editState.service_mode,
+          service_rules: normalizeServiceRules(editState.service_rules),
         },
       });
       setEditing(null);
@@ -235,6 +250,7 @@ export function MyAgentsPanel() {
                   <span>{a.total_answers} 回答</span>
                   <span>🔥 {a.fuel_earned} 累计</span>
                 </div>
+                <ServiceSummary agent={a} />
                 <ReadinessView
                   agent={a}
                   checking={checkingId === a.id}
@@ -314,6 +330,35 @@ export function MyAgentsPanel() {
       )}
     </div>
   );
+}
+
+function ServiceSummary({ agent }: { agent: Agent }) {
+  const rules = normalizeServiceRules(agent.service_rules);
+  return (
+    <div className="mt-3 flex flex-wrap gap-1.5 text-xs">
+      <span className="rounded bg-gray-100 px-2 py-0.5 text-gray-500">{visibilityLabel(agent.visibility)}</span>
+      <span className="rounded bg-gray-100 px-2 py-0.5 text-gray-500">{serviceModeLabel(agent.service_mode)}</span>
+      <span className="rounded bg-orange-50 px-2 py-0.5 text-orange-600">x{rules.price_multiplier} 计费</span>
+      <span className="rounded bg-blue-50 px-2 py-0.5 text-blue-600">追问 {rules.max_followup_depth} 层</span>
+    </div>
+  );
+}
+
+function visibilityLabel(value: AgentVisibility) {
+  return {
+    public: "公开发现",
+    followers: "关注者可见",
+    friends: "好友可见",
+    archived: "停止服务",
+  }[value] || "公开发现";
+}
+
+function serviceModeLabel(value: AgentServiceMode) {
+  return {
+    auto_match: "可自动匹配",
+    direct_only: "仅定向提问",
+    stopped: "不提供服务",
+  }[value] || "可自动匹配";
 }
 
 function ReadinessView({
@@ -431,8 +476,8 @@ function AgentProfileForm({
   state,
   onChange,
 }: {
-  state: { tags: string; description: string; profile: ProfileInputState };
-  onChange: (value: { tags: string; description: string; profile: ProfileInputState }) => void;
+  state: AgentEditState;
+  onChange: (value: AgentEditState) => void;
 }) {
   return (
     <div className="space-y-3">
@@ -444,7 +489,92 @@ function AgentProfileForm({
         rows={3}
         className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
       <CreateProfileFields value={state.profile} onChange={profile => onChange({ ...state, profile })} />
+      <ServiceSettingsFields state={state} onChange={onChange} />
     </div>
+  );
+}
+
+function ServiceSettingsFields({
+  state,
+  onChange,
+}: {
+  state: AgentEditState;
+  onChange: (value: AgentEditState) => void;
+}) {
+  const rules = state.service_rules;
+  const updateRule = (key: keyof AgentServiceRules, value: number) => {
+    onChange({ ...state, service_rules: normalizeServiceRules({ ...rules, [key]: value }) });
+  };
+
+  return (
+    <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+        <span className="font-medium text-gray-600">服务设置</span>
+        <span className="text-gray-400">控制谁能看到、是否自动匹配、以及回答计费边界</span>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        <label className="block">
+          <span className="block text-xs text-gray-500 mb-1">可见范围</span>
+          <select
+            value={state.visibility}
+            onChange={e => onChange({ ...state, visibility: e.target.value as AgentVisibility })}
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-sm"
+          >
+            <option value="public">公开发现</option>
+            <option value="followers">关注者可见</option>
+            <option value="friends">好友可见</option>
+            <option value="archived">停止服务</option>
+          </select>
+        </label>
+        <label className="block">
+          <span className="block text-xs text-gray-500 mb-1">服务模式</span>
+          <select
+            value={state.service_mode}
+            onChange={e => onChange({ ...state, service_mode: e.target.value as AgentServiceMode })}
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-sm"
+          >
+            <option value="auto_match">可自动匹配</option>
+            <option value="direct_only">仅定向提问</option>
+            <option value="stopped">不提供服务</option>
+          </select>
+        </label>
+        <NumberField label="价格倍率" value={rules.price_multiplier} min={0.1} max={10} step={0.1} onChange={v => updateRule("price_multiplier", v)} />
+        <NumberField label="最大追问深度" value={rules.max_followup_depth} min={0} max={10} step={1} onChange={v => updateRule("max_followup_depth", v)} />
+        <NumberField label="单次最低燃值" value={rules.min_fuel_per_answer} min={0} max={100000} step={100} onChange={v => updateRule("min_fuel_per_answer", v)} />
+        <NumberField label="单次最高燃值" value={rules.max_fuel_per_answer} min={1} max={100000} step={100} onChange={v => updateRule("max_fuel_per_answer", v)} />
+      </div>
+    </div>
+  );
+}
+
+function NumberField({
+  label,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="block">
+      <span className="block text-xs text-gray-500 mb-1">{label}</span>
+      <input
+        type="number"
+        value={value}
+        min={min}
+        max={max}
+        step={step}
+        onChange={e => onChange(Number(e.target.value))}
+        className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-sm"
+      />
+    </label>
   );
 }
 
@@ -543,6 +673,21 @@ function inputFromProfile(profile?: AgentCapabilityProfile) {
     tool_tags: safe.tool_tags.join(", "),
     style_tags: safe.style_tags.join(", "),
     avoid_tags: safe.avoid_tags.join(", "),
+  };
+}
+
+function normalizeServiceRules(rules?: Partial<AgentServiceRules>): AgentServiceRules {
+  const price = Number(rules?.price_multiplier ?? 1);
+  const depth = Math.trunc(Number(rules?.max_followup_depth ?? 2));
+  const minFuel = Math.trunc(Number(rules?.min_fuel_per_answer ?? 0));
+  const maxFuel = Math.trunc(Number(rules?.max_fuel_per_answer ?? 100000));
+  const safeMax = Number.isFinite(maxFuel) && maxFuel > 0 ? Math.min(maxFuel, 100000) : 100000;
+  const safeMin = Number.isFinite(minFuel) && minFuel >= 0 ? Math.min(minFuel, safeMax) : 0;
+  return {
+    price_multiplier: Number.isFinite(price) && price > 0 ? Math.min(price, 10) : 1,
+    max_followup_depth: Number.isFinite(depth) ? Math.max(0, Math.min(depth, 10)) : 2,
+    min_fuel_per_answer: safeMin,
+    max_fuel_per_answer: safeMax,
   };
 }
 
