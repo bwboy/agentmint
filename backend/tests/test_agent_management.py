@@ -260,6 +260,28 @@ async def test_create_agent_visibility_controls_legacy_is_public():
 
 
 @pytest.mark.asyncio
+async def test_create_agent_uses_owner_default_service_settings_when_not_provided():
+    db = RelationshipDB()
+
+    out = await agents.create_agent(
+        agents.CreateAgentReq(name="Defaulted Agent", agent_type="hermes"),
+        user={
+            "sub": "u_owner",
+            "nickname": "owner",
+            "default_agent_visibility": "followers",
+            "default_agent_service_mode": "direct_only",
+            "default_agent_service_rules": {"price_multiplier": 2.0, "max_followup_depth": 4},
+        },
+        db=db,
+    )
+
+    assert db.added[0].visibility == "followers"
+    assert db.added[0].service_mode == "direct_only"
+    assert db.added[0].service_rules["price_multiplier"] == 2.0
+    assert out["visibility"] == "followers"
+
+
+@pytest.mark.asyncio
 async def test_get_agent_returns_relationship_context_for_logged_in_viewer():
     agent = SimpleNamespace(
         id="a_public",

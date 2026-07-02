@@ -48,6 +48,16 @@ def test_social_schema_migration_adds_relationship_tables_and_agent_service_colu
     assert "CREATE TABLE IF NOT EXISTS friend_requests" in sql
 
 
+def test_schema_migration_adds_user_profile_columns():
+    sql = "\n".join(FOLLOWUP_SCHEMA_SQL)
+
+    assert "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url VARCHAR" in sql
+    assert "ALTER TABLE users ADD COLUMN IF NOT EXISTS headline VARCHAR" in sql
+    assert "ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT" in sql
+    assert "ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_tags" in sql
+    assert "ALTER TABLE users ADD COLUMN IF NOT EXISTS default_agent_service_rules JSONB" in sql
+
+
 @pytest.mark.asyncio
 async def test_schema_migrations_execute_raw_sql_so_json_literals_are_not_bound_params():
     engine = FakeMigrationEngine()

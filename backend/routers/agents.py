@@ -82,7 +82,7 @@ async def list_agents(
     total = (await db.execute(count_base)).scalar() or 0
 
     return {
-        "data": [_agent_to_dict(a, nickname) for a, nickname in rows],
+        "data": [_agent_to_dict(a, nickname, include_owner_id=True) for a, nickname in rows],
         "pagination": {"page": page, "size": size, "total": total},
     }
 
@@ -125,6 +125,40 @@ async def get_agent(
         raise HTTPException(status_code=404, detail="Agent 不存在")
     relationship = await _relationship_context(db, viewer["sub"], agent) if viewer else None
     return _agent_to_dict(agent, nickname, include_owner_id=True, full=True, relationship=relationship)
+
+
+@router.get("/users/{user_id}")
+async def get_user_profile(
+    user_id: str,
+    viewer: dict | None = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+):
+    profile_user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not profile_user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    followed_owner_ids, friend_owner_ids = await _relationship_owner_sets(db, viewer["sub"]) if viewer else (set(), set())
+    if not _can_view_user_profile(profile_user, viewer["sub"] if viewer else None, followed_owner_ids, friend_owner_ids):
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    relationship = await _user_relationship_context(db, viewer["sub"], profile_user.id) if viewer else None
+    agent_rows = (await db.execute(
+        select(Agent).where(Agent.user_id == user_id).order_by(Agent.created_at.desc())
+    )).scalars().all()
+    visible_agents = [
+        agent for agent in agent_rows
+        if can_view_agent(
+            agent,
+            viewer_id=viewer["sub"] if viewer else None,
+            followed_owner_ids=followed_owner_ids,
+            friend_owner_ids=friend_owner_ids,
+        )
+    ]
+
+    return {
+        "user": _public_user_profile(profile_user, relationship=relationship),
+        "agents": [_agent_to_dict(agent, profile_user.nickname, include_owner_id=True) for agent in visible_agents],
+    }
 
 
 # ═══════════════════════════════════════════════════
@@ -230,7 +264,12 @@ async def create_agent(
 ):
     if req.agent_type not in ("openclaw", "hermes"):
         raise HTTPException(status_code=400, detail="agent_type 必须是 openclaw 或 hermes")
-    visibility = normalize_visibility(req.visibility if req.is_public else "archived")
+    owner = (await db.execute(select(User).where(User.id == user["sub"]))).scalar_one_or_none()
+    default_visibility = getattr(owner, "default_agent_visibility", None) if owner else user.get("default_agent_visibility")
+    default_service_mode = getattr(owner, "default_agent_service_mode", None) if owner else user.get("default_agent_service_mode")
+    default_service_rules = getattr(owner, "default_agent_service_rules", None) if owner else user.get("default_agent_service_rules")
+    requested_visibility = req.visibility if req.visibility != "public" else default_visibility or req.visibility
+    visibility = normalize_visibility(requested_visibility if req.is_public else "archived")
     agent = Agent(
         user_id=user["sub"],
         name=req.name,
@@ -239,14 +278,14 @@ async def create_agent(
         description=req.description,
         is_public=visibility == "public",
         visibility=visibility,
-        service_mode=normalize_service_mode(req.service_mode),
-        service_rules=normalize_service_rules(req.service_rules),
+        service_mode=normalize_service_mode(req.service_mode if req.service_mode != "auto_match" else default_service_mode or req.service_mode),
+        service_rules=normalize_service_rules(req.service_rules or default_service_rules),
         review_rules=merge_capability_profile(None, req.capability_profile),
     )
     db.add(agent)
     await db.commit()
     await db.refresh(agent)
-    return _agent_to_dict(agent, user.get("nickname", ""), full=True)
+    return _agent_to_dict(agent, user.get("nickname", ""), include_owner_id=True, full=True)
 
 
 @router.put("/my/agents/{agent_id}")
@@ -726,6 +765,42 @@ def _friend_request_to_dict(req: FriendRequest, requester_id: str, nickname: str
     }
 
 
+def _public_user_profile(user: User, relationship: dict | None = None) -> dict:
+    out = {
+        "id": user.id,
+        "nickname": user.nickname,
+        "avatar_url": getattr(user, "avatar_url", "") or "",
+        "headline": getattr(user, "headline", "") or "",
+        "bio": getattr(user, "bio", "") or "",
+        "profile_tags": list(getattr(user, "profile_tags", None) or []),
+        "experience_tags": list(getattr(user, "experience_tags", None) or []),
+        "links": dict(getattr(user, "links", None) or {}),
+        "profile_visibility": normalize_visibility(getattr(user, "profile_visibility", None)),
+        "trust_level": int(getattr(user, "trust_level", 1) or 1),
+        "fuel_balance": int(getattr(user, "fuel_balance", 0) or 0),
+        "repute_score": float(getattr(user, "repute_score", 0) or 0),
+        "created_at": user.created_at.isoformat() if getattr(user, "created_at", None) else None,
+    }
+    if relationship is not None:
+        out["relationship"] = relationship
+    return out
+
+
+def _can_view_user_profile(user: User, viewer_id: str | None, followed_owner_ids: set[str], friend_owner_ids: set[str]) -> bool:
+    visibility = normalize_visibility(getattr(user, "profile_visibility", None))
+    if viewer_id and viewer_id == user.id:
+        return True
+    if visibility == "archived":
+        return False
+    if visibility == "public":
+        return True
+    if visibility == "followers":
+        return user.id in followed_owner_ids
+    if visibility == "friends":
+        return user.id in friend_owner_ids
+    return False
+
+
 async def _relationship_owner_sets(db: AsyncSession, user_id: str) -> tuple[set[str], set[str]]:
     followed_rows = await db.execute(select(UserFollow.followed_id).where(UserFollow.follower_id == user_id))
     followed_owner_ids = set(followed_rows.scalars().all())
@@ -783,6 +858,47 @@ async def _relationship_context(db: AsyncSession, viewer_id: str, agent: Agent) 
         "is_owner": False,
         "following_owner": bool(following),
         "subscribed": bool(subscription),
+        "friendship_status": friendship_status,
+        "friend_request_id": pending_request.id if pending_request else None,
+    }
+
+
+async def _user_relationship_context(db: AsyncSession, viewer_id: str, owner_id: str) -> dict:
+    if viewer_id == owner_id:
+        return {
+            "is_owner": True,
+            "following_owner": False,
+            "subscribed": False,
+            "friendship_status": "self",
+            "friend_request_id": None,
+        }
+
+    following = (await db.execute(
+        select(UserFollow).where(UserFollow.follower_id == viewer_id, UserFollow.followed_id == owner_id)
+    )).scalar_one_or_none()
+    low, high = friendship_pair(viewer_id, owner_id)
+    friendship = (await db.execute(
+        select(Friendship).where(Friendship.user_low_id == low, Friendship.user_high_id == high)
+    )).scalar_one_or_none()
+    pending_request = None
+    friendship_status = "none"
+    if friendship:
+        friendship_status = "accepted"
+    else:
+        pending_request = (await db.execute(
+            select(FriendRequest).where(
+                ((FriendRequest.requester_id == viewer_id) & (FriendRequest.recipient_id == owner_id))
+                | ((FriendRequest.requester_id == owner_id) & (FriendRequest.recipient_id == viewer_id)),
+                FriendRequest.status == "pending",
+            )
+        )).scalar_one_or_none()
+        if pending_request:
+            friendship_status = "pending_outgoing" if pending_request.requester_id == viewer_id else "pending_incoming"
+
+    return {
+        "is_owner": False,
+        "following_owner": bool(following),
+        "subscribed": False,
         "friendship_status": friendship_status,
         "friend_request_id": pending_request.id if pending_request else None,
     }

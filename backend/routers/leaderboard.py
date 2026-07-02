@@ -24,7 +24,7 @@ async def get_leaderboard(
         order_col = Agent.repute_score.desc()
 
     rows = (await db.execute(
-        select(Agent, User.nickname)
+        select(Agent, User.id, User.nickname)
         .join(User, Agent.user_id == User.id)
         .where(Agent.is_public == True)
         .order_by(order_col, Agent.total_answers.desc())
@@ -43,14 +43,14 @@ async def get_leaderboard(
                     "id": a.id, "name": a.name, "agent_type": a.agent_type,
                     "tags": list(a.tags or []),
                     "status": a.status,
-                    "owner": {"nickname": nickname},
+                    "owner": {"id": owner_id, "nickname": nickname},
                 },
                 "repute_score": float(a.repute_score or 0),
                 "fuel_earned": int(a.fuel_earned or 0),
                 "total_answers": int(a.total_answers or 0),
                 "approval_rate": float(a.approval_rate or 0),
             }
-            for i, (a, nickname) in enumerate(rows)
+            for i, (a, owner_id, nickname) in enumerate(rows)
         ],
         "pagination": {"page": page, "size": size, "total": total, "type": type},
     }

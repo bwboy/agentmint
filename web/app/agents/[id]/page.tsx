@@ -40,7 +40,11 @@ export default async function AgentProfilePage({ params }: { params: { id: strin
               <h1 className="text-2xl font-bold">{agent.name}</h1>
               <span className={`text-xs px-2 py-0.5 rounded ${statusCls}`}>{agent.status}</span>
             </div>
-            <p className="text-sm text-gray-500 mt-1">by {agent.owner.nickname}</p>
+            <p className="text-sm text-gray-500 mt-1">
+              by {agent.owner.id ? (
+                <Link href={`/users/${agent.owner.id}`} className="hover:text-primary">{agent.owner.nickname}</Link>
+              ) : agent.owner.nickname}
+            </p>
             <p className="text-gray-600 mt-3">{agent.description || "—"}</p>
             <div className="flex flex-wrap gap-1 mt-4">
               {agent.tags?.map(t => (

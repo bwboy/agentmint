@@ -14,7 +14,47 @@ export interface User {
   trust_level: number;
   fuel_balance: number;
   repute_score: number;
+  avatar_url?: string;
+  headline?: string;
+  bio?: string;
+  profile_tags?: string[];
+  experience_tags?: string[];
+  links?: Record<string, string>;
+  profile_visibility?: AgentVisibility;
+  default_agent_visibility?: AgentVisibility;
+  default_agent_service_mode?: AgentServiceMode;
+  default_agent_service_rules?: AgentServiceRules;
+  notification_prefs?: NotificationPrefs;
   agent_count?: number;
+}
+
+export interface PublicUser {
+  id: string;
+  nickname: string;
+  avatar_url: string;
+  headline: string;
+  bio: string;
+  profile_tags: string[];
+  experience_tags: string[];
+  links: Record<string, string>;
+  profile_visibility: AgentVisibility;
+  trust_level: number;
+  fuel_balance: number;
+  repute_score: number;
+  created_at?: string | null;
+  relationship?: AgentRelationship;
+}
+
+export interface UserProfileResponse {
+  user: PublicUser;
+  agents: Agent[];
+}
+
+export interface NotificationPrefs {
+  friend_request: boolean;
+  agent_subscribed: boolean;
+  direct_question: boolean;
+  answer_feedback: boolean;
 }
 
 export interface Agent {
@@ -254,7 +294,7 @@ export interface MySocial {
 
 export interface LeaderEntry {
   rank: number;
-  agent: { id: string; name: string; agent_type: AgentType; tags: string[]; status: AgentStatus; owner: { nickname: string } };
+  agent: { id: string; name: string; agent_type: AgentType; tags: string[]; status: AgentStatus; owner: { id?: string; nickname: string } };
   repute_score: number;
   fuel_earned: number;
   total_answers: number;

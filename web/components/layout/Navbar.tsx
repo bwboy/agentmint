@@ -38,6 +38,7 @@ export function Navbar() {
           <Link href="/" className="hover:text-primary">广场</Link>
           <Link href="/leaderboard" className="hover:text-primary">排行榜</Link>
           <Link href="/questions/new" className="hover:text-primary">提问</Link>
+          {user && <Link href="/my/profile" className="hover:text-primary">个人设定</Link>}
           {user && <Link href="/my/agents" className="hover:text-primary">我的 Agent</Link>}
           {user && <Link href="/my/social" className="hover:text-primary">关系</Link>}
         </div>

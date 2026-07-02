@@ -14,6 +14,7 @@ from services.auth import (
     decode_token,
     get_current_user,
 )
+from services.agent_service_rules import normalize_service_mode, normalize_service_rules, normalize_visibility
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -30,6 +31,21 @@ class VerifyCodeReq(BaseModel):
 
 class RefreshReq(BaseModel):
     refresh_token: str
+
+
+class UpdateProfileReq(BaseModel):
+    nickname: str | None = Field(default=None, min_length=1, max_length=64)
+    avatar_url: str | None = None
+    headline: str | None = Field(default=None, max_length=120)
+    bio: str | None = Field(default=None, max_length=2000)
+    profile_tags: list[str] | None = None
+    experience_tags: list[str] | None = None
+    links: dict | None = None
+    profile_visibility: str | None = None
+    default_agent_visibility: str | None = None
+    default_agent_service_mode: str | None = None
+    default_agent_service_rules: dict | None = None
+    notification_prefs: dict | None = None
 
 
 @router.post("/send-code")
@@ -69,6 +85,7 @@ async def verify_code_handler(req: VerifyCodeReq, db: AsyncSession = Depends(get
             "trust_level": user.trust_level,
             "fuel_balance": user.fuel_balance,
             "repute_score": float(user.repute_score),
+            **_user_profile_dict(user),
         },
     }
 
@@ -109,10 +126,139 @@ async def me(user_payload: dict = Depends(get_current_user), db: AsyncSession = 
         "fuel_balance": user.fuel_balance,
         "repute_score": float(user.repute_score),
         "agent_count": agent_count,
+        **_user_profile_dict(user),
     }
+
+
+@router.get("/my/profile")
+async def my_profile(user_payload: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    user = await _get_user(db, user_payload["sub"])
+    return _private_user_profile(user)
+
+
+@router.put("/my/profile")
+async def update_my_profile(
+    req: UpdateProfileReq,
+    user_payload: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    user = await _get_user(db, user_payload["sub"])
+
+    if req.nickname is not None:
+        user.nickname = req.nickname.strip()
+    if req.avatar_url is not None:
+        user.avatar_url = _clean_url(req.avatar_url)
+    if req.headline is not None:
+        user.headline = (req.headline or "").strip()
+    if req.bio is not None:
+        user.bio = (req.bio or "").strip()
+    if req.profile_tags is not None:
+        user.profile_tags = _clean_list(req.profile_tags, limit=20)
+    if req.experience_tags is not None:
+        user.experience_tags = _clean_list(req.experience_tags, limit=20)
+    if req.links is not None:
+        user.links = _clean_links(req.links)
+    if req.profile_visibility is not None:
+        user.profile_visibility = normalize_visibility(req.profile_visibility)
+    if req.default_agent_visibility is not None:
+        user.default_agent_visibility = normalize_visibility(req.default_agent_visibility)
+    if req.default_agent_service_mode is not None:
+        user.default_agent_service_mode = normalize_service_mode(req.default_agent_service_mode)
+    if req.default_agent_service_rules is not None:
+        user.default_agent_service_rules = normalize_service_rules(req.default_agent_service_rules)
+    if req.notification_prefs is not None:
+        user.notification_prefs = _clean_notification_prefs(req.notification_prefs)
+
+    await db.commit()
+    await db.refresh(user)
+    return _private_user_profile(user)
 
 
 def _mask_phone(phone: str) -> str:
     if len(phone) <= 7:
         return phone
     return f"{phone[:3]}****{phone[-4:]}"
+
+
+async def _get_user(db: AsyncSession, user_id: str) -> User:
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    return user
+
+
+def _private_user_profile(user: User) -> dict:
+    return {
+        "id": user.id,
+        "nickname": user.nickname,
+        "phone": _mask_phone(user.phone),
+        "trust_level": user.trust_level,
+        "fuel_balance": user.fuel_balance,
+        "repute_score": float(user.repute_score),
+        **_user_profile_dict(user),
+    }
+
+
+def _user_profile_dict(user: User) -> dict:
+    return {
+        "avatar_url": getattr(user, "avatar_url", "") or "",
+        "headline": getattr(user, "headline", "") or "",
+        "bio": getattr(user, "bio", "") or "",
+        "profile_tags": list(getattr(user, "profile_tags", None) or []),
+        "experience_tags": list(getattr(user, "experience_tags", None) or []),
+        "links": dict(getattr(user, "links", None) or {}),
+        "profile_visibility": normalize_visibility(getattr(user, "profile_visibility", None)),
+        "default_agent_visibility": normalize_visibility(getattr(user, "default_agent_visibility", None)),
+        "default_agent_service_mode": normalize_service_mode(getattr(user, "default_agent_service_mode", None)),
+        "default_agent_service_rules": normalize_service_rules(getattr(user, "default_agent_service_rules", None)),
+        "notification_prefs": _clean_notification_prefs(getattr(user, "notification_prefs", None) or {}),
+    }
+
+
+def _clean_list(values: list[str], limit: int = 20) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for value in values or []:
+        text = str(value).strip()
+        key = text.lower()
+        if text and key not in seen:
+            seen.add(key)
+            out.append(text[:40])
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _clean_url(value: str | None) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if text.startswith("http://") or text.startswith("https://"):
+        return text[:500]
+    return ""
+
+
+def _clean_links(value: dict | None) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    allowed = {"website", "github", "x", "bilibili", "youtube", "linkedin"}
+    out = {}
+    for key, url in value.items():
+        key_text = str(key).strip().lower()
+        clean = _clean_url(str(url))
+        if key_text in allowed and clean:
+            out[key_text] = clean
+    return out
+
+
+def _clean_notification_prefs(value: dict | None) -> dict:
+    defaults = {
+        "friend_request": True,
+        "agent_subscribed": True,
+        "direct_question": True,
+        "answer_feedback": True,
+    }
+    if not isinstance(value, dict):
+        return defaults
+    return {key: bool(value.get(key, default)) for key, default in defaults.items()}
