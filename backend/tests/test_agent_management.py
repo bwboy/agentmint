@@ -31,6 +31,14 @@ class ListResult:
         return self.values
 
 
+class RowResult:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def all(self):
+        return self.rows
+
+
 class RefreshableDB:
     def __init__(self, agent):
         self.agent = agent
@@ -53,6 +61,7 @@ class RelationshipDB:
         self.added = []
         self.deleted = []
         self.commits = 0
+        self.flushes = 0
 
     async def execute(self, stmt):
         if self.results:
@@ -67,6 +76,12 @@ class RelationshipDB:
 
     async def commit(self):
         self.commits += 1
+
+    async def flush(self):
+        self.flushes += 1
+        for obj in self.added:
+            if getattr(obj, "id", None) is None:
+                obj.id = "generated"
 
     async def refresh(self, obj):
         if getattr(obj, "id", None) is None:
@@ -338,6 +353,53 @@ async def test_create_friend_request_creates_pending_request():
     assert db.added[0].requester_id == "u_me"
     assert db.added[0].recipient_id == "u_target"
     assert db.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_my_social_lists_relationship_collections():
+    incoming = SimpleNamespace(id="freq_in", requester_id="u_other", recipient_id="u_me", status="pending", created_at=None)
+    outgoing = SimpleNamespace(id="freq_out", requester_id="u_me", recipient_id="u_other", status="pending", created_at=None)
+    friendship = SimpleNamespace(id="fr_1", user_low_id="u_friend", user_high_id="u_me", created_at=None)
+    follow = SimpleNamespace(id="uf_1", followed_id="u_followed", created_at=None)
+    subscription = SimpleNamespace(id="asub_1", agent_id="a_sub", created_at=None)
+    followed_user = SimpleNamespace(id="u_followed", nickname="Followed", repute_score=3.5)
+    friend_user = SimpleNamespace(id="u_friend", nickname="Friend", repute_score=4.0)
+    requester = SimpleNamespace(id="u_other", nickname="Requester", repute_score=2.0)
+    subscribed_agent = SimpleNamespace(
+        id="a_sub",
+        user_id="u_owner",
+        name="Sub Agent",
+        agent_type="hermes",
+        tags=["AI"],
+        description="",
+        repute_score=4.2,
+        fuel_earned=100,
+        total_answers=5,
+        approval_rate=0.8,
+        status="online",
+        is_public=True,
+        visibility="public",
+        service_mode="auto_match",
+        service_rules={},
+        created_at=None,
+        review_rules={},
+    )
+
+    db = RelationshipDB(results=[
+        RowResult([(incoming, requester.nickname, requester.repute_score)]),
+        RowResult([(outgoing, requester.nickname, requester.repute_score)]),
+        RowResult([(friendship, friend_user.id, friend_user.nickname, friend_user.repute_score)]),
+        RowResult([(follow, followed_user.nickname, followed_user.repute_score)]),
+        RowResult([(subscription, subscribed_agent, "owner")]),
+    ])
+
+    out = await agents.my_social(user={"sub": "u_me"}, db=db)
+
+    assert out["incoming_friend_requests"][0]["id"] == "freq_in"
+    assert out["outgoing_friend_requests"][0]["id"] == "freq_out"
+    assert out["friends"][0]["user"]["id"] == "u_friend"
+    assert out["following_users"][0]["user"]["nickname"] == "Followed"
+    assert out["agent_subscriptions"][0]["agent"]["id"] == "a_sub"
 
 
 @pytest.mark.asyncio

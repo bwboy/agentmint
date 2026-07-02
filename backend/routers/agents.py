@@ -7,7 +7,7 @@ import secrets
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func
+from sqlalchemy import case, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
@@ -19,6 +19,7 @@ from services.agent_service_rules import can_view_agent, normalize_service_mode,
 from services.learned_profile import get_agent_learned_profile
 from services.matching import normalize_capability_profile
 from services.review import approve_answer_by_id, reject_answer_by_id
+from services.notification import create_notification
 
 router = APIRouter(prefix="/api", tags=["agents"])
 
@@ -137,6 +138,88 @@ async def my_agents(user: dict = Depends(get_current_user), db: AsyncSession = D
     )
     agents = result.scalars().all()
     return {"data": [_agent_to_dict(a, user.get("nickname", ""), full=True) for a in agents]}
+
+
+@router.get("/my/social")
+async def my_social(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    user_id = user["sub"]
+    incoming = (await db.execute(
+        select(FriendRequest, User.nickname, User.repute_score)
+        .join(User, FriendRequest.requester_id == User.id)
+        .where(FriendRequest.recipient_id == user_id, FriendRequest.status == "pending")
+        .order_by(FriendRequest.created_at.desc())
+    )).all()
+    outgoing = (await db.execute(
+        select(FriendRequest, User.nickname, User.repute_score)
+        .join(User, FriendRequest.recipient_id == User.id)
+        .where(FriendRequest.requester_id == user_id, FriendRequest.status == "pending")
+        .order_by(FriendRequest.created_at.desc())
+    )).all()
+    friend_rows = (await db.execute(
+        select(
+            Friendship,
+            User.id,
+            User.nickname,
+            User.repute_score,
+        )
+        .join(
+            User,
+            User.id == case(
+                (Friendship.user_low_id == user_id, Friendship.user_high_id),
+                else_=Friendship.user_low_id,
+            ),
+        )
+        .where((Friendship.user_low_id == user_id) | (Friendship.user_high_id == user_id))
+        .order_by(Friendship.created_at.desc())
+    )).all()
+    following_rows = (await db.execute(
+        select(UserFollow, User.nickname, User.repute_score)
+        .join(User, UserFollow.followed_id == User.id)
+        .where(UserFollow.follower_id == user_id)
+        .order_by(UserFollow.created_at.desc())
+    )).all()
+    subscription_rows = (await db.execute(
+        select(AgentSubscription, Agent, User.nickname)
+        .join(Agent, AgentSubscription.agent_id == Agent.id)
+        .join(User, Agent.user_id == User.id)
+        .where(AgentSubscription.subscriber_id == user_id)
+        .order_by(AgentSubscription.created_at.desc())
+    )).all()
+
+    return {
+        "incoming_friend_requests": [
+            _friend_request_to_dict(req, requester_id=req.requester_id, nickname=nickname, repute_score=repute)
+            for req, nickname, repute in incoming
+        ],
+        "outgoing_friend_requests": [
+            _friend_request_to_dict(req, requester_id=req.recipient_id, nickname=nickname, repute_score=repute)
+            for req, nickname, repute in outgoing
+        ],
+        "friends": [
+            {
+                "id": friendship.id,
+                "user": {"id": friend_id, "nickname": nickname, "repute_score": float(repute or 0)},
+                "created_at": friendship.created_at.isoformat() if friendship.created_at else None,
+            }
+            for friendship, friend_id, nickname, repute in friend_rows
+        ],
+        "following_users": [
+            {
+                "id": follow.id,
+                "user": {"id": follow.followed_id, "nickname": nickname, "repute_score": float(repute or 0)},
+                "created_at": follow.created_at.isoformat() if follow.created_at else None,
+            }
+            for follow, nickname, repute in following_rows
+        ],
+        "agent_subscriptions": [
+            {
+                "id": subscription.id,
+                "agent": _agent_to_dict(agent, owner_nickname),
+                "created_at": subscription.created_at.isoformat() if subscription.created_at else None,
+            }
+            for subscription, agent, owner_nickname in subscription_rows
+        ],
+    }
 
 
 @router.post("/my/agents", status_code=201)
@@ -307,6 +390,15 @@ async def create_friend_request(
 
     req = FriendRequest(requester_id=user["sub"], recipient_id=target_user_id)
     db.add(req)
+    await db.flush()
+    await create_notification(
+        db,
+        target_user_id,
+        "friend_request",
+        "新的好友申请",
+        f"{user.get('nickname', '有人')} 请求添加你为好友",
+        ref_id=req.id,
+    )
     await db.commit()
     await db.refresh(req)
     return {"id": req.id, "status": req.status or "pending", "recipient_id": target_user_id}
@@ -329,6 +421,14 @@ async def accept_friend_request(
         db.add(Friendship(user_low_id=low, user_high_id=high))
     req.status = "accepted"
     req.responded_at = datetime.utcnow()
+    await create_notification(
+        db,
+        req.requester_id,
+        "friend_request_accepted",
+        "好友申请已通过",
+        f"{user.get('nickname', '对方')} 已通过你的好友申请",
+        ref_id=req.id,
+    )
     await db.commit()
     return {"status": "accepted", "friend_id": req.requester_id}
 
@@ -344,6 +444,14 @@ async def reject_friend_request(
         raise HTTPException(status_code=404, detail="好友请求不存在")
     req.status = "rejected"
     req.responded_at = datetime.utcnow()
+    await create_notification(
+        db,
+        req.requester_id,
+        "friend_request_rejected",
+        "好友申请已拒绝",
+        f"{user.get('nickname', '对方')} 已拒绝你的好友申请",
+        ref_id=req.id,
+    )
     await db.commit()
     return {"status": "rejected", "request_id": request_id}
 
@@ -607,6 +715,15 @@ def merge_capability_profile(review_rules: dict | None, capability_profile: dict
         rules["auto_tag_match"] = True
     rules["capability_profile"] = normalize_capability_profile(capability_profile)
     return rules
+
+
+def _friend_request_to_dict(req: FriendRequest, requester_id: str, nickname: str, repute_score) -> dict:
+    return {
+        "id": req.id,
+        "status": req.status,
+        "user": {"id": requester_id, "nickname": nickname, "repute_score": float(repute_score or 0)},
+        "created_at": req.created_at.isoformat() if req.created_at else None,
+    }
 
 
 async def _relationship_owner_sets(db: AsyncSession, user_id: str) -> tuple[set[str], set[str]]:

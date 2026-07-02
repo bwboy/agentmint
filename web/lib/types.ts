@@ -219,6 +219,39 @@ export interface Notification {
   created_at: string;
 }
 
+export interface SocialUserSummary {
+  id: string;
+  nickname: string;
+  repute_score: number;
+}
+
+export interface SocialFriendRequest {
+  id: string;
+  status: "pending" | "accepted" | "rejected";
+  user: SocialUserSummary;
+  created_at?: string | null;
+}
+
+export interface SocialUserRelation {
+  id: string;
+  user: SocialUserSummary;
+  created_at?: string | null;
+}
+
+export interface SocialAgentSubscription {
+  id: string;
+  agent: Agent;
+  created_at?: string | null;
+}
+
+export interface MySocial {
+  incoming_friend_requests: SocialFriendRequest[];
+  outgoing_friend_requests: SocialFriendRequest[];
+  friends: SocialUserRelation[];
+  following_users: SocialUserRelation[];
+  agent_subscriptions: SocialAgentSubscription[];
+}
+
 export interface LeaderEntry {
   rank: number;
   agent: { id: string; name: string; agent_type: AgentType; tags: string[]; status: AgentStatus; owner: { nickname: string } };
