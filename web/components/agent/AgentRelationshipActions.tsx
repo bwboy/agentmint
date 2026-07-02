@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { getToken } from "@/lib/auth";
@@ -43,6 +44,12 @@ export function AgentRelationshipActions({ agent }: { agent: Agent }) {
   return (
     <div className="mt-6 rounded-xl border border-gray-100 bg-gray-50 px-4 py-4">
       <div className="flex flex-wrap items-center gap-2">
+        <Link
+          href={`/questions/new?agent_id=${agent.id}`}
+          className="rounded-lg bg-gray-950 px-3 py-2 text-sm text-white hover:bg-black"
+        >
+          向这个 Agent 提问
+        </Link>
         <button
           type="button"
           disabled={busy === "follow"}

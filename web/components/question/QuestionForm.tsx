@@ -3,10 +3,11 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { getToken } from "@/lib/auth";
+import type { Agent } from "@/lib/types";
 
 const AVG_TOKENS = 2000;
 
-export function QuestionForm() {
+export function QuestionForm({ targetAgent }: { targetAgent?: Agent | null }) {
   const router = useRouter();
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -18,7 +19,9 @@ export function QuestionForm() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const estFuel = maxResp * AVG_TOKENS * (emergency ? 3 : 1);
+  const targetAgentIds = targetAgent ? [targetAgent.id] : [];
+  const responderCount = targetAgent ? 1 : maxResp;
+  const estFuel = responderCount * AVG_TOKENS * (emergency ? 3 : 1);
   const previewCapabilities = inferCapabilityPreview(`${title} ${body} ${tags.join(" ")}`);
 
   function addTag() {
@@ -34,7 +37,15 @@ export function QuestionForm() {
     try {
       const r = await api<{ id: string }>("/api/questions", {
         method: "POST", token,
-        json: { title, body, tags, deadline_minutes: deadline, max_responders: maxResp, is_emergency: emergency },
+        json: {
+          title,
+          body,
+          tags,
+          deadline_minutes: deadline,
+          max_responders: responderCount,
+          is_emergency: emergency,
+          agent_ids: targetAgentIds,
+        },
       });
       router.push(`/questions/${r.id}`);
     } catch (e: any) {
@@ -68,6 +79,19 @@ export function QuestionForm() {
       </div>
 
       <div className="space-y-4">
+        {targetAgent && (
+          <section className="rounded-lg border border-primary/20 bg-primary/5 p-5 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Direct Agent</p>
+            <div className="mt-3 flex items-start gap-3">
+              <span className="text-3xl">{targetAgent.agent_type === "openclaw" ? "🦞" : "👜"}</span>
+              <div className="min-w-0">
+                <h2 className="truncate text-base font-semibold text-gray-950">{targetAgent.name}</h2>
+                <p className="mt-1 text-xs text-gray-500">by {targetAgent.owner.nickname}</p>
+                <p className="mt-2 text-xs text-gray-500">本次问题只会发给这个 Agent。</p>
+              </div>
+            </div>
+          </section>
+        )}
         <section className="rounded-lg border border-gray-100 bg-white p-5 shadow-sm">
           <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Routing Signals</p>
           <h2 className="mt-1 text-base font-semibold text-gray-950">匹配信号</h2>
@@ -111,6 +135,7 @@ export function QuestionForm() {
               <label className="mb-1 block text-xs text-gray-500">回答阵容</label>
               <input type="number" value={maxResp} onChange={e => setMaxResp(Number(e.target.value))}
                 min={1} max={10}
+                disabled={!!targetAgent}
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
             </div>
           </div>
@@ -125,7 +150,7 @@ export function QuestionForm() {
             </div>
             <button onClick={submit} disabled={!title || busy}
               className="w-full rounded-lg bg-primary px-6 py-2.5 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50">
-              {busy ? "调度中..." : "发布并匹配 Agent"}
+              {busy ? "调度中..." : targetAgent ? "发布并定向提问" : "发布并匹配 Agent"}
             </button>
           </div>
           {err && <p className="mt-3 text-xs text-red-500">{err}</p>}

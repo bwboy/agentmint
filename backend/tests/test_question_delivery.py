@@ -94,6 +94,25 @@ def make_agent(agent_id, review_rules=None):
     )
 
 
+def make_direct_agent(agent_id, service_mode="direct_only", visibility="public", status="online"):
+    return SimpleNamespace(
+        id=agent_id,
+        name=agent_id,
+        user_id="u_owner",
+        status=status,
+        visibility=visibility,
+        service_mode=service_mode,
+        daily_quota_config={"max": 50, "auto_threshold": 40},
+        service_rules={},
+        review_rules={"auto_trust_level": 2, "auto_tag_match": True},
+        tags=["AI"],
+        description="",
+        repute_score=4.0,
+        total_answers=3,
+        approval_rate=1.0,
+    )
+
+
 class FakeListResult:
     def __init__(self, rows):
         self.rows = rows
@@ -105,12 +124,65 @@ class FakeListResult:
         return self.rows
 
 
+class DirectTargetDB:
+    def __init__(self, agents):
+        self.calls = 0
+        self.agents = agents
+
+    async def execute(self, stmt):
+        self.calls += 1
+        if self.calls == 1:
+            return FakeListResult(self.agents)
+        return FakeListResult([])
+
+
 class FeedbackResult:
     def __init__(self, value):
         self.value = value
 
     def scalar_one_or_none(self):
         return self.value
+
+
+@pytest.mark.asyncio
+async def test_resolve_question_targets_allows_direct_only_agents_when_explicit(monkeypatch):
+    agent = make_direct_agent("a_direct", service_mode="direct_only")
+    db = DirectTargetDB([agent])
+
+    async def fake_check_quota(db_arg, agent_id, quota_config):
+        return "ok", 0
+
+    monkeypatch.setattr(questions, "check_quota", fake_check_quota)
+
+    matched = await questions.resolve_question_targets(
+        db,
+        questions.CreateQuestionReq(title="Ask", agent_ids=["a_direct"], max_responders=1),
+        viewer_id="u_viewer",
+    )
+
+    assert matched[0][0] is agent
+    assert matched[0][2] == "direct"
+    assert matched[0][3] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_resolve_question_targets_rejects_stopped_agents(monkeypatch):
+    agent = make_direct_agent("a_stopped", service_mode="stopped")
+    db = DirectTargetDB([agent])
+
+    async def fake_check_quota(db_arg, agent_id, quota_config):
+        return "ok", 0
+
+    monkeypatch.setattr(questions, "check_quota", fake_check_quota)
+
+    with pytest.raises(Exception) as exc_info:
+        await questions.resolve_question_targets(
+            db,
+            questions.CreateQuestionReq(title="Ask", agent_ids=["a_stopped"], max_responders=1),
+            viewer_id="u_viewer",
+        )
+
+    assert "不提供服务" in str(exc_info.value)
 
 
 @pytest.mark.asyncio

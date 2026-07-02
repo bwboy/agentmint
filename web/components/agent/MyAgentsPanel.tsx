@@ -30,6 +30,7 @@ type AgentEditState = {
   visibility: AgentVisibility;
   service_mode: AgentServiceMode;
   service_rules: AgentServiceRules;
+  daily_quota_config: { max: number; auto_threshold: number; emergency_reserve: number };
 };
 
 export function MyAgentsPanel() {
@@ -102,6 +103,7 @@ export function MyAgentsPanel() {
       visibility: agent.visibility || "public",
       service_mode: agent.service_mode || "auto_match",
       service_rules: normalizeServiceRules(agent.service_rules),
+      daily_quota_config: normalizeQuota(agent.daily_quota_config),
     });
   }
 
@@ -119,6 +121,7 @@ export function MyAgentsPanel() {
           visibility: editState.visibility,
           service_mode: editState.service_mode,
           service_rules: normalizeServiceRules(editState.service_rules),
+          daily_quota_config: normalizeQuota(editState.daily_quota_config),
         },
       });
       setEditing(null);
@@ -334,12 +337,14 @@ export function MyAgentsPanel() {
 
 function ServiceSummary({ agent }: { agent: Agent }) {
   const rules = normalizeServiceRules(agent.service_rules);
+  const quota = normalizeQuota(agent.daily_quota_config);
   return (
     <div className="mt-3 flex flex-wrap gap-1.5 text-xs">
       <span className="rounded bg-gray-100 px-2 py-0.5 text-gray-500">{visibilityLabel(agent.visibility)}</span>
       <span className="rounded bg-gray-100 px-2 py-0.5 text-gray-500">{serviceModeLabel(agent.service_mode)}</span>
       <span className="rounded bg-orange-50 px-2 py-0.5 text-orange-600">x{rules.price_multiplier} 计费</span>
       <span className="rounded bg-blue-50 px-2 py-0.5 text-blue-600">追问 {rules.max_followup_depth} 层</span>
+      <span className="rounded bg-emerald-50 px-2 py-0.5 text-emerald-600">每日 {quota.max} 次</span>
     </div>
   );
 }
@@ -490,6 +495,7 @@ function AgentProfileForm({
         className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
       <CreateProfileFields value={state.profile} onChange={profile => onChange({ ...state, profile })} />
       <ServiceSettingsFields state={state} onChange={onChange} />
+      <QuotaSettingsFields state={state} onChange={onChange} />
     </div>
   );
 }
@@ -542,6 +548,33 @@ function ServiceSettingsFields({
         <NumberField label="最大追问深度" value={rules.max_followup_depth} min={0} max={10} step={1} onChange={v => updateRule("max_followup_depth", v)} />
         <NumberField label="单次最低燃值" value={rules.min_fuel_per_answer} min={0} max={100000} step={100} onChange={v => updateRule("min_fuel_per_answer", v)} />
         <NumberField label="单次最高燃值" value={rules.max_fuel_per_answer} min={1} max={100000} step={100} onChange={v => updateRule("max_fuel_per_answer", v)} />
+      </div>
+    </div>
+  );
+}
+
+function QuotaSettingsFields({
+  state,
+  onChange,
+}: {
+  state: AgentEditState;
+  onChange: (value: AgentEditState) => void;
+}) {
+  const quota = normalizeQuota(state.daily_quota_config);
+  const updateQuota = (key: keyof AgentEditState["daily_quota_config"], value: number) => {
+    onChange({ ...state, daily_quota_config: normalizeQuota({ ...quota, [key]: value }) });
+  };
+
+  return (
+    <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+        <span className="font-medium text-gray-600">每日门限</span>
+        <span className="text-gray-400">超过自动阈值后进入审核，达到上限后停止匹配</span>
+      </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        <NumberField label="每日上限" value={quota.max} min={1} max={1000} step={1} onChange={v => updateQuota("max", v)} />
+        <NumberField label="自动回答阈值" value={quota.auto_threshold} min={0} max={1000} step={1} onChange={v => updateQuota("auto_threshold", v)} />
+        <NumberField label="紧急保留" value={quota.emergency_reserve} min={0} max={1000} step={1} onChange={v => updateQuota("emergency_reserve", v)} />
       </div>
     </div>
   );
@@ -688,6 +721,19 @@ function normalizeServiceRules(rules?: Partial<AgentServiceRules>): AgentService
     max_followup_depth: Number.isFinite(depth) ? Math.max(0, Math.min(depth, 10)) : 2,
     min_fuel_per_answer: safeMin,
     max_fuel_per_answer: safeMax,
+  };
+}
+
+function normalizeQuota(quota?: Partial<AgentEditState["daily_quota_config"]>) {
+  const max = Math.trunc(Number(quota?.max ?? 50));
+  const auto = Math.trunc(Number(quota?.auto_threshold ?? 40));
+  const reserve = Math.trunc(Number(quota?.emergency_reserve ?? 3));
+  const safeMax = Number.isFinite(max) && max > 0 ? Math.min(max, 1000) : 50;
+  const safeAuto = Number.isFinite(auto) ? Math.max(0, Math.min(auto, safeMax)) : Math.min(40, safeMax);
+  return {
+    max: safeMax,
+    auto_threshold: safeAuto,
+    emergency_reserve: Number.isFinite(reserve) ? Math.max(0, Math.min(reserve, safeMax)) : 3,
   };
 }
 

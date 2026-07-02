@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from models import Question, Answer, Feedback, Agent, User
+from services.agent_service_rules import can_view_agent, normalize_service_mode, normalize_service_rules
 from services.auth import get_current_user
 from services.billing import deduct_fuel_if_available, refund_fuel
 from services.followups import (
@@ -28,7 +29,7 @@ from services.followups import (
 )
 from services.matching import build_match_explanation, build_task_profile, match_agents
 from services.review import decide_review_method, approve_answer_by_id, reject_answer_by_id
-from services.quota import increment_usage
+from services.quota import check_quota, increment_usage
 from services.notification import create_notification
 from services.learned_profile import update_learned_profile_from_feedback
 from ws.hub import hub
@@ -46,6 +47,7 @@ class CreateQuestionReq(BaseModel):
     deadline_minutes: int = 30
     max_responders: int = 5
     is_emergency: bool = False
+    agent_ids: list[str] = []
 
 
 class CreateFollowUpReq(BaseModel):
@@ -221,15 +223,7 @@ async def create_question(
 
     deadline = datetime.utcnow() + timedelta(minutes=max(1, req.deadline_minutes))
 
-    # Matching (already filters offline / blocked, returns quota_state per agent)
-    matched = await match_agents(
-        db,
-        req.tags,
-        max_responders=max(1, req.max_responders),
-        title=req.title,
-        body=req.body,
-        viewer_id=user.id,
-    )
+    matched = await resolve_question_targets(db, req, user.id)
     task_profile = build_task_profile(req.title, req.body, req.tags, req.max_responders)
     match_explanations = [
         build_match_explanation(agent, task_profile, score, match_type, quota_state)
@@ -367,6 +361,15 @@ async def create_followup(
     if missing_agents:
         raise HTTPException(status_code=400, detail=f"Agent 不存在: {', '.join(missing_agents)}")
 
+    depth = await followup_depth(db, quoted_answer)
+    too_deep = [
+        agent.name or agent.id
+        for agent in agents
+        if depth > int(normalize_service_rules(getattr(agent, "service_rules", None))["max_followup_depth"])
+    ]
+    if too_deep:
+        raise HTTPException(status_code=400, detail=f"超过 Agent 追问深度限制: {', '.join(too_deep)}")
+
     max_possible_fuel_cost = len(target_agent_ids) * AVG_TOKENS_PER_ANSWER
     if not await deduct_fuel_if_available(db, user.id, max_possible_fuel_cost):
         raise HTTPException(status_code=402, detail="燃值不足")
@@ -455,6 +458,72 @@ async def create_followup(
         "fuel_cost": fuel_cost,
         "requests": requests,
     }
+
+
+async def resolve_question_targets(
+    db: AsyncSession,
+    req: CreateQuestionReq,
+    viewer_id: str,
+) -> list[tuple[Agent, float, str, str]]:
+    requested_ids = [str(agent_id).strip() for agent_id in (req.agent_ids or []) if str(agent_id).strip()]
+    if not requested_ids:
+        return await match_agents(
+            db,
+            req.tags,
+            max_responders=max(1, req.max_responders),
+            title=req.title,
+            body=req.body,
+            viewer_id=viewer_id,
+        )
+
+    unique_ids = list(dict.fromkeys(requested_ids))
+    rows = await db.execute(select(Agent).where(Agent.id.in_(unique_ids)))
+    agents = list(rows.scalars().all())
+    by_id = {agent.id: agent for agent in agents}
+    missing = [agent_id for agent_id in unique_ids if agent_id not in by_id]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Agent 不存在: {', '.join(missing)}")
+
+    from services.matching import _relationship_owner_sets
+    followed_owner_ids, friend_owner_ids = await _relationship_owner_sets(db, viewer_id)
+
+    task_profile = build_task_profile(req.title, req.body, req.tags, req.max_responders)
+    out: list[tuple[Agent, float, str, str]] = []
+    for agent_id in unique_ids:
+        agent = by_id[agent_id]
+        if getattr(agent, "status", None) != "online":
+            raise HTTPException(status_code=400, detail=f"Agent 当前离线: {agent.name or agent.id}")
+        if normalize_service_mode(getattr(agent, "service_mode", None)) == "stopped":
+            raise HTTPException(status_code=400, detail=f"Agent 不提供服务: {agent.name or agent.id}")
+        if not can_view_agent(
+            agent,
+            viewer_id=viewer_id,
+            followed_owner_ids=followed_owner_ids,
+            friend_owner_ids=friend_owner_ids,
+        ):
+            raise HTTPException(status_code=404, detail=f"Agent 不存在: {agent.id}")
+        state, _ = await check_quota(db, agent.id, getattr(agent, "daily_quota_config", None))
+        if state == "blocked":
+            raise HTTPException(status_code=400, detail=f"Agent 今日服务次数已满: {agent.name or agent.id}")
+        explanation = build_match_explanation(agent, task_profile, 1.0, "direct", state)
+        score = (explanation.get("overall_score") or 100) / 100
+        out.append((agent, score, "direct", state))
+    return out[:max(1, req.max_responders)]
+
+
+async def followup_depth(db: AsyncSession, quoted_answer: Answer) -> int:
+    depth = 1
+    question_id = quoted_answer.question_id
+    while question_id:
+        question = (await db.execute(select(Question).where(Question.id == question_id))).scalar_one_or_none()
+        if not question or not question.quoted_answer_id:
+            return depth
+        quoted_answer = (await db.execute(select(Answer).where(Answer.id == question.quoted_answer_id))).scalar_one_or_none()
+        if not quoted_answer:
+            return depth
+        question_id = quoted_answer.question_id
+        depth += 1
+    return depth
 
 
 async def build_question_match_explanations(db: AsyncSession, q: Question) -> list[dict]:
