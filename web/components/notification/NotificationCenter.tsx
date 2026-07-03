@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { getToken } from "@/lib/auth";
+import { emitNotificationsChanged } from "@/lib/notificationEvents";
 import type { ApiList, Notification } from "@/lib/types";
 
 type FilterMode = "all" | "unread";
@@ -53,6 +54,7 @@ export function NotificationCenter() {
     setBusy(item.id);
     try {
       await api(`/api/notifications/${item.id}/read`, { method: "PUT", token });
+      emitNotificationsChanged({ unreadDelta: -1 });
       await refresh();
     } catch (e: any) {
       setErr(e.message || "标记失败");
@@ -67,6 +69,7 @@ export function NotificationCenter() {
     setBusy("all");
     try {
       await api("/api/notifications/read-all", { method: "PUT", token });
+      emitNotificationsChanged({ unreadCount: 0 });
       await refresh();
     } catch (e: any) {
       setErr(e.message || "标记失败");

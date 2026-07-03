@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getToken, clearTokens } from "@/lib/auth";
 import { API_BASE } from "@/lib/api";
+import { NOTIFICATIONS_CHANGED_EVENT, type NotificationsChangedDetail } from "@/lib/notificationEvents";
 
 export function Navbar() {
   const [user, setUser] = useState<{ nickname: string; fuel_balance: number } | null>(null);
@@ -21,8 +22,21 @@ export function Navbar() {
       } catch {/* ignore */}
     };
     tick();
+    const handleNotificationsChanged = (event: Event) => {
+      const detail = (event as CustomEvent<NotificationsChangedDetail>).detail || {};
+      if (typeof detail.unreadCount === "number") {
+        setUnread(Math.max(0, detail.unreadCount));
+      } else if (typeof detail.unreadDelta === "number") {
+        setUnread(value => Math.max(0, value + detail.unreadDelta!));
+      }
+      void tick();
+    };
+    window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, handleNotificationsChanged);
     const id = setInterval(tick, 30_000);
-    return () => clearInterval(id);
+    return () => {
+      window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, handleNotificationsChanged);
+      clearInterval(id);
+    };
   }, []);
 
   function logout() {
