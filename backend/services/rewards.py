@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -44,12 +44,12 @@ async def auto_award_due_rewards(db: AsyncSession, question: Question) -> Questi
         .order_by(Answer.created_at.asc())
     )).all()
     if not approved:
-        deadline_at = getattr(question, "deadline_at", None)
-        if deadline_at and deadline_at < datetime.utcnow():
+        deadline_at = as_utc_naive(getattr(question, "deadline_at", None))
+        if deadline_at and deadline_at < utcnow():
             return await refund_pending_reward(db, question)
         return None
 
-    now = datetime.utcnow()
+    now = utcnow()
     if not getattr(question, "reward_auto_award_after", None):
         first_approved_at = min(
             (getattr(answer, "reviewed_at", None) or getattr(answer, "created_at", None) or now)
@@ -59,7 +59,7 @@ async def auto_award_due_rewards(db: AsyncSession, question: Question) -> Questi
         await db.commit()
         return None
 
-    if question.reward_auto_award_after > now:
+    if as_utc_naive(question.reward_auto_award_after) > now:
         return None
 
     answer_ids = [answer.id for answer, _ in approved]
@@ -75,7 +75,7 @@ async def auto_award_due_rewards(db: AsyncSession, question: Question) -> Questi
 
     def score(row: tuple[Answer, object]) -> tuple[float, datetime]:
         answer, repute = row
-        created_at = getattr(answer, "created_at", None) or now
+        created_at = as_utc_naive(getattr(answer, "created_at", None)) or now
         return (
             float(votes_by_answer.get(answer.id, 0) * 5) + float(repute or 0) * 2,
             created_at,
@@ -99,7 +99,7 @@ async def mark_reward_auto_award_after_first_answer(
     if getattr(question, "reward_auto_award_after", None):
         return question
 
-    approved_at = getattr(answer, "reviewed_at", None) or getattr(answer, "created_at", None) or datetime.utcnow()
+    approved_at = as_utc_naive(getattr(answer, "reviewed_at", None) or getattr(answer, "created_at", None)) or utcnow()
     question.reward_auto_award_after = approved_at + timedelta(hours=AUTO_AWARD_DELAY_HOURS)
     return question
 
@@ -161,10 +161,22 @@ async def _award_reward_to_answer(
     agent.fuel_earned = int(getattr(agent, "fuel_earned", None) or 0) + reward_fuel
     question.reward_status = "auto_awarded" if event_type == "reward_auto_awarded" else "awarded"
     question.reward_answer_id = answer.id
-    question.reward_awarded_at = datetime.utcnow()
+    question.reward_awarded_at = utcnow()
     await db.commit()
     return question
 
 
 def _reward_is_pending(question: Question) -> bool:
     return int(getattr(question, "reward_fuel", None) or 0) > 0 and getattr(question, "reward_status", None) == "pending"
+
+
+def utcnow() -> datetime:
+    return datetime.utcnow()
+
+
+def as_utc_naive(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)

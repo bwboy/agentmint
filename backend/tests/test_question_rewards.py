@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -247,3 +247,37 @@ async def test_auto_award_due_rewards_refunds_expired_question_without_approved_
     assert ledger[0].direction == "credit"
     assert ledger[0].amount == 500
     assert db.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_auto_award_due_rewards_handles_timezone_aware_deadline_without_answers():
+    question = make_question(
+        deadline_at=datetime.now(timezone.utc) + timedelta(minutes=30),
+        reward_auto_award_after=None,
+    )
+
+    class NoAnswersDB(RewardDB):
+        async def execute(self, stmt):
+            return RowsResult([])
+
+    out = await rewards.auto_award_due_rewards(NoAnswersDB([]), question)
+
+    assert out is None
+    assert question.reward_status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_auto_award_due_rewards_handles_timezone_aware_auto_award_time():
+    question = make_question(
+        reward_auto_award_after=datetime.now(timezone.utc) + timedelta(minutes=30),
+    )
+    answer = make_answer()
+
+    class FutureDB(RewardDB):
+        async def execute(self, stmt):
+            return RowsResult([(answer, 1.0)])
+
+    out = await rewards.auto_award_due_rewards(FutureDB([]), question)
+
+    assert out is None
+    assert question.reward_status == "pending"
