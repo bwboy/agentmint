@@ -77,6 +77,11 @@ WORKING_STATUS_RE = re.compile(
     r"^\s*(?:[^\w\s]+\s*)?working\s+[-—]\s+.+\biteration\s+\d+/\d+\b.*\breceiving\s+stream\s+response\b",
     re.IGNORECASE,
 )
+INTERRUPTING_STATUS_RE = re.compile(
+    r"^\s*(?:[^\w\s]+\s*)?interrupting\s+current\s+task\s*"
+    r"\(.+\biteration\s+\d+/\d+,\s+running:\s+[a-z0-9_:-]+.*\)",
+    re.IGNORECASE,
+)
 PAIRING_CODE_RE = re.compile(r"pairing code:\s*([A-Z0-9-]+)", re.IGNORECASE)
 PAIRING_COMMAND_RE = re.compile(r"(hermes\s+pairing\s+approve\s+agentmint\s+[A-Z0-9-]+)", re.IGNORECASE)
 
@@ -1220,7 +1225,8 @@ def _looks_like_tool_trace(content: Any) -> bool:
 
 
 def _looks_like_working_status(content: Any) -> bool:
-    return bool(WORKING_STATUS_RE.search(str(content or "").strip()))
+    text = str(content or "").strip()
+    return bool(WORKING_STATUS_RE.search(text) or INTERRUPTING_STATUS_RE.search(text))
 
 
 def _metadata_debug_summary(value: Any) -> str:
