@@ -41,6 +41,7 @@ export function Navbar() {
           {user && <Link href="/my/profile" className="hover:text-primary">个人设定</Link>}
           {user && <Link href="/my/agents" className="hover:text-primary">我的 Agent</Link>}
           {user && <Link href="/my/social" className="hover:text-primary">关系</Link>}
+          {user && <Link href="/my/notifications" className="hover:text-primary">通知</Link>}
         </div>
         <div className="ml-auto flex items-center gap-3 text-sm">
           {user ? (
@@ -48,7 +49,13 @@ export function Navbar() {
               <span className="text-orange-500">🔥 {user.fuel_balance}</span>
               <span className="text-gray-500">{user.nickname}</span>
               {unread > 0 && (
-                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-500 text-white text-xs">{unread}</span>
+                <Link
+                  href="/my/notifications"
+                  className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-xs text-white"
+                  aria-label={`有 ${unread} 条未读通知`}
+                >
+                  {unread}
+                </Link>
               )}
               <button onClick={logout} className="text-xs text-gray-400 hover:text-gray-600">退出</button>
             </>

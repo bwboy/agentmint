@@ -35,6 +35,9 @@ class RowResult:
     def __init__(self, rows):
         self.rows = rows
 
+    def scalars(self):
+        return self
+
     def all(self):
         return self.rows
 
@@ -119,6 +122,18 @@ class FakeDB:
 
     async def commit(self):
         self.commits += 1
+
+
+class SubscribeDB(RelationshipDB):
+    def __init__(self, agent, owner, existing_subscription=None):
+        super().__init__()
+        self.results = [
+            ScalarResult(agent),
+            RowResult([]),
+            RowResult([]),
+            ScalarResult(existing_subscription),
+            ScalarResult(owner),
+        ]
 
 
 @pytest.mark.asyncio
@@ -257,6 +272,45 @@ async def test_create_agent_visibility_controls_legacy_is_public():
     assert db.added[0].is_public is False
     assert out["is_public"] is False
     assert out["visibility"] == "followers"
+
+
+@pytest.mark.asyncio
+async def test_subscribe_agent_notifies_agent_owner_when_enabled():
+    agent = SimpleNamespace(id="a_public", user_id="u_owner", name="Owner Agent", visibility="public", service_mode="auto_match")
+    owner = SimpleNamespace(id="u_owner", notification_prefs={"agent_subscribed": True})
+    db = SubscribeDB(agent, owner)
+
+    out = await agents.subscribe_agent(
+        "a_public",
+        user={"sub": "u_sub", "nickname": "Subscriber"},
+        db=db,
+    )
+
+    notifications = [item for item in db.added if item.__class__.__name__ == "Notification"]
+    assert out == {"subscribed": True, "agent_id": "a_public"}
+    assert len(notifications) == 1
+    assert notifications[0].user_id == "u_owner"
+    assert notifications[0].type == "agent_subscribed"
+    assert notifications[0].ref_id == "a_public"
+    assert "Subscriber" in notifications[0].body
+    assert db.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_subscribe_agent_respects_owner_notification_pref():
+    agent = SimpleNamespace(id="a_public", user_id="u_owner", name="Owner Agent", visibility="public", service_mode="auto_match")
+    owner = SimpleNamespace(id="u_owner", notification_prefs={"agent_subscribed": False})
+    db = SubscribeDB(agent, owner)
+
+    await agents.subscribe_agent(
+        "a_public",
+        user={"sub": "u_sub", "nickname": "Subscriber"},
+        db=db,
+    )
+
+    notifications = [item for item in db.added if item.__class__.__name__ == "Notification"]
+    assert notifications == []
+    assert db.commits == 1
 
 
 @pytest.mark.asyncio

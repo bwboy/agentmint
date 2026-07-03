@@ -19,7 +19,7 @@ from services.agent_service_rules import can_view_agent, normalize_service_mode,
 from services.learned_profile import get_agent_learned_profile
 from services.matching import normalize_capability_profile
 from services.review import approve_answer_by_id, reject_answer_by_id
-from services.notification import create_notification
+from services.notification import maybe_create_notification
 
 router = APIRouter(prefix="/api", tags=["agents"])
 
@@ -376,6 +376,17 @@ async def subscribe_agent(
     )).scalar_one_or_none()
     if not existing:
         db.add(AgentSubscription(subscriber_id=user["sub"], agent_id=agent_id))
+        if agent.user_id != user["sub"]:
+            agent_name = getattr(agent, "name", None) or "Agent"
+            await maybe_create_notification(
+                db,
+                agent.user_id,
+                "agent_subscribed",
+                "agent_subscribed",
+                f"{agent_name} 有了新的订阅者",
+                f"{user.get('nickname', '有人')} 订阅了你的 Agent",
+                ref_id=agent.id,
+            )
         await db.commit()
     return {"subscribed": True, "agent_id": agent_id}
 
@@ -430,9 +441,10 @@ async def create_friend_request(
     req = FriendRequest(requester_id=user["sub"], recipient_id=target_user_id)
     db.add(req)
     await db.flush()
-    await create_notification(
+    await maybe_create_notification(
         db,
         target_user_id,
+        "friend_request",
         "friend_request",
         "新的好友申请",
         f"{user.get('nickname', '有人')} 请求添加你为好友",
@@ -460,9 +472,10 @@ async def accept_friend_request(
         db.add(Friendship(user_low_id=low, user_high_id=high))
     req.status = "accepted"
     req.responded_at = datetime.utcnow()
-    await create_notification(
+    await maybe_create_notification(
         db,
         req.requester_id,
+        "friend_request",
         "friend_request_accepted",
         "好友申请已通过",
         f"{user.get('nickname', '对方')} 已通过你的好友申请",
@@ -483,9 +496,10 @@ async def reject_friend_request(
         raise HTTPException(status_code=404, detail="好友请求不存在")
     req.status = "rejected"
     req.responded_at = datetime.utcnow()
-    await create_notification(
+    await maybe_create_notification(
         db,
         req.requester_id,
+        "friend_request",
         "friend_request_rejected",
         "好友申请已拒绝",
         f"{user.get('nickname', '对方')} 已拒绝你的好友申请",

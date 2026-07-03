@@ -30,7 +30,7 @@ from services.followups import (
 from services.matching import build_match_explanation, build_task_profile, match_agents
 from services.review import decide_review_method, approve_answer_by_id, reject_answer_by_id
 from services.quota import check_quota, increment_usage
-from services.notification import create_notification
+from services.notification import maybe_create_notification
 from services.learned_profile import update_learned_profile_from_feedback
 from ws.hub import hub
 
@@ -276,6 +276,7 @@ async def create_question(
     # Push to live connectors. Each successful push increments usage and flips
     # the answer row to 'pushed'.
     pushed_count = 0
+    is_direct_question = bool(req.agent_ids)
     for ans, agent, _mt, _qs in answer_records:
         payload = build_root_payload(
             q,
@@ -290,6 +291,17 @@ async def create_question(
                 await increment_usage(db, agent.id)
             except Exception as e:
                 print(f"[questions] quota increment failed for {agent.id}: {e}")
+            agent_owner_id = getattr(agent, "user_id", None)
+            if is_direct_question and agent_owner_id and agent_owner_id != user.id:
+                await maybe_create_notification(
+                    db,
+                    agent_owner_id,
+                    "direct_question",
+                    "direct_question",
+                    f"{getattr(agent, 'name', None) or 'Agent'} 收到一个定向问题",
+                    f"{user.nickname} 提问：{q.title}",
+                    ref_id=q.id,
+                )
 
     fuel_cost = pushed_count * AVG_TOKENS_PER_ANSWER * rate
     q.fuel_cost = fuel_cost
@@ -438,6 +450,17 @@ async def create_followup(
                 await increment_usage(db, agent.id)
             except Exception as e:
                 print(f"[questions] quota increment failed for {agent.id}: {e}")
+            agent_owner_id = getattr(agent, "user_id", None)
+            if agent_owner_id and agent_owner_id != user.id:
+                await maybe_create_notification(
+                    db,
+                    agent_owner_id,
+                    "direct_question",
+                    "direct_question",
+                    f"{getattr(agent, 'name', None) or 'Agent'} 收到一个追问",
+                    f"{user.nickname} 追问：{root.title}",
+                    ref_id=root.id,
+                )
         requests.append({
             "agent_id": agent.id,
             "request_id": answer.request_id,
@@ -635,6 +658,18 @@ async def submit_feedback(
         question = (await db.execute(select(Question).where(Question.id == answer.question_id))).scalar_one_or_none()
         if question:
             update_learned_profile_from_feedback(agent, question, req.vote, previous_vote=prev_vote)
+            agent_owner_id = getattr(agent, "user_id", None)
+            if agent_owner_id and agent_owner_id != user_payload["sub"]:
+                vote_text = "赞同" if req.vote == "up" else "指出问题"
+                await maybe_create_notification(
+                    db,
+                    agent_owner_id,
+                    "answer_feedback",
+                    "answer_feedback",
+                    f"{getattr(agent, 'name', None) or 'Agent'} 的回答收到了反馈",
+                    f"有人对「{question.title}」中的回答{vote_text}",
+                    ref_id=question.id,
+                )
 
     await db.commit()
     return {"id": fb.id, "vote": fb.vote, "created_at": fb.created_at.isoformat()}

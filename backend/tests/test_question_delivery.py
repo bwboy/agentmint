@@ -87,9 +87,11 @@ def make_user(balance=100_000):
     )
 
 
-def make_agent(agent_id, review_rules=None):
+def make_agent(agent_id, review_rules=None, user_id="u_owner", name=None):
     return SimpleNamespace(
         id=agent_id,
+        name=name or agent_id,
+        user_id=user_id,
         review_rules=review_rules or {"auto_trust_level": 2, "auto_tag_match": True},
     )
 
@@ -272,6 +274,47 @@ async def test_create_question_partial_push_reserves_max_and_refunds_undelivered
     assert db.fuel_refunds == [
         {"user_id": user.id, "fuel_amount": questions.AVG_TOKENS_PER_ANSWER}
     ]
+
+
+@pytest.mark.asyncio
+async def test_create_direct_question_notifies_owner_for_successful_delivery(monkeypatch):
+    user = make_user()
+    db = FakeDB(user)
+    agent = make_agent("a_direct", user_id="u_owner", name="Direct Agent")
+    owner = SimpleNamespace(id="u_owner", notification_prefs={"direct_question": True})
+
+    async def fake_resolve_question_targets(db_arg, req, viewer_id):
+        return [(agent, 1.0, "direct", "ok")]
+
+    async def fake_push_question(agent_id, payload):
+        return True
+
+    async def fake_increment_usage(db_arg, agent_id):
+        return 1
+
+    async def fake_maybe_create_notification(db_arg, user_id, pref_key, notif_type, title, body="", ref_id=None):
+        assert user_id == "u_owner"
+        assert pref_key == "direct_question"
+        assert notif_type == "direct_question"
+        assert ref_id == "q_test"
+        db_arg.add(SimpleNamespace(user_id=user_id, type=notif_type, title=title, body=body, ref_id=ref_id))
+
+    monkeypatch.setattr(questions, "resolve_question_targets", fake_resolve_question_targets)
+    monkeypatch.setattr(questions.hub, "push_question", fake_push_question)
+    monkeypatch.setattr(questions, "increment_usage", fake_increment_usage)
+    monkeypatch.setattr(questions, "get_user_for_notification", lambda db_arg, user_id: owner, raising=False)
+    monkeypatch.setattr(questions, "maybe_create_notification", fake_maybe_create_notification, raising=False)
+
+    res = await questions.create_question(
+        questions.CreateQuestionReq(title="Direct ask", agent_ids=["a_direct"], max_responders=1),
+        user_payload={"sub": user.id},
+        db=db,
+    )
+
+    assert res["pushed_count"] == 1
+    notifications = [item for item in db.added if getattr(item, "type", None) == "direct_question"]
+    assert len(notifications) == 1
+    assert "Direct ask" in notifications[0].body
 
 
 @pytest.mark.asyncio
