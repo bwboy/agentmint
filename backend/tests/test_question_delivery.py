@@ -87,6 +87,42 @@ def make_user(balance=100_000):
     )
 
 
+def test_question_public_payload_includes_reward_settlement_fields():
+    q = SimpleNamespace(
+        id="q_test",
+        title="Reward model",
+        body="",
+        tags=["AI"],
+        visibility="private",
+        deadline_at=datetime.utcnow(),
+        max_responders=4,
+        matched_agent_ids=["a1", "a2"],
+        fuel_cost=0,
+        status="open",
+        created_at=datetime.utcnow(),
+        estimated_fuel_per_answer=900,
+        base_cap_multiplier=1.5,
+        base_fuel_reserved=3600,
+        base_fuel_spent=0,
+        reward_fuel=500,
+        reward_status="pending",
+        reward_answer_id=None,
+        reward_awarded_at=None,
+        reward_auto_award_after=datetime.utcnow(),
+    )
+
+    out = questions.question_public_payload(q, "Tester", 3, answer_count=0)
+
+    assert out["visibility"] == "private"
+    assert out["estimated_fuel_per_answer"] == 900
+    assert out["base_cap_multiplier"] == 1.5
+    assert out["base_fuel_reserved"] == 3600
+    assert out["base_fuel_spent"] == 0
+    assert out["reward_fuel"] == 500
+    assert out["reward_status"] == "pending"
+    assert out["reward_answer_id"] is None
+
+
 def make_agent(agent_id, review_rules=None, user_id="u_owner", name=None):
     return SimpleNamespace(
         id=agent_id,
@@ -144,6 +180,46 @@ class FeedbackResult:
 
     def scalar_one_or_none(self):
         return self.value
+
+
+class OneOrNoneResult:
+    def __init__(self, value):
+        self.value = value
+
+    def one_or_none(self):
+        return self.value
+
+
+@pytest.mark.asyncio
+async def test_private_question_access_allows_asker_and_assigned_agent_owner():
+    q = SimpleNamespace(
+        id="q_private",
+        asker_id="u_asker",
+        visibility="private",
+        matched_agent_ids=["a_owner"],
+    )
+
+    class AccessDB:
+        def __init__(self, agent_owner_id=None):
+            self.agent_owner_id = agent_owner_id
+            self.calls = 0
+
+        async def execute(self, stmt):
+            self.calls += 1
+            if self.calls == 1 and self.agent_owner_id:
+                return FakeListResult([SimpleNamespace(id="a_owner", user_id=self.agent_owner_id)])
+            return FakeListResult([])
+
+    assert await questions.can_view_question(AccessDB(), q, {"sub": "u_asker"}) is True
+    assert await questions.can_view_question(AccessDB(agent_owner_id="u_owner"), q, {"sub": "u_owner"}) is True
+    assert await questions.can_view_question(AccessDB(agent_owner_id="u_owner"), q, {"sub": "u_other"}) is False
+
+
+@pytest.mark.asyncio
+async def test_public_question_access_allows_anonymous_viewer():
+    q = SimpleNamespace(id="q_public", asker_id="u_asker", visibility="public", matched_agent_ids=[])
+
+    assert await questions.can_view_question(FakeDB(make_user()), q, None) is True
 
 
 @pytest.mark.asyncio
@@ -218,10 +294,60 @@ async def test_create_question_zero_push_reserves_then_refunds_all(monkeypatch):
     assert res["estimated_fuel_cost"] == 0
     assert user.fuel_balance == 100_000
     assert db.fuel_deductions == [
-        {"user_id": user.id, "fuel_cost": questions.AVG_TOKENS_PER_ANSWER, "rowcount": 1}
+        {"user_id": user.id, "fuel_cost": questions.DEFAULT_ESTIMATED_FUEL_PER_ANSWER, "rowcount": 1}
     ]
     assert db.fuel_refunds == [
-        {"user_id": user.id, "fuel_amount": questions.AVG_TOKENS_PER_ANSWER}
+        {"user_id": user.id, "fuel_amount": questions.DEFAULT_ESTIMATED_FUEL_PER_ANSWER}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_create_question_reserves_base_estimate_and_reward(monkeypatch):
+    user = make_user()
+    db = FakeDB(user)
+    agents = [make_agent("a_one"), make_agent("a_two")]
+
+    async def fake_resolve_question_targets(db_arg, req, viewer_id):
+        return [(agents[0], 1.0, "direct", "ok"), (agents[1], 1.0, "direct", "ok")]
+
+    async def fake_push_question(agent_id, payload):
+        return False
+
+    monkeypatch.setattr(questions, "resolve_question_targets", fake_resolve_question_targets)
+    monkeypatch.setattr(questions.hub, "push_question", fake_push_question)
+
+    res = await questions.create_question(
+        questions.CreateQuestionReq(
+            title="Reward ask",
+            max_responders=2,
+            visibility="private",
+            estimated_fuel_per_answer=900,
+            reward_fuel=500,
+        ),
+        user_payload={"sub": user.id},
+        db=db,
+    )
+
+    created_question = next(item for item in db.added if item.__class__.__name__ == "Question")
+    ledgers = [item for item in db.added if item.__class__.__name__ == "FuelLedgerEntry"]
+    assert res["visibility"] == "private"
+    assert res["estimated_fuel_per_answer"] == 900
+    assert res["base_fuel_reserved"] == 1800
+    assert res["reward_fuel"] == 500
+    assert res["reward_status"] == "pending"
+    assert created_question.base_fuel_reserved == 1800
+    assert created_question.reward_fuel == 500
+    assert user.fuel_balance == 100_000 - 500
+    assert db.fuel_deductions == [
+        {"user_id": user.id, "fuel_cost": 2300, "rowcount": 1}
+    ]
+    assert db.fuel_refunds == [
+        {"user_id": user.id, "fuel_amount": 1800}
+    ]
+    assert [(entry.direction, entry.event_type, entry.amount) for entry in ledgers] == [
+        ("debit", "base_reserved", 1800),
+        ("debit", "reward_reserved", 500),
+        ("credit", "base_refunded", 1800),
     ]
 
 
@@ -259,9 +385,9 @@ async def test_create_question_partial_push_reserves_max_and_refunds_undelivered
 
     assert res["matched_count"] == 2
     assert res["pushed_count"] == 1
-    assert res["fuel_cost"] == questions.AVG_TOKENS_PER_ANSWER
-    assert res["estimated_fuel_cost"] == questions.AVG_TOKENS_PER_ANSWER
-    assert user.fuel_balance == 100_000 - questions.AVG_TOKENS_PER_ANSWER
+    assert res["fuel_cost"] == questions.DEFAULT_ESTIMATED_FUEL_PER_ANSWER
+    assert res["estimated_fuel_cost"] == questions.DEFAULT_ESTIMATED_FUEL_PER_ANSWER
+    assert user.fuel_balance == 100_000 - questions.DEFAULT_ESTIMATED_FUEL_PER_ANSWER
     assert incremented == ["a_ok"]
     assert [(agent_id, payload["conversation_id"], payload["turn_type"], payload["context_mode"])
             for agent_id, payload in pushed_payloads] == [
@@ -269,10 +395,10 @@ async def test_create_question_partial_push_reserves_max_and_refunds_undelivered
         ("a_fail", "conv_q_test_a_fail", "root", "root"),
     ]
     assert db.fuel_deductions == [
-        {"user_id": user.id, "fuel_cost": 2 * questions.AVG_TOKENS_PER_ANSWER, "rowcount": 1}
+        {"user_id": user.id, "fuel_cost": 2 * questions.DEFAULT_ESTIMATED_FUEL_PER_ANSWER, "rowcount": 1}
     ]
     assert db.fuel_refunds == [
-        {"user_id": user.id, "fuel_amount": questions.AVG_TOKENS_PER_ANSWER}
+        {"user_id": user.id, "fuel_amount": questions.DEFAULT_ESTIMATED_FUEL_PER_ANSWER}
     ]
 
 

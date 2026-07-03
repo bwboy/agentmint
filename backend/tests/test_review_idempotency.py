@@ -123,7 +123,7 @@ async def test_approve_inline_credits_owner_balance_and_records_ledger(monkeypat
 
         async def execute(self, stmt):
             self.executes += 1
-            values = [agent, owner, question]
+            values = [agent, question, owner]
             return FakeExecuteResult(values[self.executes - 1])
 
         def add(self, obj):
@@ -148,11 +148,70 @@ async def test_approve_inline_credits_owner_balance_and_records_ledger(monkeypat
     assert ledger[0].user_id == "u_owner"
     assert ledger[0].amount == 50
     assert ledger[0].direction == "credit"
-    assert ledger[0].event_type == "answer_earned"
+    assert ledger[0].event_type == "answer_base_earned"
     assert ledger[0].answer_id == "ans_test"
     assert ledger[0].question_id == "q_test"
     assert ledger[0].agent_id == "a_test"
     assert session.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_approve_inline_caps_answer_fuel_by_question_estimate(monkeypatch):
+    answer = make_answer(status="draft")
+    answer.usage = {"prompt_tokens": 1000, "completion_tokens": 1000}
+    agent = SimpleNamespace(
+        id="a_test",
+        user_id="u_owner",
+        fuel_earned=0,
+        total_answers=0,
+        review_rules={},
+        service_rules={"min_fuel_per_answer": 0, "max_fuel_per_answer": 100000, "price_multiplier": 1.0},
+    )
+    question = SimpleNamespace(
+        id="q_test",
+        asker_id="u_asker",
+        title="Capped settlement",
+        body="",
+        tags=[],
+        max_responders=1,
+        estimated_fuel_per_answer=900,
+        base_cap_multiplier=1.5,
+        base_fuel_spent=0,
+    )
+    owner = SimpleNamespace(id="u_owner", fuel_balance=100)
+
+    class ApprovalSession:
+        def __init__(self):
+            self.executes = 0
+            self.commits = 0
+            self.added = []
+
+        async def execute(self, stmt):
+            self.executes += 1
+            values = [agent, question, owner]
+            return FakeExecuteResult(values[self.executes - 1])
+
+        def add(self, obj):
+            self.added.append(obj)
+
+        async def commit(self):
+            self.commits += 1
+
+    async def fake_create_notification(*args, **kwargs):
+        return None
+
+    session = ApprovalSession()
+    monkeypatch.setattr(review, "create_notification", fake_create_notification)
+
+    await review._approve_inline(session, answer)
+
+    assert answer.fuel_earned == 1350
+    assert agent.fuel_earned == 1350
+    assert owner.fuel_balance == 1450
+    assert question.base_fuel_spent == 1350
+    ledger = [item for item in session.added if item.__class__.__name__ == "FuelLedgerEntry"]
+    assert ledger[0].amount == 1350
+    assert ledger[0].event_type == "answer_base_earned"
 
 
 @pytest.mark.asyncio
@@ -183,13 +242,16 @@ async def test_duplicate_upload_does_not_overwrite_terminal_answer(monkeypatch):
 async def test_usage_correction_updates_terminal_answer_without_overwriting_content(monkeypatch):
     answer = make_answer(status="approved")
     agent = SimpleNamespace(id="a_test", fuel_earned=10, service_rules={})
+    question = SimpleNamespace(id="q_test", estimated_fuel_per_answer=5000, base_cap_multiplier=1.5, base_fuel_spent=10)
 
     class CorrectionSession(FakeSession):
         async def execute(self, stmt):
             self.executes += 1
             if self.executes == 1:
                 return FakeExecuteResult(answer)
-            return FakeExecuteResult(agent)
+            if self.executes == 2:
+                return FakeExecuteResult(agent)
+            return FakeExecuteResult(question)
 
     session = CorrectionSession(answer)
     monkeypatch.setattr(review, "AsyncSessionLocal", lambda: session)
@@ -218,6 +280,7 @@ async def test_usage_correction_updates_terminal_answer_without_overwriting_cont
     }
     assert answer.fuel_earned == 1702
     assert agent.fuel_earned == 1702
+    assert question.base_fuel_spent == 1702
     assert answer.status == "approved"
     assert session.commits == 1
 
@@ -227,6 +290,7 @@ async def test_usage_correction_adjusts_owner_balance_and_records_delta(monkeypa
     answer = make_answer(status="approved")
     answer.fuel_earned = 10
     agent = SimpleNamespace(id="a_test", user_id="u_owner", fuel_earned=10, service_rules={})
+    question = SimpleNamespace(id="q_test", estimated_fuel_per_answer=5000, base_cap_multiplier=1.5, base_fuel_spent=10)
     owner = SimpleNamespace(id="u_owner", fuel_balance=100)
 
     class CorrectionSession(FakeSession):
@@ -236,6 +300,8 @@ async def test_usage_correction_adjusts_owner_balance_and_records_delta(monkeypa
                 return FakeExecuteResult(answer)
             if self.executes == 2:
                 return FakeExecuteResult(agent)
+            if self.executes == 3:
+                return FakeExecuteResult(question)
             return FakeExecuteResult(owner)
 
         def add(self, obj):
@@ -260,6 +326,7 @@ async def test_usage_correction_adjusts_owner_balance_and_records_delta(monkeypa
 
     assert answer.fuel_earned == 50
     assert agent.fuel_earned == 50
+    assert question.base_fuel_spent == 50
     assert owner.fuel_balance == 140
     ledger = [item for item in session.added if item.__class__.__name__ == "FuelLedgerEntry"]
     assert len(ledger) == 1

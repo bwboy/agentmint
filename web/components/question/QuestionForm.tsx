@@ -3,9 +3,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { getToken } from "@/lib/auth";
-import type { Agent } from "@/lib/types";
+import type { Agent, QuestionVisibility } from "@/lib/types";
 
-const AVG_TOKENS = 2000;
+const DEFAULT_ESTIMATED_FUEL_PER_ANSWER = 900;
 
 export function QuestionForm({ targetAgent }: { targetAgent?: Agent | null }) {
   const router = useRouter();
@@ -16,12 +16,18 @@ export function QuestionForm({ targetAgent }: { targetAgent?: Agent | null }) {
   const [deadline, setDeadline] = useState(30);
   const [maxResp, setMaxResp] = useState(3);
   const [emergency, setEmergency] = useState(false);
+  const [visibility, setVisibility] = useState<QuestionVisibility>("public");
+  const [estimatedFuelPerAnswer, setEstimatedFuelPerAnswer] = useState(DEFAULT_ESTIMATED_FUEL_PER_ANSWER);
+  const [rewardFuel, setRewardFuel] = useState(0);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const targetAgentIds = targetAgent ? [targetAgent.id] : [];
   const responderCount = targetAgent ? 1 : maxResp;
-  const estFuel = responderCount * AVG_TOKENS * (emergency ? 3 : 1);
+  const safeEstimate = Math.max(100, Number(estimatedFuelPerAnswer || DEFAULT_ESTIMATED_FUEL_PER_ANSWER));
+  const safeReward = Math.max(0, Number(rewardFuel || 0));
+  const baseReserve = responderCount * safeEstimate * (emergency ? 3 : 1);
+  const estFuel = baseReserve + safeReward;
   const previewCapabilities = inferCapabilityPreview(`${title} ${body} ${tags.join(" ")}`);
 
   function addTag() {
@@ -45,6 +51,9 @@ export function QuestionForm({ targetAgent }: { targetAgent?: Agent | null }) {
           max_responders: responderCount,
           is_emergency: emergency,
           agent_ids: targetAgentIds,
+          visibility,
+          estimated_fuel_per_answer: safeEstimate,
+          reward_fuel: safeReward,
         },
       });
       router.push(`/questions/${r.id}`);
@@ -143,10 +152,60 @@ export function QuestionForm({ targetAgent }: { targetAgent?: Agent | null }) {
             <input type="checkbox" checked={emergency} onChange={e => setEmergency(e.target.checked)} />
             紧急调度（3 倍燃值，优先推送）
           </label>
+          <div className="mt-4 grid grid-cols-2 gap-2 rounded-lg bg-gray-50 p-1">
+            {(["public", "private"] as const).map(mode => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setVisibility(mode)}
+                className={`rounded-md px-3 py-2 text-sm transition ${
+                  visibility === mode
+                    ? "bg-white text-primary shadow-sm"
+                    : "text-gray-500 hover:text-gray-800"
+                }`}
+              >
+                {mode === "public" ? "公开问题" : "私密问题"}
+              </button>
+            ))}
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-xs text-gray-500">单答预估燃值</label>
+              <input
+                type="number"
+                value={estimatedFuelPerAnswer}
+                onChange={e => setEstimatedFuelPerAnswer(Number(e.target.value))}
+                min={100}
+                max={100000}
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-gray-500">最佳回答奖励</label>
+              <input
+                type="number"
+                value={rewardFuel}
+                onChange={e => setRewardFuel(Number(e.target.value))}
+                min={0}
+                max={1000000}
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+              />
+            </div>
+          </div>
           <div className="mt-4 border-t border-gray-100 pt-4">
-            <div className="mb-3 flex items-center justify-between">
-              <span className="text-sm text-gray-500">预估消耗</span>
-              <span className="font-medium text-orange-500">🔥 {estFuel}</span>
+            <div className="mb-3 space-y-2 text-sm">
+              <div className="flex items-center justify-between text-gray-500">
+                <span>基础预留</span>
+                <span>🔥 {baseReserve}</span>
+              </div>
+              <div className="flex items-center justify-between text-gray-500">
+                <span>单一奖励</span>
+                <span>🔥 {safeReward}</span>
+              </div>
+              <div className="flex items-center justify-between border-t border-gray-100 pt-2">
+                <span className="text-gray-500">本次预留</span>
+                <span className="font-medium text-orange-500">🔥 {estFuel}</span>
+              </div>
             </div>
             <button onClick={submit} disabled={!title || busy}
               className="w-full rounded-lg bg-primary px-6 py-2.5 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50">

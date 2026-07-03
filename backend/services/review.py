@@ -17,6 +17,7 @@ from models import Answer, Agent, Question, User
 from services.billing import calculate_answer_fuel, credit_answer_owner
 from services.learned_profile import update_learned_profile_from_approval
 from services.notification import create_notification
+from services.rewards import mark_reward_auto_award_after_first_answer
 
 
 def decide_review_method(
@@ -131,10 +132,14 @@ async def _apply_usage_correction(db: AsyncSession, answer: Answer, msg: dict) -
     if answer.status == "approved":
         agent_result = await db.execute(select(Agent).where(Agent.id == answer.agent_id))
         agent = agent_result.scalar_one_or_none()
+        question_result = await db.execute(select(Question).where(Question.id == answer.question_id))
+        question = question_result.scalar_one_or_none()
         if agent:
-            new_fuel = calculate_answer_fuel(new_usage, agent)
+            new_fuel = calculate_answer_fuel(new_usage, agent, max_fuel=question_base_cap(question))
             delta = new_fuel - int(answer.fuel_earned or 0)
             answer.fuel_earned = new_fuel
+            if question:
+                question.base_fuel_spent = max(0, int(getattr(question, "base_fuel_spent", None) or 0) + delta)
             if delta:
                 agent.fuel_earned = int(agent.fuel_earned or 0) + delta
                 if delta > 0 and getattr(agent, "user_id", None):
@@ -164,11 +169,18 @@ async def _approve_inline(db: AsyncSession, answer: Answer):
     # Update agent aggregates
     agent_result = await db.execute(select(Agent).where(Agent.id == answer.agent_id))
     agent = agent_result.scalar_one_or_none()
-    fuel = calculate_answer_fuel(answer.usage or {}, agent) if agent else int((answer.usage or {}).get("total_tokens", 0))
+    q_result = await db.execute(select(Question).where(Question.id == answer.question_id))
+    question = q_result.scalar_one_or_none()
+    fuel = (
+        calculate_answer_fuel(answer.usage or {}, agent, max_fuel=question_base_cap(question))
+        if agent else int((answer.usage or {}).get("total_tokens", 0))
+    )
     answer.fuel_earned = fuel
     if agent:
         agent.fuel_earned = int(agent.fuel_earned or 0) + fuel
         agent.total_answers = int(agent.total_answers or 0) + 1
+        if question:
+            question.base_fuel_spent = int(getattr(question, "base_fuel_spent", None) or 0) + fuel
         if getattr(agent, "user_id", None):
             await credit_answer_owner(
                 db,
@@ -177,14 +189,13 @@ async def _approve_inline(db: AsyncSession, answer: Answer):
                 question_id=answer.question_id,
                 answer_id=answer.id,
                 agent_id=agent.id,
+                event_type="answer_base_earned",
             )
         # Simple incremental approval-rate update (count of approvals / total_answers)
         # In practice total_answers also bumps on rejection; here we keep it simple.
 
-    # Notify asker
-    q_result = await db.execute(select(Question).where(Question.id == answer.question_id))
-    question = q_result.scalar_one_or_none()
     if question:
+        await mark_reward_auto_award_after_first_answer(db, question, answer)
         if agent:
             update_learned_profile_from_approval(agent, question, answer)
         await create_notification(
@@ -194,3 +205,16 @@ async def _approve_inline(db: AsyncSession, answer: Answer):
         )
 
     await db.commit()
+
+
+def question_base_cap(question: Question | None) -> int | None:
+    if not question:
+        return None
+    estimated = int(getattr(question, "estimated_fuel_per_answer", None) or 0)
+    if estimated <= 0:
+        return None
+    try:
+        multiplier = float(getattr(question, "base_cap_multiplier", None) or 1.5)
+    except (TypeError, ValueError):
+        multiplier = 1.5
+    return int(round(estimated * multiplier))

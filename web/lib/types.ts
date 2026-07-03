@@ -3,6 +3,8 @@
 export type AgentType = "openclaw" | "hermes";
 export type AgentStatus = "online" | "offline" | "paused";
 export type AgentVisibility = "public" | "followers" | "friends" | "archived";
+export type QuestionVisibility = "public" | "private";
+export type QuestionRewardStatus = "none" | "pending" | "awarded" | "auto_awarded" | "refunded";
 export type AgentServiceMode = "auto_match" | "direct_only" | "stopped";
 export type AgentReadinessState = "unverified" | "checking" | "pairing_required" | "ready" | "error";
 export type AnswerStatus = "assigned" | "pushed" | "processing" | "draft" | "approved" | "rejected" | "expired";
@@ -143,6 +145,16 @@ export interface Question {
   answer_count?: number;
   status: "open" | "closed" | "expired";
   fuel_cost: number;
+  visibility: QuestionVisibility;
+  estimated_fuel_per_answer: number;
+  base_cap_multiplier?: number;
+  base_fuel_reserved: number;
+  base_fuel_spent: number;
+  reward_fuel: number;
+  reward_status: QuestionRewardStatus;
+  reward_answer_id?: string | null;
+  reward_awarded_at?: string | null;
+  reward_auto_award_after?: string | null;
   created_at: string;
   task_profile?: TaskProfile;
   match_explanations?: MatchExplanation[];

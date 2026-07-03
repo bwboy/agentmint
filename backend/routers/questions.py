@@ -8,7 +8,7 @@ Fuel cost is debited from the asker's balance up-front based on the matched
 agent count; agents earn fuel per-answer (agent.fuel_earned) on approval.
 """
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from models import Question, Answer, Feedback, Agent, User
 from services.agent_service_rules import can_view_agent, normalize_service_mode, normalize_service_rules
-from services.auth import get_current_user
+from services.auth import decode_token, get_current_user
 from services.billing import deduct_fuel_if_available, record_fuel_ledger, refund_fuel
 from services.followups import (
     build_conversation_id,
@@ -29,6 +29,7 @@ from services.followups import (
 )
 from services.matching import build_match_explanation, build_task_profile, match_agents
 from services.review import decide_review_method, approve_answer_by_id, reject_answer_by_id
+from services.rewards import auto_award_due_rewards, award_reward_to_answer
 from services.quota import check_quota, increment_usage
 from services.notification import maybe_create_notification
 from services.learned_profile import update_learned_profile_from_feedback
@@ -37,6 +38,8 @@ from ws.hub import hub
 router = APIRouter(prefix="/api", tags=["questions"])
 
 AVG_TOKENS_PER_ANSWER = 2000
+DEFAULT_ESTIMATED_FUEL_PER_ANSWER = 900
+DEFAULT_BASE_CAP_MULTIPLIER = 1.5
 EMERGENCY_FUEL_MULTIPLIER = 3
 
 
@@ -48,6 +51,9 @@ class CreateQuestionReq(BaseModel):
     max_responders: int = 5
     is_emergency: bool = False
     agent_ids: list[str] = []
+    visibility: str = "public"
+    estimated_fuel_per_answer: int = DEFAULT_ESTIMATED_FUEL_PER_ANSWER
+    reward_fuel: int = 0
 
 
 class CreateFollowUpReq(BaseModel):
@@ -79,9 +85,9 @@ async def list_questions(
     base = (
         select(Question, User.nickname, User.trust_level)
         .join(User, Question.asker_id == User.id)
-        .where(Question.root_question_id.is_(None))
+        .where(Question.root_question_id.is_(None), Question.visibility == "public")
     )
-    count_q = select(func.count(Question.id)).where(Question.root_question_id.is_(None))
+    count_q = select(func.count(Question.id)).where(Question.root_question_id.is_(None), Question.visibility == "public")
     if tag:
         base = base.where(Question.tags.any(tag))
         count_q = count_q.where(Question.tags.any(tag))
@@ -103,25 +109,29 @@ async def list_questions(
 
     return {
         "data": [
-            {
-                "id": q.id, "title": q.title, "body": q.body, "tags": list(q.tags or []),
-                "asker": {"nickname": nickname, "trust_level": tl},
-                "deadline_at": q.deadline_at.isoformat(),
-                "max_responders": q.max_responders,
-                "matched_count": len(q.matched_agent_ids or []),
-                "answer_count": ans_counts.get(q.id, 0),
-                "status": q.status,
-                "fuel_cost": int(q.fuel_cost or 0),
-                "created_at": q.created_at.isoformat(),
-            }
+            question_public_payload(q, nickname, tl, answer_count=ans_counts.get(q.id, 0))
             for q, nickname, tl in rows
         ],
         "pagination": {"page": page, "size": size, "total": total},
     }
 
 
+def get_optional_user(request: Request) -> dict | None:
+    auth = request.headers.get("authorization", "")
+    if not auth.startswith("Bearer "):
+        return None
+    payload = decode_token(auth[len("Bearer "):])
+    if not payload or payload.get("type") != "access":
+        return None
+    return payload
+
+
 @router.get("/questions/{question_id}")
-async def get_question(question_id: str, db: AsyncSession = Depends(get_db)):
+async def get_question(
+    question_id: str,
+    viewer: dict | None = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+):
     row = (await db.execute(
         select(Question, User.nickname, User.trust_level)
         .join(User, Question.asker_id == User.id)
@@ -139,6 +149,11 @@ async def get_question(question_id: str, db: AsyncSession = Depends(get_db)):
         if not root_row:
             raise HTTPException(status_code=404, detail="根问题不存在")
         q, nickname, tl = root_row
+
+    if not await can_view_question(db, q, viewer):
+        raise HTTPException(status_code=404, detail="问题不存在")
+
+    await auto_award_due_rewards(db, q)
 
     # Approved answers, with agent info
     ans_rows = (await db.execute(
@@ -185,16 +200,7 @@ async def get_question(question_id: str, db: AsyncSession = Depends(get_db)):
     ]
 
     return {
-        "id": q.id, "title": q.title, "body": q.body, "tags": list(q.tags or []),
-        "root_question_id": q.root_question_id,
-        "turn_type": q.turn_type,
-        "asker": {"nickname": nickname, "trust_level": tl},
-        "deadline_at": q.deadline_at.isoformat(),
-        "max_responders": q.max_responders,
-        "matched_count": len(q.matched_agent_ids or []),
-        "fuel_cost": int(q.fuel_cost or 0),
-        "status": q.status,
-        "created_at": q.created_at.isoformat(),
+        **question_public_payload(q, nickname, tl),
         "task_profile": build_task_profile(q.title, q.body, list(q.tags or []), q.max_responders),
         "match_explanations": await build_question_match_explanations(db, q),
         "answers": [
@@ -231,11 +237,15 @@ async def create_question(
     ]
 
     rate = EMERGENCY_FUEL_MULTIPLIER if req.is_emergency else 1
-    max_possible_fuel_cost = len(matched) * AVG_TOKENS_PER_ANSWER * rate
+    estimated_fuel_per_answer = normalize_estimated_fuel_per_answer(req.estimated_fuel_per_answer) * rate
+    base_reserve = len(matched) * estimated_fuel_per_answer
+    reward_fuel = normalize_reward_fuel(req.reward_fuel)
+    total_reserve = base_reserve + reward_fuel
 
-    if not await deduct_fuel_if_available(db, user.id, max_possible_fuel_cost):
+    if not await deduct_fuel_if_available(db, user.id, total_reserve):
         raise HTTPException(status_code=402, detail="燃值不足")
 
+    reward_status = "pending" if reward_fuel > 0 else "none"
     q = Question(
         asker_id=user.id,
         title=req.title,
@@ -245,15 +255,31 @@ async def create_question(
         max_responders=req.max_responders,
         matched_agent_ids=[a.id for a, *_ in matched],
         fuel_cost=0,
+        visibility=normalize_question_visibility(req.visibility),
+        estimated_fuel_per_answer=estimated_fuel_per_answer,
+        base_cap_multiplier=DEFAULT_BASE_CAP_MULTIPLIER,
+        base_fuel_reserved=base_reserve,
+        base_fuel_spent=0,
+        reward_fuel=reward_fuel,
+        reward_status=reward_status,
+        reward_auto_award_after=None,
     )
     db.add(q)
     await db.flush()  # need q.id
     record_fuel_ledger(
         db,
         user_id=user.id,
-        amount=max_possible_fuel_cost,
+        amount=base_reserve,
         direction="debit",
-        event_type="question_reserved",
+        event_type="base_reserved",
+        question_id=q.id,
+    )
+    record_fuel_ledger(
+        db,
+        user_id=user.id,
+        amount=reward_fuel,
+        direction="debit",
+        event_type="reward_reserved",
         question_id=q.id,
     )
 
@@ -311,16 +337,16 @@ async def create_question(
                     ref_id=q.id,
                 )
 
-    fuel_cost = pushed_count * AVG_TOKENS_PER_ANSWER * rate
+    fuel_cost = pushed_count * estimated_fuel_per_answer
     q.fuel_cost = fuel_cost
-    refund_amount = max_possible_fuel_cost - fuel_cost
+    refund_amount = base_reserve - fuel_cost
     await refund_fuel(db, user.id, refund_amount)
     record_fuel_ledger(
         db,
         user_id=user.id,
         amount=refund_amount,
         direction="credit",
-        event_type="question_refunded",
+        event_type="base_refunded",
         question_id=q.id,
     )
 
@@ -330,6 +356,13 @@ async def create_question(
         "id": q.id, "title": q.title,
         "estimated_fuel_cost": fuel_cost,
         "fuel_cost": fuel_cost,
+        "visibility": q.visibility,
+        "estimated_fuel_per_answer": int(q.estimated_fuel_per_answer or 0),
+        "base_fuel_reserved": int(q.base_fuel_reserved or 0),
+        "base_fuel_spent": int(q.base_fuel_spent or 0),
+        "reward_fuel": int(q.reward_fuel or 0),
+        "reward_status": q.reward_status,
+        "reward_answer_id": q.reward_answer_id,
         "matched_count": len(matched),
         "pushed_count": pushed_count,
         "task_profile": task_profile,
@@ -399,8 +432,9 @@ async def create_followup(
     if too_deep:
         raise HTTPException(status_code=400, detail=f"超过 Agent 追问深度限制: {', '.join(too_deep)}")
 
-    max_possible_fuel_cost = len(target_agent_ids) * AVG_TOKENS_PER_ANSWER
-    if not await deduct_fuel_if_available(db, user.id, max_possible_fuel_cost):
+    estimated_fuel_per_answer = int(getattr(root, "estimated_fuel_per_answer", None) or DEFAULT_ESTIMATED_FUEL_PER_ANSWER)
+    base_reserve = len(target_agent_ids) * estimated_fuel_per_answer
+    if not await deduct_fuel_if_available(db, user.id, base_reserve):
         raise HTTPException(status_code=402, detail="燃值不足")
 
     deadline = datetime.utcnow() + timedelta(minutes=max(1, req.deadline_minutes))
@@ -417,15 +451,22 @@ async def create_followup(
         parent_question_id=quoted_question.id,
         quoted_answer_id=quoted_answer.id,
         turn_type="followup",
+        visibility=normalize_question_visibility(getattr(root, "visibility", None)),
+        estimated_fuel_per_answer=estimated_fuel_per_answer,
+        base_cap_multiplier=float(getattr(root, "base_cap_multiplier", None) or DEFAULT_BASE_CAP_MULTIPLIER),
+        base_fuel_reserved=base_reserve,
+        base_fuel_spent=0,
+        reward_fuel=0,
+        reward_status="none",
     )
     db.add(followup)
     await db.flush()
     record_fuel_ledger(
         db,
         user_id=user.id,
-        amount=max_possible_fuel_cost,
+        amount=base_reserve,
         direction="debit",
-        event_type="question_reserved",
+        event_type="base_reserved",
         question_id=followup.id,
     )
 
@@ -493,16 +534,16 @@ async def create_followup(
             "status": status,
         })
 
-    fuel_cost = pushed_count * AVG_TOKENS_PER_ANSWER
+    fuel_cost = pushed_count * estimated_fuel_per_answer
     followup.fuel_cost = fuel_cost
-    refund_amount = max_possible_fuel_cost - fuel_cost
+    refund_amount = base_reserve - fuel_cost
     await refund_fuel(db, user.id, refund_amount)
     record_fuel_ledger(
         db,
         user_id=user.id,
         amount=refund_amount,
         direction="credit",
-        event_type="question_refunded",
+        event_type="base_refunded",
         question_id=followup.id,
     )
     await db.commit()
@@ -514,6 +555,23 @@ async def create_followup(
         "pushed_count": pushed_count,
         "fuel_cost": fuel_cost,
         "requests": requests,
+    }
+
+
+@router.post("/questions/{question_id}/answers/{answer_id}/reward")
+async def award_answer_reward(
+    question_id: str,
+    answer_id: str,
+    user_payload: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    q = await award_reward_to_answer(db, question_id, answer_id, user_payload["sub"])
+    return {
+        "id": q.id,
+        "reward_fuel": int(getattr(q, "reward_fuel", None) or 0),
+        "reward_status": getattr(q, "reward_status", None) or "none",
+        "reward_answer_id": getattr(q, "reward_answer_id", None),
+        "reward_awarded_at": q.reward_awarded_at.isoformat() if getattr(q, "reward_awarded_at", None) else None,
     }
 
 
@@ -617,6 +675,73 @@ async def build_question_match_explanations(db: AsyncSession, q: Question) -> li
         explanations.append(explanation)
 
     return explanations
+
+
+def question_public_payload(q: Question, asker_nickname: str, asker_trust_level: int, answer_count: int | None = None) -> dict:
+    out = {
+        "id": q.id,
+        "title": q.title,
+        "body": q.body,
+        "tags": list(q.tags or []),
+        "root_question_id": getattr(q, "root_question_id", None),
+        "turn_type": getattr(q, "turn_type", None) or "root",
+        "asker": {"nickname": asker_nickname, "trust_level": asker_trust_level},
+        "deadline_at": q.deadline_at.isoformat(),
+        "max_responders": q.max_responders,
+        "matched_count": len(q.matched_agent_ids or []),
+        "fuel_cost": int(q.fuel_cost or 0),
+        "status": q.status,
+        "created_at": q.created_at.isoformat(),
+        "visibility": normalize_question_visibility(getattr(q, "visibility", None)),
+        "estimated_fuel_per_answer": int(getattr(q, "estimated_fuel_per_answer", None) or DEFAULT_ESTIMATED_FUEL_PER_ANSWER),
+        "base_cap_multiplier": float(getattr(q, "base_cap_multiplier", None) or DEFAULT_BASE_CAP_MULTIPLIER),
+        "base_fuel_reserved": int(getattr(q, "base_fuel_reserved", None) or 0),
+        "base_fuel_spent": int(getattr(q, "base_fuel_spent", None) or 0),
+        "reward_fuel": int(getattr(q, "reward_fuel", None) or 0),
+        "reward_status": getattr(q, "reward_status", None) or "none",
+        "reward_answer_id": getattr(q, "reward_answer_id", None),
+        "reward_awarded_at": q.reward_awarded_at.isoformat() if getattr(q, "reward_awarded_at", None) else None,
+        "reward_auto_award_after": q.reward_auto_award_after.isoformat() if getattr(q, "reward_auto_award_after", None) else None,
+    }
+    if answer_count is not None:
+        out["answer_count"] = answer_count
+    return out
+
+
+def normalize_question_visibility(value: str | None) -> str:
+    return value if value in {"public", "private"} else "public"
+
+
+def normalize_estimated_fuel_per_answer(value: int | None) -> int:
+    try:
+        amount = int(value or DEFAULT_ESTIMATED_FUEL_PER_ANSWER)
+    except (TypeError, ValueError):
+        amount = DEFAULT_ESTIMATED_FUEL_PER_ANSWER
+    return max(100, min(amount, 100_000))
+
+
+def normalize_reward_fuel(value: int | None) -> int:
+    try:
+        amount = int(value or 0)
+    except (TypeError, ValueError):
+        amount = 0
+    return max(0, min(amount, 1_000_000))
+
+
+async def can_view_question(db: AsyncSession, q: Question, viewer: dict | None) -> bool:
+    if normalize_question_visibility(getattr(q, "visibility", None)) == "public":
+        return True
+    viewer_id = viewer.get("sub") if viewer else None
+    if not viewer_id:
+        return False
+    if viewer_id == getattr(q, "asker_id", None):
+        return True
+
+    agent_ids = list(getattr(q, "matched_agent_ids", None) or [])
+    if not agent_ids:
+        return False
+    rows = await db.execute(select(Agent).where(Agent.id.in_(agent_ids)))
+    return any(getattr(agent, "user_id", None) == viewer_id for agent in rows.scalars().all())
 
 
 @router.get("/my/questions")

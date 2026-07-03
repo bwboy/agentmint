@@ -96,6 +96,15 @@ function eventLabel(type: string) {
     question_reserved: "问题预留支出",
     question_refunded: "未投递退款",
     answer_earned: "回答收入",
+    base_reserved: "基础回答预留",
+    base_settled: "基础回答结算",
+    base_refunded: "基础预留退回",
+    answer_base_earned: "基础回答收入",
+    reward_reserved: "最佳回答奖励预留",
+    reward_awarded: "最佳回答奖励收入",
+    reward_auto_awarded: "系统分配奖励收入",
+    reward_refunded: "奖励退回",
+    usage_correction: "Token 用量修正",
   };
   return labels[type] || type;
 }

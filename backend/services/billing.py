@@ -34,7 +34,7 @@ async def refund_fuel(db: AsyncSession, user_id: str, fuel_amount: int) -> bool:
     return rowcount is None or int(rowcount or 0) > 0
 
 
-def calculate_answer_fuel(usage: dict | None, agent) -> int:
+def calculate_answer_fuel(usage: dict | None, agent, max_fuel: int | None = None) -> int:
     usage = usage or {}
     prompt_tokens = _int(usage.get("prompt_tokens") or usage.get("input_tokens"))
     completion_tokens = _int(usage.get("completion_tokens") or usage.get("output_tokens"))
@@ -44,10 +44,13 @@ def calculate_answer_fuel(usage: dict | None, agent) -> int:
     rules = normalize_service_rules(getattr(agent, "service_rules", None))
     base = prompt_tokens * INPUT_TOKEN_FUEL_PRICE + completion_tokens * OUTPUT_TOKEN_FUEL_PRICE
     priced = int(round(base * float(rules["price_multiplier"])))
-    return max(
+    fuel = max(
         int(rules["min_fuel_per_answer"]),
         min(priced, int(rules["max_fuel_per_answer"])),
     )
+    if max_fuel is not None:
+        fuel = min(fuel, max(0, int(max_fuel)))
+    return fuel
 
 
 def record_fuel_ledger(
@@ -84,7 +87,7 @@ async def credit_answer_owner(
     question_id: str | None,
     answer_id: str | None,
     agent_id: str | None,
-    event_type: str = "answer_earned",
+    event_type: str = "answer_base_earned",
 ) -> bool:
     if amount <= 0:
         return True

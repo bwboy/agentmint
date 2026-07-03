@@ -639,7 +639,7 @@ async def test_create_followup_rejects_missing_agent_row_for_approved_root_answe
 
 @pytest.mark.asyncio
 async def test_create_followup_insufficient_fuel_reservation_does_not_push(monkeypatch):
-    user = make_route_user(balance=questions.AVG_TOKENS_PER_ANSWER - 1)
+    user = make_route_user(balance=questions.DEFAULT_ESTIMATED_FUEL_PER_ANSWER - 1)
     root = make_route_question(matched_agent_ids=["a_ok"])
     quoted = make_route_answer(agent_id="a_ok")
     db = FollowupRouteDB(
@@ -666,7 +666,7 @@ async def test_create_followup_insufficient_fuel_reservation_does_not_push(monke
     assert err.value.detail == "燃值不足"
     assert db.added == []
     assert db.fuel_deductions == [
-        {"user_id": user.id, "fuel_cost": questions.AVG_TOKENS_PER_ANSWER, "rowcount": 0}
+        {"user_id": user.id, "fuel_cost": questions.DEFAULT_ESTIMATED_FUEL_PER_ANSWER, "rowcount": 0}
     ]
 
 
@@ -709,8 +709,8 @@ async def test_create_followup_partial_push_reserves_max_refunds_undelivered_and
     assert followup.parent_question_id == root.id
     assert followup.quoted_answer_id == quoted.id
     assert followup.turn_type == "followup"
-    assert followup.fuel_cost == questions.AVG_TOKENS_PER_ANSWER
-    assert user.fuel_balance == 100_000 - questions.AVG_TOKENS_PER_ANSWER
+    assert followup.fuel_cost == questions.DEFAULT_ESTIMATED_FUEL_PER_ANSWER
+    assert user.fuel_balance == 100_000 - questions.DEFAULT_ESTIMATED_FUEL_PER_ANSWER
 
     assert [(a.agent_id, a.conversation_id, a.parent_answer_id, a.turn_type) for a in created_answers] == [
         ("a_ok", "conv_q_root_a_ok", quoted.id, "followup"),
@@ -719,7 +719,7 @@ async def test_create_followup_partial_push_reserves_max_refunds_undelivered_and
     assert res["root_question_id"] == root.id
     assert res["quoted_answer_id"] == quoted.id
     assert res["pushed_count"] == 1
-    assert res["fuel_cost"] == questions.AVG_TOKENS_PER_ANSWER
+    assert res["fuel_cost"] == questions.DEFAULT_ESTIMATED_FUEL_PER_ANSWER
     assert res["requests"] == [
         {
             "agent_id": "a_ok",
@@ -736,10 +736,10 @@ async def test_create_followup_partial_push_reserves_max_refunds_undelivered_and
     ]
     assert incremented == ["a_ok"]
     assert db.fuel_deductions == [
-        {"user_id": user.id, "fuel_cost": 2 * questions.AVG_TOKENS_PER_ANSWER, "rowcount": 1}
+        {"user_id": user.id, "fuel_cost": 2 * questions.DEFAULT_ESTIMATED_FUEL_PER_ANSWER, "rowcount": 1}
     ]
     assert db.fuel_refunds == [
-        {"user_id": user.id, "fuel_amount": questions.AVG_TOKENS_PER_ANSWER}
+        {"user_id": user.id, "fuel_amount": questions.DEFAULT_ESTIMATED_FUEL_PER_ANSWER}
     ]
     assert db.answer_status_updates == [
         {"answer_id": "ans_follow_1", "expected_status": "assigned", "new_status": "pushed", "rowcount": 1}

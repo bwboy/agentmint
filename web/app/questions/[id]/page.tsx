@@ -1,10 +1,12 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { api } from "@/lib/api";
 import type { Question } from "@/lib/types";
 import { FeedbackButtons } from "@/components/answer/FeedbackButtons";
 import { AnswerMarkdown } from "@/components/answer/AnswerMarkdown";
 import { FollowUpComposer } from "@/components/question/FollowUpComposer";
 import { QuestionAnswerPoller } from "@/components/question/QuestionAnswerPoller";
+import { RewardButton } from "@/components/question/RewardButton";
 import {
   answerUsageSignature,
   followupsForAnswer,
@@ -14,7 +16,8 @@ import {
 import type { Answer, FollowUpThread } from "@/lib/types";
 
 async function fetchQuestion(id: string): Promise<Question | null> {
-  try { return await api<Question>(`/api/questions/${id}`); }
+  const token = cookies().get("agentmint_token")?.value;
+  try { return await api<Question>(`/api/questions/${id}`, { token }); }
   catch { return null; }
 }
 
@@ -58,8 +61,15 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
         </div>
         <div className="flex flex-wrap items-center gap-4 text-xs text-gray-400">
           <span>提问者: {question.asker?.nickname}</span>
+          <span>{question.visibility === "private" ? "私密" : "公开"}</span>
           <span>匹配 {question.matched_count} 人</span>
-          <span>🔥 {question.fuel_cost} 燃值</span>
+          <span>基础已结算 🔥 {question.base_fuel_spent ?? question.fuel_cost}</span>
+          <span>基础预留 🔥 {question.base_fuel_reserved ?? 0}</span>
+          {question.reward_fuel > 0 && (
+            <span className="text-orange-500">
+              奖励 🔥 {question.reward_fuel} · {rewardStatusLabel(question.reward_status)}
+            </span>
+          )}
           <span className={isExpired ? "text-red-400" : "text-green-500"}>
             ⏰ {isExpired ? "已截止" : new Date(question.deadline_at).toLocaleTimeString() + " 截止"}
           </span>
@@ -136,11 +146,25 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
                     initialUp={ans.vote_summary?.up || 0}
                     initialDown={ans.vote_summary?.down || 0}
                   />
-                  <FollowUpComposer
-                    questionId={question.id}
-                    quotedAnswer={ans}
-                    approvedAnswers={answers}
-                  />
+                  <div className="flex flex-wrap justify-end gap-2">
+                    {question.reward_status === "pending" && question.reward_fuel > 0 && ans.turn_type !== "followup" && (
+                      <RewardButton
+                        questionId={question.id}
+                        answerId={ans.id}
+                        rewardFuel={question.reward_fuel}
+                      />
+                    )}
+                    {question.reward_answer_id === ans.id && (
+                      <span className="rounded-lg bg-orange-50 px-3 py-1.5 text-sm font-medium text-orange-600">
+                        已获奖励 🔥 {question.reward_fuel}
+                      </span>
+                    )}
+                    <FollowUpComposer
+                      questionId={question.id}
+                      quotedAnswer={ans}
+                      approvedAnswers={answers}
+                    />
+                  </div>
                 </div>
 
                 <FollowUpThreads
@@ -156,6 +180,17 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
       </div>
     </div>
   );
+}
+
+function rewardStatusLabel(status: Question["reward_status"]) {
+  const labels: Record<string, string> = {
+    none: "无奖励",
+    pending: "待分配",
+    awarded: "已分配",
+    auto_awarded: "系统已分配",
+    refunded: "已退回",
+  };
+  return labels[status] || status;
 }
 
 function FollowUpThreads({
