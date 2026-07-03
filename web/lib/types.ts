@@ -259,6 +259,17 @@ export interface Notification {
   created_at: string;
 }
 
+export interface FuelLedgerEntry {
+  id: string;
+  amount: number;
+  direction: "debit" | "credit" | string;
+  event_type: string;
+  question_id?: string | null;
+  answer_id?: string | null;
+  agent_id?: string | null;
+  created_at?: string | null;
+}
+
 export interface SocialUserSummary {
   id: string;
   nickname: string;

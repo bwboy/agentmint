@@ -328,6 +328,45 @@ async def test_billing_deduct_zero_is_noop():
     assert db.fuel_deductions == []
 
 
+def test_record_fuel_ledger_skips_zero_amounts():
+    db = SimpleNamespace(added=[], add=lambda obj: db.added.append(obj))
+
+    entry = billing.record_fuel_ledger(
+        db,
+        user_id="u_test",
+        amount=0,
+        direction="debit",
+        event_type="question_reserved",
+    )
+
+    assert entry is None
+    assert db.added == []
+
+
+def test_record_fuel_ledger_records_context():
+    db = SimpleNamespace(added=[], add=lambda obj: db.added.append(obj))
+
+    entry = billing.record_fuel_ledger(
+        db,
+        user_id="u_test",
+        amount=2000,
+        direction="debit",
+        event_type="question_reserved",
+        question_id="q_test",
+        answer_id="ans_test",
+        agent_id="a_test",
+    )
+
+    assert entry is db.added[0]
+    assert entry.user_id == "u_test"
+    assert entry.amount == 2000
+    assert entry.direction == "debit"
+    assert entry.event_type == "question_reserved"
+    assert entry.question_id == "q_test"
+    assert entry.answer_id == "ans_test"
+    assert entry.agent_id == "a_test"
+
+
 @pytest.mark.asyncio
 async def test_billing_refund_zero_is_noop():
     user = make_user()

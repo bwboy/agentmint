@@ -1,11 +1,11 @@
 """Authentication endpoints: SMS verification + JWT issuance."""
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models import User
+from models import FuelLedgerEntry, User
 from services.auth import (
     issue_code,
     verify_code,
@@ -174,6 +174,35 @@ async def update_my_profile(
     return _private_user_profile(user)
 
 
+@router.get("/my/fuel-ledger")
+async def my_fuel_ledger(
+    page: int = 1,
+    size: int = 50,
+    user_payload: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    page = max(1, int(page or 1))
+    size = min(100, max(1, int(size or 50)))
+    offset = (page - 1) * size
+    user_id = user_payload["sub"]
+
+    rows = (await db.execute(
+        select(FuelLedgerEntry)
+        .where(FuelLedgerEntry.user_id == user_id)
+        .order_by(FuelLedgerEntry.created_at.desc())
+        .offset(offset)
+        .limit(size)
+    )).scalars().all()
+    total = (await db.execute(
+        select(func.count(FuelLedgerEntry.id)).where(FuelLedgerEntry.user_id == user_id)
+    )).scalar() or 0
+
+    return {
+        "data": [_fuel_ledger_to_dict(item) for item in rows],
+        "pagination": {"page": page, "size": size, "total": total},
+    }
+
+
 def _mask_phone(phone: str) -> str:
     if len(phone) <= 7:
         return phone
@@ -197,6 +226,19 @@ def _private_user_profile(user: User) -> dict:
         "fuel_balance": user.fuel_balance,
         "repute_score": float(user.repute_score),
         **_user_profile_dict(user),
+    }
+
+
+def _fuel_ledger_to_dict(item: FuelLedgerEntry) -> dict:
+    return {
+        "id": item.id,
+        "amount": int(item.amount or 0),
+        "direction": item.direction,
+        "event_type": item.event_type,
+        "question_id": item.question_id,
+        "answer_id": item.answer_id,
+        "agent_id": item.agent_id,
+        "created_at": item.created_at.isoformat() if item.created_at else None,
     }
 
 

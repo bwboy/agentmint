@@ -98,6 +98,24 @@ FOLLOWUP_SCHEMA_SQL = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_friend_requests_recipient_id ON friend_requests(recipient_id)",
     "CREATE INDEX IF NOT EXISTS idx_friend_requests_requester_id ON friend_requests(requester_id)",
+    """
+    CREATE TABLE IF NOT EXISTS fuel_ledger_entries (
+        id VARCHAR PRIMARY KEY,
+        user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        amount BIGINT NOT NULL,
+        direction VARCHAR NOT NULL,
+        event_type VARCHAR NOT NULL,
+        question_id VARCHAR,
+        answer_id VARCHAR,
+        agent_id VARCHAR,
+        created_at TIMESTAMPTZ DEFAULT now()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_fuel_ledger_entries_user_id ON fuel_ledger_entries(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_fuel_ledger_entries_created_at ON fuel_ledger_entries(created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_fuel_ledger_entries_question_id ON fuel_ledger_entries(question_id)",
+    "CREATE INDEX IF NOT EXISTS idx_fuel_ledger_entries_answer_id ON fuel_ledger_entries(answer_id)",
+    "CREATE INDEX IF NOT EXISTS idx_fuel_ledger_entries_agent_id ON fuel_ledger_entries(agent_id)",
 ]
 
 

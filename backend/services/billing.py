@@ -1,7 +1,7 @@
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import User
+from models import FuelLedgerEntry, User
 from services.agent_service_rules import normalize_service_rules
 
 INPUT_TOKEN_FUEL_PRICE = 1
@@ -48,6 +48,62 @@ def calculate_answer_fuel(usage: dict | None, agent) -> int:
         int(rules["min_fuel_per_answer"]),
         min(priced, int(rules["max_fuel_per_answer"])),
     )
+
+
+def record_fuel_ledger(
+    db: AsyncSession,
+    *,
+    user_id: str,
+    amount: int,
+    direction: str,
+    event_type: str,
+    question_id: str | None = None,
+    answer_id: str | None = None,
+    agent_id: str | None = None,
+) -> FuelLedgerEntry | None:
+    if amount <= 0:
+        return None
+    entry = FuelLedgerEntry(
+        user_id=user_id,
+        amount=int(amount),
+        direction=direction,
+        event_type=event_type,
+        question_id=question_id,
+        answer_id=answer_id,
+        agent_id=agent_id,
+    )
+    db.add(entry)
+    return entry
+
+
+async def credit_answer_owner(
+    db: AsyncSession,
+    *,
+    owner_id: str,
+    amount: int,
+    question_id: str | None,
+    answer_id: str | None,
+    agent_id: str | None,
+    event_type: str = "answer_earned",
+) -> bool:
+    if amount <= 0:
+        return True
+
+    owner = (await db.execute(select(User).where(User.id == owner_id))).scalar_one_or_none()
+    if not owner:
+        return False
+    owner.fuel_balance = int(owner.fuel_balance or 0) + int(amount)
+    record_fuel_ledger(
+        db,
+        user_id=owner_id,
+        amount=amount,
+        direction="credit",
+        event_type=event_type,
+        question_id=question_id,
+        answer_id=answer_id,
+        agent_id=agent_id,
+    )
+    return True
 
 
 def _int(value) -> int:

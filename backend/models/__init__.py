@@ -4,9 +4,11 @@ from .question import Question
 from .answer import Answer, Feedback
 from .notification import Notification
 from .relationship import AgentSubscription, FriendRequest, Friendship, UserFollow
+from .fuel_ledger import FuelLedgerEntry
 
 __all__ = [
     "User", "Agent", "Connector", "AgentDailyUsage",
     "Question", "Answer", "Feedback", "Notification", "gen_id",
     "AgentSubscription", "FriendRequest", "Friendship", "UserFollow",
+    "FuelLedgerEntry",
 ]

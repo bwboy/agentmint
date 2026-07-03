@@ -94,6 +94,68 @@ async def test_approve_inline_updates_agent_learned_profile(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_approve_inline_credits_owner_balance_and_records_ledger(monkeypatch):
+    answer = make_answer(status="draft")
+    answer.usage = {"prompt_tokens": 10, "completion_tokens": 20}
+    agent = SimpleNamespace(
+        id="a_test",
+        user_id="u_owner",
+        fuel_earned=0,
+        total_answers=0,
+        review_rules={},
+        service_rules={},
+    )
+    owner = SimpleNamespace(id="u_owner", fuel_balance=100)
+    question = SimpleNamespace(
+        id="q_test",
+        asker_id="u_asker",
+        title="Token economy",
+        body="",
+        tags=[],
+        max_responders=1,
+    )
+
+    class ApprovalSession:
+        def __init__(self):
+            self.executes = 0
+            self.commits = 0
+            self.added = []
+
+        async def execute(self, stmt):
+            self.executes += 1
+            values = [agent, owner, question]
+            return FakeExecuteResult(values[self.executes - 1])
+
+        def add(self, obj):
+            self.added.append(obj)
+
+        async def commit(self):
+            self.commits += 1
+
+    async def fake_create_notification(*args, **kwargs):
+        return None
+
+    session = ApprovalSession()
+    monkeypatch.setattr(review, "create_notification", fake_create_notification)
+
+    await review._approve_inline(session, answer)
+
+    assert answer.fuel_earned == 50
+    assert agent.fuel_earned == 50
+    assert owner.fuel_balance == 150
+    ledger = [item for item in session.added if item.__class__.__name__ == "FuelLedgerEntry"]
+    assert len(ledger) == 1
+    assert ledger[0].user_id == "u_owner"
+    assert ledger[0].amount == 50
+    assert ledger[0].direction == "credit"
+    assert ledger[0].event_type == "answer_earned"
+    assert ledger[0].answer_id == "ans_test"
+    assert ledger[0].question_id == "q_test"
+    assert ledger[0].agent_id == "a_test"
+    assert session.commits == 1
+
+
+@pytest.mark.asyncio
 async def test_duplicate_upload_does_not_overwrite_terminal_answer(monkeypatch):
     answer = make_answer(status="approved")
     session = FakeSession(answer)
@@ -158,3 +220,51 @@ async def test_usage_correction_updates_terminal_answer_without_overwriting_cont
     assert agent.fuel_earned == 1702
     assert answer.status == "approved"
     assert session.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_usage_correction_adjusts_owner_balance_and_records_delta(monkeypatch):
+    answer = make_answer(status="approved")
+    answer.fuel_earned = 10
+    agent = SimpleNamespace(id="a_test", user_id="u_owner", fuel_earned=10, service_rules={})
+    owner = SimpleNamespace(id="u_owner", fuel_balance=100)
+
+    class CorrectionSession(FakeSession):
+        async def execute(self, stmt):
+            self.executes += 1
+            if self.executes == 1:
+                return FakeExecuteResult(answer)
+            if self.executes == 2:
+                return FakeExecuteResult(agent)
+            return FakeExecuteResult(owner)
+
+        def add(self, obj):
+            self.added = getattr(self, "added", [])
+            self.added.append(obj)
+
+    session = CorrectionSession(answer)
+    monkeypatch.setattr(review, "AsyncSessionLocal", lambda: session)
+
+    await review.handle_uploaded_answer("a_test", {
+        "type": "answer",
+        "request_id": "req_test",
+        "status": "success",
+        "usage_correction": True,
+        "model": "model-real",
+        "usage": {
+            "prompt_tokens": 10,
+            "completion_tokens": 20,
+            "total_tokens": 30,
+        },
+    })
+
+    assert answer.fuel_earned == 50
+    assert agent.fuel_earned == 50
+    assert owner.fuel_balance == 140
+    ledger = [item for item in session.added if item.__class__.__name__ == "FuelLedgerEntry"]
+    assert len(ledger) == 1
+    assert ledger[0].user_id == "u_owner"
+    assert ledger[0].amount == 40
+    assert ledger[0].direction == "credit"
+    assert ledger[0].event_type == "usage_correction"
+    assert ledger[0].answer_id == "ans_test"

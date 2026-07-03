@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import AsyncSessionLocal
 from models import Answer, Agent, Question, User
-from services.billing import calculate_answer_fuel
+from services.billing import calculate_answer_fuel, credit_answer_owner
 from services.learned_profile import update_learned_profile_from_approval
 from services.notification import create_notification
 
@@ -137,6 +137,16 @@ async def _apply_usage_correction(db: AsyncSession, answer: Answer, msg: dict) -
             answer.fuel_earned = new_fuel
             if delta:
                 agent.fuel_earned = int(agent.fuel_earned or 0) + delta
+                if delta > 0 and getattr(agent, "user_id", None):
+                    await credit_answer_owner(
+                        db,
+                        owner_id=agent.user_id,
+                        amount=delta,
+                        question_id=answer.question_id,
+                        answer_id=answer.id,
+                        agent_id=agent.id,
+                        event_type="usage_correction",
+                    )
 
     await db.commit()
 
@@ -159,6 +169,15 @@ async def _approve_inline(db: AsyncSession, answer: Answer):
     if agent:
         agent.fuel_earned = int(agent.fuel_earned or 0) + fuel
         agent.total_answers = int(agent.total_answers or 0) + 1
+        if getattr(agent, "user_id", None):
+            await credit_answer_owner(
+                db,
+                owner_id=agent.user_id,
+                amount=fuel,
+                question_id=answer.question_id,
+                answer_id=answer.id,
+                agent_id=agent.id,
+            )
         # Simple incremental approval-rate update (count of approvals / total_answers)
         # In practice total_answers also bumps on rejection; here we keep it simple.
 

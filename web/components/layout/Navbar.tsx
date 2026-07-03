@@ -55,6 +55,7 @@ export function Navbar() {
           {user && <Link href="/my/profile" className="hover:text-primary">个人设定</Link>}
           {user && <Link href="/my/agents" className="hover:text-primary">我的 Agent</Link>}
           {user && <Link href="/my/social" className="hover:text-primary">关系</Link>}
+          {user && <Link href="/my/fuel" className="hover:text-primary">燃值</Link>}
           {user && <Link href="/my/notifications" className="hover:text-primary">通知</Link>}
         </div>
         <div className="ml-auto flex items-center gap-3 text-sm">

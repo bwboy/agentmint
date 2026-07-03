@@ -17,7 +17,7 @@ from database import get_db
 from models import Question, Answer, Feedback, Agent, User
 from services.agent_service_rules import can_view_agent, normalize_service_mode, normalize_service_rules
 from services.auth import get_current_user
-from services.billing import deduct_fuel_if_available, refund_fuel
+from services.billing import deduct_fuel_if_available, record_fuel_ledger, refund_fuel
 from services.followups import (
     build_conversation_id,
     build_followup_payload,
@@ -248,6 +248,14 @@ async def create_question(
     )
     db.add(q)
     await db.flush()  # need q.id
+    record_fuel_ledger(
+        db,
+        user_id=user.id,
+        amount=max_possible_fuel_cost,
+        direction="debit",
+        event_type="question_reserved",
+        question_id=q.id,
+    )
 
     # One Answer row per matched agent (state machine starts at 'assigned')
     answer_records: list[tuple[Answer, Agent, str, str]] = []  # (answer, agent, match_type, quota_state)
@@ -305,7 +313,16 @@ async def create_question(
 
     fuel_cost = pushed_count * AVG_TOKENS_PER_ANSWER * rate
     q.fuel_cost = fuel_cost
-    await refund_fuel(db, user.id, max_possible_fuel_cost - fuel_cost)
+    refund_amount = max_possible_fuel_cost - fuel_cost
+    await refund_fuel(db, user.id, refund_amount)
+    record_fuel_ledger(
+        db,
+        user_id=user.id,
+        amount=refund_amount,
+        direction="credit",
+        event_type="question_refunded",
+        question_id=q.id,
+    )
 
     await db.commit()
 
@@ -403,6 +420,14 @@ async def create_followup(
     )
     db.add(followup)
     await db.flush()
+    record_fuel_ledger(
+        db,
+        user_id=user.id,
+        amount=max_possible_fuel_cost,
+        direction="debit",
+        event_type="question_reserved",
+        question_id=followup.id,
+    )
 
     answer_records: list[tuple[Answer, Agent]] = []
     for agent_id in target_agent_ids:
@@ -470,7 +495,16 @@ async def create_followup(
 
     fuel_cost = pushed_count * AVG_TOKENS_PER_ANSWER
     followup.fuel_cost = fuel_cost
-    await refund_fuel(db, user.id, max_possible_fuel_cost - fuel_cost)
+    refund_amount = max_possible_fuel_cost - fuel_cost
+    await refund_fuel(db, user.id, refund_amount)
+    record_fuel_ledger(
+        db,
+        user_id=user.id,
+        amount=refund_amount,
+        direction="credit",
+        event_type="question_refunded",
+        question_id=followup.id,
+    )
     await db.commit()
 
     return {
