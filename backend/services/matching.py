@@ -14,7 +14,7 @@ review service can later force "review_only" agents through manual review.
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import Agent, Friendship, UserFollow
+from models import Agent, AgentSubscription, Friendship, UserFollow
 from services.agent_readiness import get_agent_readiness
 from services.agent_service_rules import can_auto_match_agent
 from services.learned_profile import build_owner_experience_context, get_agent_learned_profile, get_owner_supplement_summary
@@ -44,6 +44,7 @@ SIMILARITY_THRESHOLD = 0.3
 SIMILARITY_DISCOUNT = 0.7
 ALPHA = 0.6  # repute weight
 BETA = 0.4   # match score weight
+SUBSCRIPTION_BOOST = 0.12
 
 CAPABILITY_KEYWORDS: dict[str, set[str]] = {
     "方案设计": {"方案", "设计", "规划", "路线", "策略", "产品", "架构"},
@@ -97,6 +98,13 @@ def rank(repute: float, match_score: float) -> float:
     return ALPHA * (repute / 5.0) + BETA * match_score
 
 
+def rank_with_relationship_boost(repute: float, match_score: float, *, subscribed: bool = False) -> float:
+    base = rank(repute, match_score)
+    if subscribed:
+        base += SUBSCRIPTION_BOOST
+    return min(1.0, base)
+
+
 def infer_capability_tags(title: str, body: str, tags: list[str]) -> list[str]:
     text = " ".join([title or "", body or "", " ".join(tags or [])]).lower()
     inferred = [
@@ -133,6 +141,8 @@ def build_task_profile(
 
 
 def describe_match_type(match_type: str) -> str:
+    if match_type.startswith("subscribed_"):
+        return "订阅优先匹配"
     if match_type == "exact":
         return "领域标签直接命中"
     if match_type == "similarity":
@@ -185,7 +195,8 @@ def build_match_explanation(
     tool_hits = sorted(profile_tool_tags)
     style_hits = sorted(profile_style_tags)
     repute = float(getattr(agent, "repute_score", 0) or 0)
-    overall = round(rank(repute, match_score) * 100)
+    subscribed = match_type.startswith("subscribed_")
+    boosted_overall = round(rank_with_relationship_boost(repute, match_score, subscribed=subscribed) * 100)
     readiness = get_agent_readiness(agent)
     repute_component = round(ALPHA * (repute / 5.0) * 100)
     match_component = round(BETA * match_score * 100)
@@ -205,6 +216,8 @@ def build_match_explanation(
         reasons.append("当前配额接近上限，回答需要人工审核")
     if owner_supplement_summary["total"] > 0:
         reasons.append(f"主人经验信号：{owner_supplement_summary['total']} 次补充/纠错")
+    if subscribed:
+        reasons.append("订阅优先：你订阅过这个 Agent")
 
     return {
         "id": agent.id,
@@ -213,7 +226,7 @@ def build_match_explanation(
         "status": getattr(agent, "status", "online"),
         "match_type": match_type,
         "match_score": round(match_score * 100),
-        "overall_score": overall,
+        "overall_score": boosted_overall,
         "matched_tags": matched_tags,
         "capability_hits": capability_hits,
         "tool_hits": tool_hits,
@@ -236,7 +249,8 @@ def build_match_explanation(
             "match_score": round(match_score * 100),
             "repute_component": repute_component,
             "match_component": match_component,
-            "overall_score": overall,
+            "subscription_boost": round(SUBSCRIPTION_BOOST * 100) if subscribed else 0,
+            "overall_score": boosted_overall,
         },
         "reasons": reasons,
     }
@@ -327,6 +341,7 @@ async def match_agents(
     )
     agents = list(result.scalars().all())
     followed_owner_ids, friend_owner_ids = await _relationship_owner_sets(db, viewer_id)
+    subscribed_agent_ids = await _subscribed_agent_ids(db, viewer_id)
     agents = filter_matchable_agents(
         agents,
         viewer_id=viewer_id,
@@ -339,7 +354,10 @@ async def match_agents(
 
     # No tags supplied → fallback to top-repute online agents.
     if not q_tags_norm:
-        ranked: list[tuple[Agent, float, str]] = [(a, 0.0, "fallback") for a in agents]
+        ranked: list[tuple[Agent, float, str]] = [
+            (a, 0.0, "subscribed_fallback" if a.id in subscribed_agent_ids else "fallback")
+            for a in agents
+        ]
     else:
         scored: list[tuple[Agent, float, str]] = []
         exact_hits: list[tuple[Agent, float]] = []
@@ -350,21 +368,35 @@ async def match_agents(
                 exact_hits.append((a, exact))
 
         if len(exact_hits) >= MIN_MATCH:
-            scored = [(a, s, "exact") for a, s in exact_hits]
+            scored = [
+                (a, s, "subscribed_exact" if a.id in subscribed_agent_ids else "exact")
+                for a, s in exact_hits
+            ]
         else:
             # Include exact hits, then top up via similarity.
-            scored = [(a, s, "exact") for a, s in exact_hits]
+            scored = [
+                (a, s, "subscribed_exact" if a.id in subscribed_agent_ids else "exact")
+                for a, s in exact_hits
+            ]
             exact_ids = {a.id for a, _ in exact_hits}
             for a in agents:
                 if a.id in exact_ids:
                     continue
                 sim = similarity_score(q_tags_norm, agent_matching_tags(a))
                 if sim >= SIMILARITY_THRESHOLD:
-                    scored.append((a, sim * SIMILARITY_DISCOUNT, "similarity"))
+                    mtype = "subscribed_similarity" if a.id in subscribed_agent_ids else "similarity"
+                    scored.append((a, sim * SIMILARITY_DISCOUNT, mtype))
         ranked = scored
 
     # Sort by combined rank
-    ranked.sort(key=lambda x: rank(float(x[0].repute_score or 0), x[1]), reverse=True)
+    ranked.sort(
+        key=lambda x: rank_with_relationship_boost(
+            float(x[0].repute_score or 0),
+            x[1],
+            subscribed=x[0].id in subscribed_agent_ids,
+        ),
+        reverse=True,
+    )
 
     # Quota filter (drops "blocked", tags "review_only")
     out: list[tuple[Agent, float, str, str]] = []
@@ -399,3 +431,12 @@ async def _relationship_owner_sets(db: AsyncSession, viewer_id: str | None) -> t
         else:
             friend_owner_ids.add(item.user_low_id)
     return followed_owner_ids, friend_owner_ids
+
+
+async def _subscribed_agent_ids(db: AsyncSession, viewer_id: str | None) -> set[str]:
+    if not viewer_id:
+        return set()
+    rows = await db.execute(
+        select(AgentSubscription.agent_id).where(AgentSubscription.subscriber_id == viewer_id)
+    )
+    return set(rows.scalars().all())

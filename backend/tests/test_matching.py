@@ -5,6 +5,7 @@ from services.matching import (
     normalize_tags, exact_match_score, similarity_score, rank,
     build_task_profile, build_match_explanation, build_query_tags, TAG_GROUPS,
     filter_ready_agents, agent_matching_tags, filter_matchable_agents,
+    rank_with_relationship_boost,
 )
 
 
@@ -60,6 +61,14 @@ def test_rank_balances_repute_and_match():
     assert rank(5.0, 1.0) == pytest.approx(1.0)
 
 
+def test_rank_with_relationship_boost_prioritizes_subscribed_agents():
+    unsubscribed = rank_with_relationship_boost(4.0, 0.5, subscribed=False)
+    subscribed = rank_with_relationship_boost(4.0, 0.5, subscribed=True)
+
+    assert subscribed > unsubscribed
+    assert subscribed <= 1.0
+
+
 def test_build_task_profile_infers_domains_and_capabilities():
     profile = build_task_profile(
         title="重新设计 AI Agent 匹配系统",
@@ -113,6 +122,38 @@ def test_build_match_explanation_describes_agent_selection():
     assert "系统设计" in explanation["matched_tags"]
     assert explanation["quota_state"] == "ok"
     assert explanation["reasons"]
+
+
+def test_build_match_explanation_displays_subscribed_priority():
+    class AgentStub:
+        id = "a_sub"
+        name = "Subscribed Agent"
+        agent_type = "hermes"
+        tags = ["AI"]
+        description = ""
+        repute_score = 4.0
+        total_answers = 8
+        approval_rate = 0.75
+        status = "online"
+
+    profile = build_task_profile(
+        title="AI 方案设计",
+        body="",
+        tags=["AI"],
+        max_responders=3,
+    )
+
+    explanation = build_match_explanation(
+        AgentStub(),
+        task_profile=profile,
+        match_score=0.5,
+        match_type="subscribed_exact",
+        quota_state="ok",
+    )
+
+    assert explanation["match_type"] == "subscribed_exact"
+    assert explanation["score_breakdown"]["subscription_boost"] > 0
+    assert any("订阅优先" in reason for reason in explanation["reasons"])
 
 
 def test_build_match_explanation_uses_structured_capability_profile():
@@ -194,6 +235,7 @@ def test_build_match_explanation_includes_score_breakdown_and_readiness():
         "match_score": 50,
         "repute_component": 48,
         "match_component": 20,
+        "subscription_boost": 0,
         "overall_score": 68,
     }
 
