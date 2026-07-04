@@ -319,6 +319,7 @@ export interface MyAgentAnswerItem {
     source?: string;
   };
   turn_type: "root" | "followup";
+  owner_quality_mark?: "excellent" | "needs_improvement" | "stale" | null;
   created_at: string | null;
   owner_supplements: AnswerOwnerSupplement[];
   owner_supplement_pending_count: number;

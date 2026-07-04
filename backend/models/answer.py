@@ -22,6 +22,7 @@ class Answer(Base):
     capability: Mapped[dict] = mapped_column(JSONB, default=dict)
     # State: assigned → pushed → processing → draft → approved/rejected/expired
     status: Mapped[str] = mapped_column(String, default="assigned")
+    owner_quality_mark: Mapped[str | None] = mapped_column(String, nullable=True)
     review_method: Mapped[str] = mapped_column(String, default="auto")
     fuel_earned: Mapped[int] = mapped_column(BigInteger, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

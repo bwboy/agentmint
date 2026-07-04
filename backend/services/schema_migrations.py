@@ -63,6 +63,7 @@ FOLLOWUP_SCHEMA_SQL = [
     "ALTER TABLE answers ADD COLUMN IF NOT EXISTS conversation_id VARCHAR",
     "ALTER TABLE answers ADD COLUMN IF NOT EXISTS parent_answer_id VARCHAR",
     "ALTER TABLE answers ADD COLUMN IF NOT EXISTS turn_type VARCHAR",
+    "ALTER TABLE answers ADD COLUMN IF NOT EXISTS owner_quality_mark VARCHAR",
     "UPDATE answers SET turn_type='root' WHERE turn_type IS NULL",
     "ALTER TABLE answers ALTER COLUMN turn_type SET DEFAULT 'root'",
     "ALTER TABLE answers ALTER COLUMN turn_type SET NOT NULL",

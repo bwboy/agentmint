@@ -9,11 +9,16 @@ import { getToken } from "@/lib/auth";
 import type { AnswerOwnerSupplement, MyAgentAnswerItem, OwnerSupplementType } from "@/lib/types";
 
 type FilterMode = "all" | "requested" | "answered" | "unanswered";
+type QualityMark = "excellent" | "needs_improvement" | "stale" | "none";
 
 export function AgentAnswerWorkbench() {
   const router = useRouter();
   const [items, setItems] = useState<MyAgentAnswerItem[] | null>(null);
   const [filter, setFilter] = useState<FilterMode>("all");
+  const [agentFilter, setAgentFilter] = useState("all");
+  const [supplementTypeFilter, setSupplementTypeFilter] = useState<"all" | OwnerSupplementType>("all");
+  const [query, setQuery] = useState("");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [draftTypes, setDraftTypes] = useState<Record<string, OwnerSupplementType>>({});
   const [highValueDrafts, setHighValueDrafts] = useState<Record<string, boolean>>({});
@@ -56,11 +61,38 @@ export function AgentAnswerWorkbench() {
 
   const visibleItems = useMemo(() => {
     const all = items || [];
-    if (filter === "requested") return all.filter(item => item.owner_supplement_pending_count > 0);
-    if (filter === "answered") return all.filter(item => item.owner_supplement_answered_count > 0);
-    if (filter === "unanswered") return all.filter(item => item.owner_supplements.length === 0);
-    return all;
-  }, [filter, items]);
+    const keyword = query.trim().toLowerCase();
+    return all.filter(item => {
+      if (filter === "requested" && item.owner_supplement_pending_count === 0) return false;
+      if (filter === "answered" && item.owner_supplement_answered_count === 0) return false;
+      if (filter === "unanswered" && item.owner_supplements.length > 0) return false;
+      if (agentFilter !== "all" && item.agent_id !== agentFilter) return false;
+      if (supplementTypeFilter !== "all" && !item.owner_supplements.some(s => s.supplement_type === supplementTypeFilter)) return false;
+      if (keyword) {
+        const haystack = `${item.question_title} ${item.agent_name} ${item.content?.text || ""}`.toLowerCase();
+        if (!haystack.includes(keyword)) return false;
+      }
+      return true;
+    });
+  }, [agentFilter, filter, items, query, supplementTypeFilter]);
+
+  const agentOptions = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const item of items || []) byId.set(item.agent_id, item.agent_name);
+    return Array.from(byId.entries()).map(([id, name]) => ({ id, name }));
+  }, [items]);
+
+  const trend = useMemo(() => {
+    const all = items || [];
+    return {
+      total: all.length,
+      pending: all.reduce((sum, item) => sum + item.owner_supplement_pending_count, 0),
+      supplemented: all.filter(item => item.owner_supplement_answered_count > 0).length,
+      excellent: all.filter(item => item.owner_quality_mark === "excellent").length,
+      needsImprovement: all.filter(item => item.owner_quality_mark === "needs_improvement").length,
+      stale: all.filter(item => item.owner_quality_mark === "stale").length,
+    };
+  }, [items]);
 
   async function respondToRequest(answer: MyAgentAnswerItem, supplement: AnswerOwnerSupplement) {
     const response = (drafts[supplement.id] || "").trim();
@@ -116,6 +148,34 @@ export function AgentAnswerWorkbench() {
     }
   }
 
+  async function batchMark(mark: QualityMark) {
+    const token = getToken();
+    if (!token || selectedIds.length === 0) return;
+    setBusy(`batch:${mark}`);
+    setErr(null);
+    try {
+      await api("/api/my/agent-answers/batch-mark", {
+        method: "POST",
+        token,
+        json: { answer_ids: selectedIds, mark },
+      });
+      setSelectedIds([]);
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "批量标记失败");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function toggleSelected(answerId: string) {
+    setSelectedIds(current => (
+      current.includes(answerId)
+        ? current.filter(id => id !== answerId)
+        : [...current, answerId]
+    ));
+  }
+
   if (items === null) return <p className="text-sm text-gray-400">加载中...</p>;
 
   const pendingCount = items.reduce((sum, item) => sum + item.owner_supplement_pending_count, 0);
@@ -124,13 +184,55 @@ export function AgentAnswerWorkbench() {
     <div className="space-y-4">
       {err && <div className="rounded-lg border border-red-100 bg-red-50 p-3 text-xs text-red-500">{err}</div>}
 
-      <div className="rounded-xl border border-gray-100 bg-white p-4">
+      <div className="space-y-3 rounded-xl border border-gray-100 bg-white p-4">
+        <div className="grid gap-2 sm:grid-cols-6">
+          <TrendBox label="回答" value={trend.total} />
+          <TrendBox label="待补充" value={trend.pending} />
+          <TrendBox label="已补充" value={trend.supplemented} />
+          <TrendBox label="优秀" value={trend.excellent} />
+          <TrendBox label="需改进" value={trend.needsImprovement} />
+          <TrendBox label="失效" value={trend.stale} />
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <FilterButton active={filter === "all"} onClick={() => setFilter("all")}>全部回答</FilterButton>
           <FilterButton active={filter === "requested"} onClick={() => setFilter("requested")}>待补充 {pendingCount}</FilterButton>
           <FilterButton active={filter === "answered"} onClick={() => setFilter("answered")}>已补充</FilterButton>
           <FilterButton active={filter === "unanswered"} onClick={() => setFilter("unanswered")}>未补充</FilterButton>
+          <select
+            value={agentFilter}
+            onChange={event => setAgentFilter(event.target.value)}
+            className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-600"
+          >
+            <option value="all">全部 Agent</option>
+            {agentOptions.map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+          </select>
+          <select
+            value={supplementTypeFilter}
+            onChange={event => setSupplementTypeFilter(event.target.value as "all" | OwnerSupplementType)}
+            className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-600"
+          >
+            <option value="all">全部补充类型</option>
+            <option value="experience">经验补充</option>
+            <option value="correction">纠错</option>
+            <option value="version_update">版本更新</option>
+            <option value="risk_note">风险提醒</option>
+          </select>
+          <input
+            value={query}
+            onChange={event => setQuery(event.target.value)}
+            placeholder="搜索问题、回答、Agent"
+            className="min-w-52 flex-1 rounded-lg border border-gray-200 px-3 py-1.5 text-sm outline-none transition focus:border-primary"
+          />
         </div>
+        {selectedIds.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg bg-gray-50 p-2 text-xs">
+            <span className="text-gray-500">已选 {selectedIds.length} 条</span>
+            <button onClick={() => batchMark("excellent")} className="rounded bg-white px-2 py-1 text-emerald-600 ring-1 ring-gray-100">标优秀</button>
+            <button onClick={() => batchMark("needs_improvement")} className="rounded bg-white px-2 py-1 text-amber-600 ring-1 ring-gray-100">标需改进</button>
+            <button onClick={() => batchMark("stale")} className="rounded bg-white px-2 py-1 text-red-500 ring-1 ring-gray-100">标失效</button>
+            <button onClick={() => batchMark("none")} className="rounded bg-white px-2 py-1 text-gray-500 ring-1 ring-gray-100">清除标记</button>
+          </div>
+        )}
       </div>
 
       {visibleItems.length === 0 ? (
@@ -146,6 +248,8 @@ export function AgentAnswerWorkbench() {
             draftTypes={draftTypes}
             highValueDrafts={highValueDrafts}
             busy={busy}
+            selected={selectedIds.includes(answer.id)}
+            onToggleSelected={() => toggleSelected(answer.id)}
             onDraftChange={(key, value) => setDrafts(current => ({ ...current, [key]: value }))}
             onDraftTypeChange={(key, value) => setDraftTypes(current => ({ ...current, [key]: value }))}
             onHighValueChange={(key, value) => setHighValueDrafts(current => ({ ...current, [key]: value }))}
@@ -166,6 +270,8 @@ function AnswerCard({
   draftTypes,
   highValueDrafts,
   busy,
+  selected,
+  onToggleSelected,
   onDraftChange,
   onDraftTypeChange,
   onHighValueChange,
@@ -179,6 +285,8 @@ function AnswerCard({
   draftTypes: Record<string, OwnerSupplementType>;
   highValueDrafts: Record<string, boolean>;
   busy: string | null;
+  selected: boolean;
+  onToggleSelected: () => void;
   onDraftChange: (key: string, value: string) => void;
   onDraftTypeChange: (key: string, value: OwnerSupplementType) => void;
   onHighValueChange: (key: string, value: boolean) => void;
@@ -240,10 +348,12 @@ function AnswerCard({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
+            <input type="checkbox" checked={selected} onChange={onToggleSelected} className="h-3.5 w-3.5" />
             <span>{answer.agent_name}</span>
             <span>{answer.turn_type === "followup" ? "追问回答" : "首轮回答"}</span>
             {answer.created_at && <span>{formatDate(answer.created_at)}</span>}
             <span>Token {answer.usage?.total_tokens ?? 0}</span>
+            {answer.owner_quality_mark && <span className={`rounded px-2 py-0.5 ${qualityMarkClass(answer.owner_quality_mark)}`}>{qualityMarkLabel(answer.owner_quality_mark)}</span>}
           </div>
           <Link href={`/questions/${answer.question_id}`} className="mt-1 block font-medium text-gray-950 hover:text-primary">
             {answer.question_title}
@@ -514,8 +624,33 @@ function FilterButton({
   );
 }
 
+function TrendBox({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg bg-gray-50 px-3 py-2">
+      <p className="text-[11px] text-gray-400">{label}</p>
+      <p className="mt-0.5 text-lg font-semibold text-gray-900">{value}</p>
+    </div>
+  );
+}
+
 function selfDraftKey(answerId: string) {
   return `self:${answerId}`;
+}
+
+function qualityMarkLabel(value: NonNullable<MyAgentAnswerItem["owner_quality_mark"]>) {
+  return {
+    excellent: "优秀",
+    needs_improvement: "需改进",
+    stale: "失效",
+  }[value] || value;
+}
+
+function qualityMarkClass(value: NonNullable<MyAgentAnswerItem["owner_quality_mark"]>) {
+  return {
+    excellent: "bg-emerald-50 text-emerald-700",
+    needs_improvement: "bg-amber-50 text-amber-700",
+    stale: "bg-red-50 text-red-600",
+  }[value] || "bg-gray-100 text-gray-500";
 }
 
 function formatDate(value: string) {

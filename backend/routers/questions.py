@@ -97,6 +97,11 @@ class OwnerSupplementReactionReq(BaseModel):
     accepted: bool = False
 
 
+class AgentAnswerBatchMarkReq(BaseModel):
+    answer_ids: list[str] = Field(min_length=1, max_length=100)
+    mark: str = Field(pattern="^(excellent|needs_improvement|stale|none)$")
+
+
 # ═══════════════════════════════════════════════════
 # Public
 # ═══════════════════════════════════════════════════
@@ -732,6 +737,30 @@ async def my_agent_answers(
     }
 
 
+@router.post("/my/agent-answers/batch-mark")
+async def batch_mark_my_agent_answers(
+    req: AgentAnswerBatchMarkReq,
+    user_payload: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    answer_ids = list(dict.fromkeys(req.answer_ids))
+    rows = (await db.execute(
+        select(Answer, Agent)
+        .join(Agent, Answer.agent_id == Agent.id)
+        .where(Answer.id.in_(answer_ids))
+    )).all()
+    if len(rows) != len(answer_ids):
+        raise HTTPException(status_code=404, detail="部分回答不存在")
+    if any(agent.user_id != user_payload["sub"] for _, agent in rows):
+        raise HTTPException(status_code=403, detail="只能标记自己 Agent 的回答")
+
+    mark = None if req.mark == "none" else req.mark
+    for answer, _agent in rows:
+        answer.owner_quality_mark = mark
+    await db.commit()
+    return {"updated": len(rows), "mark": mark}
+
+
 @router.post("/my/owner-supplements/{supplement_id}/respond")
 async def respond_owner_supplement(
     supplement_id: str,
@@ -1124,6 +1153,7 @@ def serialize_my_agent_answer(answer: Answer, question: Question, agent: Agent, 
         "model": getattr(answer, "model", None) or "",
         "usage": getattr(answer, "usage", None) or {},
         "turn_type": getattr(answer, "turn_type", None) or "root",
+        "owner_quality_mark": getattr(answer, "owner_quality_mark", None),
         "created_at": answer.created_at.isoformat() if getattr(answer, "created_at", None) else None,
         "owner_supplements": supplements,
         "owner_supplement_pending_count": pending_count,

@@ -77,6 +77,7 @@ def make_answer(**overrides):
         "question_id": "q_test",
         "agent_id": "a_test",
         "status": "approved",
+        "owner_quality_mark": None,
         "turn_type": "root",
         "content": {"text": "Agent answer"},
         "created_at": datetime.utcnow(),
@@ -270,6 +271,42 @@ async def test_my_agent_answers_lists_owner_answers_with_supplement_summary():
     assert item["owner_supplement_pending_count"] == 1
     assert item["owner_supplement_answered_count"] == 0
     assert item["owner_supplements"][0]["prompt"] == "请补充"
+    assert item["owner_quality_mark"] is None
+
+
+@pytest.mark.asyncio
+async def test_owner_can_batch_mark_agent_answers():
+    answer = make_answer(id="ans_test")
+    db = SupplementDB([
+        [(answer, make_agent())],
+    ])
+
+    out = await questions.batch_mark_my_agent_answers(
+        questions.AgentAnswerBatchMarkReq(answer_ids=["ans_test"], mark="excellent"),
+        user_payload={"sub": "u_owner"},
+        db=db,
+    )
+
+    assert out["updated"] == 1
+    assert answer.owner_quality_mark == "excellent"
+    assert db.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_owner_batch_mark_rejects_answers_not_owned():
+    answer = make_answer(id="ans_test")
+    db = SupplementDB([
+        [(answer, make_agent(user_id="u_other"))],
+    ])
+
+    with pytest.raises(HTTPException) as err:
+        await questions.batch_mark_my_agent_answers(
+            questions.AgentAnswerBatchMarkReq(answer_ids=["ans_test"], mark="needs_improvement"),
+            user_payload={"sub": "u_owner"},
+            db=db,
+        )
+
+    assert err.value.status_code == 403
 
 
 @pytest.mark.asyncio
