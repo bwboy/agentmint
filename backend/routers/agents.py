@@ -58,40 +58,6 @@ class LearnedProfileReviewReq(BaseModel):
 # Public endpoints
 # ═══════════════════════════════════════════════════
 
-@router.get("/agents")
-async def list_agents(
-    tag: str | None = None,
-    sort: str = "repute",
-    page: int = 1,
-    size: int = 20,
-    db: AsyncSession = Depends(get_db),
-):
-    """List all public agents (online + offline; status returned for UI)."""
-    offset = (page - 1) * size
-
-    base = select(Agent, User.nickname).join(User, Agent.user_id == User.id).where(Agent.visibility == "public")
-    count_base = select(func.count(Agent.id)).where(Agent.visibility == "public")
-    if tag:
-        base = base.where(Agent.tags.any(tag))
-        count_base = count_base.where(Agent.tags.any(tag))
-
-    order_map = {
-        "repute": Agent.repute_score.desc(),
-        "answers": Agent.total_answers.desc(),
-        "latest": Agent.created_at.desc(),
-    }
-    base = base.order_by(order_map.get(sort, order_map["repute"])).offset(offset).limit(size)
-
-    result = await db.execute(base)
-    rows = result.all()
-    total = (await db.execute(count_base)).scalar() or 0
-
-    return {
-        "data": [_agent_to_dict(a, nickname, include_owner_id=True) for a, nickname in rows],
-        "pagination": {"page": page, "size": size, "total": total},
-    }
-
-
 def get_optional_user(request: Request) -> dict | None:
     auth = request.headers.get("authorization", "")
     if not auth.startswith("Bearer "):
@@ -100,6 +66,54 @@ def get_optional_user(request: Request) -> dict | None:
     if not payload or payload.get("type") != "access":
         return None
     return payload
+
+
+@router.get("/agents")
+async def list_agents(
+    tag: str | None = None,
+    sort: str = "repute",
+    page: int = 1,
+    size: int = 20,
+    viewer: dict | None = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List agents visible to the viewer (online + offline; status returned for UI)."""
+    offset = (page - 1) * size
+
+    base = select(Agent, User.nickname).join(User, Agent.user_id == User.id)
+    if tag:
+        base = base.where(Agent.tags.any(tag))
+
+    order_map = {
+        "repute": Agent.repute_score.desc(),
+        "answers": Agent.total_answers.desc(),
+        "latest": Agent.created_at.desc(),
+    }
+    base = base.order_by(order_map.get(sort, order_map["repute"]))
+
+    result = await db.execute(base)
+    rows = result.all()
+    if viewer:
+        followed_owner_ids, friend_owner_ids = await _relationship_owner_sets(db, viewer["sub"])
+    else:
+        followed_owner_ids, friend_owner_ids = set(), set()
+    visible_rows = [
+        (agent, nickname)
+        for agent, nickname in rows
+        if can_view_agent(
+            agent,
+            viewer_id=viewer["sub"] if viewer else None,
+            followed_owner_ids=followed_owner_ids,
+            friend_owner_ids=friend_owner_ids,
+        )
+    ]
+    total = len(visible_rows)
+    paged_rows = visible_rows[offset:offset + size]
+
+    return {
+        "data": [_agent_to_dict(a, nickname, include_owner_id=True) for a, nickname in paged_rows],
+        "pagination": {"page": page, "size": size, "total": total},
+    }
 
 
 @router.get("/agents/{agent_id}")

@@ -42,6 +42,24 @@ class RowResult:
         return self.rows
 
 
+class AgentListDB:
+    def __init__(self, rows, scalar_values=None, relationship_results=None):
+        self.rows = rows
+        self.scalar_values = list(scalar_values or [])
+        self.relationship_results = list(relationship_results or [])
+        self.calls = 0
+
+    async def execute(self, stmt):
+        self.calls += 1
+        if self.calls == 1:
+            return RowResult(self.rows)
+        if self.relationship_results:
+            return self.relationship_results.pop(0)
+        if self.scalar_values:
+            return ScalarResult(self.scalar_values.pop(0))
+        return RowResult(self.rows)
+
+
 class RefreshableDB:
     def __init__(self, agent):
         self.agent = agent
@@ -91,6 +109,28 @@ class RelationshipDB:
             obj.id = "generated"
 
 
+def make_list_agent(agent_id, owner_id, visibility="public"):
+    return SimpleNamespace(
+        id=agent_id,
+        user_id=owner_id,
+        name=agent_id,
+        agent_type="hermes",
+        tags=[],
+        description="",
+        repute_score=0,
+        fuel_earned=0,
+        total_answers=0,
+        approval_rate=0,
+        status="online",
+        is_public=visibility == "public",
+        visibility=visibility,
+        service_mode="auto_match",
+        service_rules={},
+        created_at=None,
+        review_rules={},
+    )
+
+
 class AgentDetailDB(RelationshipDB):
     def __init__(self, row, results=None):
         super().__init__(results=results)
@@ -134,6 +174,33 @@ class SubscribeDB(RelationshipDB):
             ScalarResult(existing_subscription),
             ScalarResult(owner),
         ]
+
+
+@pytest.mark.asyncio
+async def test_list_agents_filters_by_viewer_relationship_visibility():
+    public_agent = make_list_agent("a_public", "u_public", "public")
+    follower_agent = make_list_agent("a_follower", "u_followed", "followers")
+    friend_agent = make_list_agent("a_friend", "u_friend", "friends")
+    archived_agent = make_list_agent("a_archived", "u_archived", "archived")
+    rows = [
+        (public_agent, "Public Owner"),
+        (follower_agent, "Followed Owner"),
+        (friend_agent, "Friend Owner"),
+        (archived_agent, "Archived Owner"),
+    ]
+    db = AgentListDB(
+        rows,
+        scalar_values=[4],
+        relationship_results=[
+            ListResult(["u_followed"]),
+            ListResult([SimpleNamespace(user_low_id="u_me", user_high_id="u_friend")]),
+        ],
+    )
+
+    out = await agents.list_agents(viewer={"sub": "u_me"}, db=db)
+
+    assert [item["id"] for item in out["data"]] == ["a_public", "a_follower", "a_friend"]
+    assert out["pagination"]["total"] == 3
 
 
 @pytest.mark.asyncio

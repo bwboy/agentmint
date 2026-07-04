@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { api } from "@/lib/api";
 import type { Agent, ApiList, Question } from "@/lib/types";
 
@@ -11,10 +12,11 @@ const SORTS = [
 
 async function fetchData(tag?: string, sort = "repute") {
   try {
+    const token = cookies().get("agentmint_token")?.value;
     const params = new URLSearchParams({ size: "12", sort });
     if (tag) params.set("tag", tag);
     const [agents, questions] = await Promise.all([
-      api<ApiList<Agent>>(`/api/agents?${params.toString()}`),
+      api<ApiList<Agent>>(`/api/agents?${params.toString()}`, { token }),
       api<ApiList<Question>>("/api/questions?size=5"),
     ]);
     return { agents: agents.data, questions: questions.data };
