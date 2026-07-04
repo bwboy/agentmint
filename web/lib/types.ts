@@ -273,7 +273,7 @@ export interface Answer {
   created_at: string;
 }
 
-export type OwnerSupplementStatus = "pending" | "answered";
+export type OwnerSupplementStatus = "pending" | "answered" | "withdrawn";
 export type OwnerSupplementType = "experience" | "correction" | "version_update" | "risk_note";
 
 export interface AnswerOwnerSupplement {
@@ -287,8 +287,14 @@ export interface AnswerOwnerSupplement {
   response: string;
   supplement_type: OwnerSupplementType;
   status: OwnerSupplementStatus;
+  is_high_value: boolean;
+  asker_reaction?: "like" | "neutral" | null;
   created_at: string | null;
   responded_at: string | null;
+  edited_at?: string | null;
+  withdrawn_at?: string | null;
+  accepted_at?: string | null;
+  reminded_at?: string | null;
 }
 
 export interface OwnerSupplementQueueItem extends AnswerOwnerSupplement {

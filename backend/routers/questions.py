@@ -86,6 +86,17 @@ class OwnerSupplementSelfReq(BaseModel):
     supplement_type: str = "experience"
 
 
+class OwnerSupplementUpdateReq(BaseModel):
+    response: str | None = Field(default=None, min_length=1, max_length=4000)
+    supplement_type: str | None = None
+    is_high_value: bool | None = None
+
+
+class OwnerSupplementReactionReq(BaseModel):
+    reaction: str = Field(pattern="^(like|neutral)$")
+    accepted: bool = False
+
+
 # ═══════════════════════════════════════════════════
 # Public
 # ═══════════════════════════════════════════════════
@@ -750,6 +761,110 @@ async def respond_owner_supplement(
     return serialize_owner_supplement(supplement)
 
 
+@router.put("/my/owner-supplements/{supplement_id}")
+async def update_owner_supplement(
+    supplement_id: str,
+    req: OwnerSupplementUpdateReq,
+    user_payload: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    supplement = await get_owner_supplement_or_404(db, supplement_id)
+    if supplement.owner_id != user_payload["sub"]:
+        raise HTTPException(status_code=403, detail="无权处理")
+    if supplement.status == "withdrawn":
+        raise HTTPException(status_code=400, detail="补充已撤回")
+
+    if req.response is not None:
+        supplement.response = req.response.strip()
+    if req.supplement_type is not None:
+        supplement.supplement_type = normalize_owner_supplement_type(req.supplement_type)
+    if req.is_high_value is not None:
+        supplement.is_high_value = bool(req.is_high_value)
+    supplement.edited_at = datetime.utcnow()
+    await db.commit()
+    return serialize_owner_supplement(supplement)
+
+
+@router.post("/my/owner-supplements/{supplement_id}/withdraw")
+async def withdraw_owner_supplement(
+    supplement_id: str,
+    user_payload: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    supplement = await get_owner_supplement_or_404(db, supplement_id)
+    if supplement.owner_id != user_payload["sub"]:
+        raise HTTPException(status_code=403, detail="无权处理")
+    supplement.status = "withdrawn"
+    supplement.withdrawn_at = datetime.utcnow()
+    await db.commit()
+    return serialize_owner_supplement(supplement)
+
+
+@router.post("/owner-supplements/{supplement_id}/reaction")
+async def react_owner_supplement(
+    supplement_id: str,
+    req: OwnerSupplementReactionReq,
+    user_payload: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    supplement = await get_owner_supplement_or_404(db, supplement_id)
+    question = (await db.execute(select(Question).where(Question.id == supplement.question_id))).scalar_one_or_none()
+    if not question:
+        raise HTTPException(status_code=404, detail="问题不存在")
+    if getattr(question, "asker_id", None) != user_payload["sub"]:
+        raise HTTPException(status_code=403, detail="只有提问者可以评价主人补充")
+    if supplement.status != "answered":
+        raise HTTPException(status_code=400, detail="补充尚未发布")
+
+    supplement.asker_reaction = req.reaction
+    if req.accepted:
+        supplement.accepted_at = datetime.utcnow()
+        supplement.is_high_value = True
+    if req.accepted and supplement.owner_id != user_payload["sub"]:
+        await maybe_create_notification(
+            db,
+            supplement.owner_id,
+            "answer_feedback",
+            "owner_supplement_accepted",
+            "你的主人补充被采纳",
+            f"{user_payload.get('nickname') or '提问者'} 采纳了你的补充",
+            ref_id=supplement.question_id,
+        )
+    await db.commit()
+    return serialize_owner_supplement(supplement)
+
+
+@router.post("/my/owner-supplements/remind-overdue")
+async def remind_overdue_owner_supplements(
+    user_payload: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    cutoff = datetime.utcnow() - timedelta(days=1)
+    rows = (await db.execute(
+        select(AnswerOwnerSupplement)
+        .where(
+            AnswerOwnerSupplement.owner_id == user_payload["sub"],
+            AnswerOwnerSupplement.status == "pending",
+            AnswerOwnerSupplement.reminded_at.is_(None),
+            AnswerOwnerSupplement.created_at <= cutoff,
+        )
+    )).scalars().all()
+    for supplement in rows:
+        supplement.reminded_at = datetime.utcnow()
+        await maybe_create_notification(
+            db,
+            supplement.owner_id,
+            "answer_feedback",
+            "owner_supplement_overdue",
+            "你有补充请求待处理",
+            "有提问者等待你补充 Agent 的回答",
+            ref_id=supplement.question_id,
+        )
+    if rows:
+        await db.commit()
+    return {"reminded": len(rows)}
+
+
 @router.post("/questions/{question_id}/answers/{answer_id}/owner-supplements/self", status_code=201)
 async def create_owner_self_supplement(
     question_id: str,
@@ -821,6 +936,15 @@ async def get_approved_answer_in_thread(
     if answer_question and getattr(answer_question, "root_question_id", None) == root_question_id:
         return answer
     return None
+
+
+async def get_owner_supplement_or_404(db: AsyncSession, supplement_id: str) -> AnswerOwnerSupplement:
+    supplement = (await db.execute(
+        select(AnswerOwnerSupplement).where(AnswerOwnerSupplement.id == supplement_id)
+    )).scalar_one_or_none()
+    if not supplement:
+        raise HTTPException(status_code=404, detail="补充请求不存在")
+    return supplement
 
 
 async def resolve_question_targets(
@@ -968,8 +1092,14 @@ def serialize_owner_supplement(item: AnswerOwnerSupplement) -> dict:
         "response": getattr(item, "response", None) or "",
         "supplement_type": normalize_owner_supplement_type(getattr(item, "supplement_type", None)),
         "status": getattr(item, "status", None) or "pending",
+        "is_high_value": bool(getattr(item, "is_high_value", False)),
+        "asker_reaction": getattr(item, "asker_reaction", None),
         "created_at": item.created_at.isoformat() if getattr(item, "created_at", None) else None,
         "responded_at": item.responded_at.isoformat() if getattr(item, "responded_at", None) else None,
+        "edited_at": item.edited_at.isoformat() if getattr(item, "edited_at", None) else None,
+        "withdrawn_at": item.withdrawn_at.isoformat() if getattr(item, "withdrawn_at", None) else None,
+        "accepted_at": item.accepted_at.isoformat() if getattr(item, "accepted_at", None) else None,
+        "reminded_at": item.reminded_at.isoformat() if getattr(item, "reminded_at", None) else None,
     }
 
 

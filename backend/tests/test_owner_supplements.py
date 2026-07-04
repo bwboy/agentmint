@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -270,6 +270,129 @@ async def test_my_agent_answers_lists_owner_answers_with_supplement_summary():
     assert item["owner_supplement_pending_count"] == 1
     assert item["owner_supplement_answered_count"] == 0
     assert item["owner_supplements"][0]["prompt"] == "请补充"
+
+
+@pytest.mark.asyncio
+async def test_owner_can_edit_mark_high_value_and_withdraw_supplement():
+    supplement = SimpleNamespace(
+        id="os_test",
+        question_id="q_test",
+        answer_id="ans_test",
+        agent_id="a_test",
+        requester_id="u_owner",
+        owner_id="u_owner",
+        prompt="主人主动补充",
+        response="旧内容",
+        supplement_type="experience",
+        status="answered",
+        is_high_value=False,
+        edited_at=None,
+        withdrawn_at=None,
+        responded_at=datetime.utcnow(),
+    )
+    db = SupplementDB([supplement, supplement])
+
+    edited = await questions.update_owner_supplement(
+        "os_test",
+        questions.OwnerSupplementUpdateReq(
+            response="新内容",
+            supplement_type="correction",
+            is_high_value=True,
+        ),
+        user_payload={"sub": "u_owner"},
+        db=db,
+    )
+
+    assert edited["response"] == "新内容"
+    assert edited["supplement_type"] == "correction"
+    assert edited["is_high_value"] is True
+    assert isinstance(supplement.edited_at, datetime)
+
+    withdrawn = await questions.withdraw_owner_supplement(
+        "os_test",
+        user_payload={"sub": "u_owner"},
+        db=db,
+    )
+
+    assert withdrawn["status"] == "withdrawn"
+    assert supplement.status == "withdrawn"
+    assert isinstance(supplement.withdrawn_at, datetime)
+    assert db.commits == 2
+
+
+@pytest.mark.asyncio
+async def test_asker_can_react_and_accept_owner_supplement(monkeypatch):
+    question = make_question()
+    supplement = SimpleNamespace(
+        id="os_test",
+        question_id="q_test",
+        answer_id="ans_test",
+        agent_id="a_test",
+        requester_id="u_owner",
+        owner_id="u_owner",
+        prompt="主人主动补充",
+        response="主人补充",
+        supplement_type="experience",
+        status="answered",
+        is_high_value=False,
+        asker_reaction=None,
+        accepted_at=None,
+        created_at=datetime.utcnow(),
+        responded_at=datetime.utcnow(),
+    )
+    db = SupplementDB([supplement, question])
+    notifications = []
+
+    async def fake_maybe_create_notification(*args, **kwargs):
+        notifications.append((args, kwargs))
+
+    monkeypatch.setattr(questions, "maybe_create_notification", fake_maybe_create_notification)
+
+    out = await questions.react_owner_supplement(
+        "os_test",
+        questions.OwnerSupplementReactionReq(reaction="like", accepted=True),
+        user_payload={"sub": "u_asker", "nickname": "Asker"},
+        db=db,
+    )
+
+    assert out["asker_reaction"] == "like"
+    assert out["accepted_at"] is not None
+    assert supplement.is_high_value is True
+    assert notifications[0][0][1] == "u_owner"
+    assert notifications[0][0][3] == "owner_supplement_accepted"
+
+
+@pytest.mark.asyncio
+async def test_remind_overdue_owner_supplements_notifies_once(monkeypatch):
+    old_pending = SimpleNamespace(
+        id="os_old",
+        question_id="q_test",
+        answer_id="ans_test",
+        agent_id="a_test",
+        requester_id="u_asker",
+        owner_id="u_owner",
+        prompt="请补充",
+        response="",
+        supplement_type="experience",
+        status="pending",
+        created_at=datetime.utcnow() - timedelta(days=2),
+        reminded_at=None,
+    )
+    db = SupplementDB([[old_pending]])
+    notifications = []
+
+    async def fake_maybe_create_notification(*args, **kwargs):
+        notifications.append((args, kwargs))
+
+    monkeypatch.setattr(questions, "maybe_create_notification", fake_maybe_create_notification)
+
+    out = await questions.remind_overdue_owner_supplements(user_payload={"sub": "u_owner"}, db=db)
+
+    assert out["reminded"] == 1
+    assert isinstance(old_pending.reminded_at, datetime)
+    assert notifications[0][0][1] == "u_owner"
+    assert notifications[0][0][3] == "owner_supplement_overdue"
+    assert db.commits == 1
 
 
 def test_group_owner_supplements_by_answer_serializes_visible_fields():

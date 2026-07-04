@@ -16,6 +16,7 @@ export function AgentAnswerWorkbench() {
   const [filter, setFilter] = useState<FilterMode>("all");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [draftTypes, setDraftTypes] = useState<Record<string, OwnerSupplementType>>({});
+  const [highValueDrafts, setHighValueDrafts] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -26,6 +27,7 @@ export function AgentAnswerWorkbench() {
       return;
     }
     refresh();
+    remindOverdue();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -39,6 +41,16 @@ export function AgentAnswerWorkbench() {
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) router.push("/login");
       else setErr(e instanceof ApiError ? e.message : "加载回答工作台失败");
+    }
+  }
+
+  async function remindOverdue() {
+    const token = getToken();
+    if (!token) return;
+    try {
+      await api("/api/my/owner-supplements/remind-overdue", { method: "POST", token });
+    } catch {
+      // Non-critical; the workbench should still load.
     }
   }
 
@@ -132,11 +144,15 @@ export function AgentAnswerWorkbench() {
             answer={answer}
             drafts={drafts}
             draftTypes={draftTypes}
+            highValueDrafts={highValueDrafts}
             busy={busy}
             onDraftChange={(key, value) => setDrafts(current => ({ ...current, [key]: value }))}
             onDraftTypeChange={(key, value) => setDraftTypes(current => ({ ...current, [key]: value }))}
+            onHighValueChange={(key, value) => setHighValueDrafts(current => ({ ...current, [key]: value }))}
             onRespond={respondToRequest}
             onSelfSupplement={addSelfSupplement}
+            onSetError={setErr}
+            onRefresh={refresh}
           />
         ))
       )}
@@ -148,20 +164,28 @@ function AnswerCard({
   answer,
   drafts,
   draftTypes,
+  highValueDrafts,
   busy,
   onDraftChange,
   onDraftTypeChange,
+  onHighValueChange,
   onRespond,
   onSelfSupplement,
+  onSetError,
+  onRefresh,
 }: {
   answer: MyAgentAnswerItem;
   drafts: Record<string, string>;
   draftTypes: Record<string, OwnerSupplementType>;
+  highValueDrafts: Record<string, boolean>;
   busy: string | null;
   onDraftChange: (key: string, value: string) => void;
   onDraftTypeChange: (key: string, value: OwnerSupplementType) => void;
+  onHighValueChange: (key: string, value: boolean) => void;
   onRespond: (answer: MyAgentAnswerItem, supplement: AnswerOwnerSupplement) => void;
   onSelfSupplement: (answer: MyAgentAnswerItem) => void;
+  onSetError: (value: string | null) => void;
+  onRefresh: () => Promise<void>;
 }) {
   const pending = answer.owner_supplements.filter(item => item.status === "pending");
   const answered = answer.owner_supplements.filter(item => item.status === "answered");
@@ -169,7 +193,47 @@ function AnswerCard({
   const [expanded, setExpanded] = useState(false);
   const [activeReplyId, setActiveReplyId] = useState<string | null>(pending[0]?.id || null);
   const [selfComposerOpen, setSelfComposerOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const answerText = answer.content?.text || "无文本回答";
+
+  async function updateSupplement(item: AnswerOwnerSupplement) {
+    const token = getToken();
+    if (!token) return;
+    const draft = (drafts[item.id] ?? item.response).trim();
+    if (!draft) {
+      onSetError("请输入补充内容");
+      return;
+    }
+    onSetError(null);
+    try {
+      await api(`/api/my/owner-supplements/${item.id}`, {
+        method: "PUT",
+        token,
+        json: {
+          response: draft,
+          supplement_type: draftTypes[item.id] || item.supplement_type,
+          is_high_value: highValueDrafts[item.id] ?? item.is_high_value,
+        },
+      });
+      setEditingId(null);
+      await onRefresh();
+    } catch (e) {
+      onSetError(e instanceof ApiError ? e.message : "保存失败");
+    }
+  }
+
+  async function withdrawSupplement(item: AnswerOwnerSupplement) {
+    const token = getToken();
+    if (!token) return;
+    if (!confirm("撤回这条主人补充？")) return;
+    onSetError(null);
+    try {
+      await api(`/api/my/owner-supplements/${item.id}/withdraw`, { method: "POST", token });
+      await onRefresh();
+    } catch (e) {
+      onSetError(e instanceof ApiError ? e.message : "撤回失败");
+    }
+  }
 
   return (
     <section className="rounded-xl border border-gray-100 bg-white p-5 transition hover:border-gray-200">
@@ -287,9 +351,77 @@ function AnswerCard({
             <div key={item.id} className="rounded-lg bg-white p-3 text-sm text-gray-700 ring-1 ring-emerald-100">
               <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-gray-400">
                 <span className="rounded bg-emerald-50 px-2 py-0.5 text-emerald-700">{supplementTypeLabel(item.supplement_type)}</span>
+                {item.is_high_value && <span className="rounded bg-orange-50 px-2 py-0.5 text-orange-700">高价值</span>}
+                {item.accepted_at && <span className="rounded bg-emerald-50 px-2 py-0.5 text-emerald-700">已采纳</span>}
                 {item.prompt !== "主人主动补充" && <span>问：{item.prompt}</span>}
               </div>
-              <p className="whitespace-pre-wrap">{item.response}</p>
+              {editingId === item.id ? (
+                <div className="space-y-2">
+                  <textarea
+                    value={drafts[item.id] ?? item.response}
+                    onChange={event => onDraftChange(item.id, event.target.value)}
+                    rows={3}
+                    className="w-full resize-y rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none transition focus:border-primary"
+                  />
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <SupplementTypeSelect
+                        value={draftTypes[item.id] || item.supplement_type}
+                        onChange={value => onDraftTypeChange(item.id, value)}
+                      />
+                      <label className="flex items-center gap-1.5 text-xs text-gray-500">
+                        <input
+                          type="checkbox"
+                          checked={highValueDrafts[item.id] ?? item.is_high_value}
+                          onChange={event => onHighValueChange(item.id, event.target.checked)}
+                        />
+                        高价值经验
+                      </label>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditingId(null)}
+                        className="rounded-lg bg-gray-100 px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700"
+                      >
+                        取消
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateSupplement(item)}
+                        className="rounded-lg bg-gray-950 px-3 py-1.5 text-xs text-white hover:bg-gray-800"
+                      >
+                        保存
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <p className="whitespace-pre-wrap">{item.response}</p>
+                  <div className="mt-2 flex flex-wrap justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onDraftChange(item.id, item.response);
+                        onDraftTypeChange(item.id, item.supplement_type);
+                        onHighValueChange(item.id, item.is_high_value);
+                        setEditingId(item.id);
+                      }}
+                      className="rounded-lg bg-gray-100 px-3 py-1.5 text-xs text-gray-500 hover:text-primary"
+                    >
+                      编辑
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => withdrawSupplement(item)}
+                      className="rounded-lg bg-red-50 px-3 py-1.5 text-xs text-red-500 hover:bg-red-100"
+                    >
+                      撤回
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           ))}
         </div>
