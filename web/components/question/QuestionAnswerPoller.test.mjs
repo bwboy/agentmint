@@ -5,6 +5,7 @@ import {
   answerUsageSignature,
   followupsForAnswer,
   questionPollingDeadline,
+  questionFuelSummary,
   questionAnswerCountForPolling,
   questionAnswersForPolling,
   shouldRefreshQuestionAnswers,
@@ -160,5 +161,28 @@ test("finds follow-up threads for any quoted answer id", () => {
   assert.deepEqual(
     followupsForAnswer(followups, "ans_fu").map(thread => thread.id),
     ["fu_nested"],
+  );
+});
+
+test("summarizes question fuel reservation and reward state", () => {
+  assert.deepEqual(
+    questionFuelSummary({
+      base_fuel_reserved: 4500,
+      base_fuel_spent: 1800,
+      reward_fuel: 500,
+      reward_status: "pending",
+      estimated_fuel_per_answer: 900,
+      matched_count: 3,
+    }),
+    {
+      baseReserved: 4500,
+      baseSpent: 1800,
+      baseRemaining: 2700,
+      rewardFuel: 500,
+      rewardStatus: "pending",
+      totalReserved: 5000,
+      estimatedPerAnswer: 900,
+      matchedCount: 3,
+    },
   );
 });

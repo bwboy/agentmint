@@ -74,3 +74,28 @@ export function followupsForAnswer(
 ) {
   return followups.filter(thread => thread.quoted_answer_id === answerId);
 }
+
+export function questionFuelSummary(
+  question: Pick<Question,
+    "base_fuel_reserved"
+    | "base_fuel_spent"
+    | "reward_fuel"
+    | "reward_status"
+    | "estimated_fuel_per_answer"
+    | "matched_count"
+  >,
+) {
+  const baseReserved = Math.max(0, Number(question.base_fuel_reserved || 0));
+  const baseSpent = Math.max(0, Number(question.base_fuel_spent || 0));
+  const rewardFuel = Math.max(0, Number(question.reward_fuel || 0));
+  return {
+    baseReserved,
+    baseSpent,
+    baseRemaining: Math.max(0, baseReserved - baseSpent),
+    rewardFuel,
+    rewardStatus: question.reward_status,
+    totalReserved: baseReserved + rewardFuel,
+    estimatedPerAnswer: Math.max(0, Number(question.estimated_fuel_per_answer || 0)),
+    matchedCount: Math.max(0, Number(question.matched_count || 0)),
+  };
+}

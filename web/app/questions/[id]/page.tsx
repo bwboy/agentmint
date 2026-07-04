@@ -13,6 +13,7 @@ import {
   answerUsageSignature,
   followupsForAnswer,
   questionAnswersForPolling,
+  questionFuelSummary,
   questionPollingDeadline,
 } from "@/components/question/QuestionAnswerPoller.logic";
 import type { Answer, FollowUpThread } from "@/lib/types";
@@ -41,6 +42,7 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
   const followups = question.followups || [];
   const allAnswersForPolling = questionAnswersForPolling(question);
   const pollingDeadlineAt = questionPollingDeadline(question);
+  const fuelSummary = questionFuelSummary(question);
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
@@ -65,8 +67,6 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
           <span>提问者: {question.asker?.nickname}</span>
           <span>{question.visibility === "private" ? "私密" : "公开"}</span>
           <span>匹配 {question.matched_count} 人</span>
-          <span>基础已结算 🔥 {question.base_fuel_spent ?? question.fuel_cost}</span>
-          <span>基础预留 🔥 {question.base_fuel_reserved ?? 0}</span>
           {question.reward_fuel > 0 && (
             <span className="text-orange-500">
               奖励 🔥 {question.reward_fuel} · {rewardStatusLabel(question.reward_status)}
@@ -76,6 +76,7 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
             ⏰ {isExpired ? "已截止" : new Date(question.deadline_at).toLocaleTimeString() + " 截止"}
           </span>
         </div>
+        <QuestionFuelPanel summary={fuelSummary} />
       </div>
 
       <QuestionRoutingWorkbench question={question} />
@@ -185,6 +186,29 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
             </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function QuestionFuelPanel({ summary }: { summary: ReturnType<typeof questionFuelSummary> }) {
+  return (
+    <div className="mt-5 grid gap-2 rounded-lg border border-orange-100 bg-orange-50 p-3 sm:grid-cols-4">
+      <FuelSignal label="基础预授权" value={`🔥 ${summary.baseReserved}`} />
+      <FuelSignal label="已实际结算" value={`🔥 ${summary.baseSpent}`} />
+      <FuelSignal label="待退/待结" value={`🔥 ${summary.baseRemaining}`} />
+      <FuelSignal label="最佳奖励" value={summary.rewardFuel > 0 ? `🔥 ${summary.rewardFuel} · ${rewardStatusLabel(summary.rewardStatus)}` : "无"} />
+      <p className="sm:col-span-4 text-[11px] leading-relaxed text-orange-700">
+        平台按近两天平均值估算单答 🔥 {summary.estimatedPerAnswer}，为 {summary.matchedCount} 个回答预授权；最终按每个回答真实 Token 消耗结算，未消耗部分退回。
+      </p>
+    </div>
+  );
+}
+
+function FuelSignal({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md bg-white px-3 py-2">
+      <p className="text-[11px] text-orange-500">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-gray-950">{value}</p>
     </div>
   );
 }
