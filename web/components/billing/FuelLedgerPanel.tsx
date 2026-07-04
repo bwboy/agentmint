@@ -10,6 +10,7 @@ import type { ApiList, FuelLedgerEntry } from "@/lib/types";
 export function FuelLedgerPanel() {
   const router = useRouter();
   const [items, setItems] = useState<FuelLedgerEntry[]>([]);
+  const [filter, setFilter] = useState<LedgerFilter>("all");
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
@@ -35,6 +36,11 @@ export function FuelLedgerPanel() {
 
   const income = items.filter(item => item.direction === "credit").reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const expense = items.filter(item => item.direction === "debit").reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const filteredItems = items.filter(item => ledgerCategory(item.event_type) === filter || filter === "all");
+  const reserve = items.filter(item => ledgerCategory(item.event_type) === "reserve").reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const settlement = items.filter(item => ledgerCategory(item.event_type) === "settlement").reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const refund = items.filter(item => ledgerCategory(item.event_type) === "refund").reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const reward = items.filter(item => ledgerCategory(item.event_type) === "reward").reduce((sum, item) => sum + Number(item.amount || 0), 0);
 
   return (
     <div className="space-y-4">
@@ -44,27 +50,61 @@ export function FuelLedgerPanel() {
         <Metric label="近期支出" value={expense} tone="debit" />
         <Metric label="流水数量" value={total} tone="neutral" />
       </div>
+      <div className="grid gap-3 md:grid-cols-4">
+        <Metric label="预授权" value={reserve} tone="debit" compact />
+        <Metric label="基础结算" value={settlement} tone="credit" compact />
+        <Metric label="退款" value={refund} tone="credit" compact />
+        <Metric label="奖励" value={reward} tone="credit" compact />
+      </div>
       <div className="rounded-lg border border-gray-100 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 px-4 py-3">
+          {LEDGER_FILTERS.map(item => (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => setFilter(item.key)}
+              className={`rounded px-3 py-1.5 text-xs ${
+                filter === item.key
+                  ? "bg-gray-950 text-white"
+                  : "bg-gray-100 text-gray-500 hover:text-primary"
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
         {loading ? (
           <p className="px-4 py-6 text-sm text-gray-400">加载中...</p>
-        ) : items.length ? (
+        ) : filteredItems.length ? (
           <div className="divide-y divide-gray-100">
-            {items.map(item => <LedgerRow key={item.id} item={item} />)}
+            {filteredItems.map(item => <LedgerRow key={item.id} item={item} />)}
           </div>
         ) : (
-          <p className="px-4 py-6 text-sm text-gray-400">暂无燃值流水</p>
+          <p className="px-4 py-6 text-sm text-gray-400">暂无此类燃值流水</p>
         )}
       </div>
     </div>
   );
 }
 
-function Metric({ label, value, tone }: { label: string; value: number; tone: "credit" | "debit" | "neutral" }) {
+type LedgerFilter = "all" | "reserve" | "settlement" | "refund" | "reward" | "correction" | "other";
+
+const LEDGER_FILTERS: { key: LedgerFilter; label: string }[] = [
+  { key: "all", label: "全部" },
+  { key: "reserve", label: "预授权" },
+  { key: "settlement", label: "结算" },
+  { key: "refund", label: "退款" },
+  { key: "reward", label: "奖励" },
+  { key: "correction", label: "修正" },
+  { key: "other", label: "其他" },
+];
+
+function Metric({ label, value, tone, compact = false }: { label: string; value: number; tone: "credit" | "debit" | "neutral"; compact?: boolean }) {
   const color = tone === "credit" ? "text-emerald-600" : tone === "debit" ? "text-rose-600" : "text-gray-950";
   return (
-    <div className="rounded-lg border border-gray-100 bg-white p-4 shadow-sm">
+    <div className={`rounded-lg border border-gray-100 bg-white shadow-sm ${compact ? "p-3" : "p-4"}`}>
       <p className="text-xs text-gray-400">{label}</p>
-      <p className={`mt-2 text-2xl font-semibold ${color}`}>{value}</p>
+      <p className={`mt-2 font-semibold ${color} ${compact ? "text-lg" : "text-2xl"}`}>{value}</p>
     </div>
   );
 }
@@ -108,6 +148,15 @@ function eventLabel(type: string) {
     usage_correction: "Token 用量修正",
   };
   return labels[type] || type;
+}
+
+function ledgerCategory(type: string): LedgerFilter {
+  if (["base_reserved", "reward_reserved", "question_reserved"].includes(type)) return "reserve";
+  if (["answer_base_earned", "base_settled", "answer_earned", "base_extra_charged"].includes(type)) return "settlement";
+  if (["base_refunded", "reward_refunded", "question_refunded"].includes(type)) return "refund";
+  if (["reward_awarded", "reward_auto_awarded"].includes(type)) return "reward";
+  if (["usage_correction"].includes(type)) return "correction";
+  return "other";
 }
 
 function formatDate(value: string) {
