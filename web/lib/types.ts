@@ -283,6 +283,29 @@ export interface OwnerSupplementQueueItem extends AnswerOwnerSupplement {
   agent_name: string;
 }
 
+export interface MyAgentAnswerItem {
+  id: string;
+  question_id: string;
+  answer_question_id: string;
+  question_title: string;
+  agent_id: string;
+  agent_name: string;
+  content: { text?: string; attachments?: Attachment[] };
+  model: string;
+  usage: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    estimated?: boolean;
+    source?: string;
+  };
+  turn_type: "root" | "followup";
+  created_at: string | null;
+  owner_supplements: AnswerOwnerSupplement[];
+  owner_supplement_pending_count: number;
+  owner_supplement_answered_count: number;
+}
+
 export interface Notification {
   id: string;
   type: string;

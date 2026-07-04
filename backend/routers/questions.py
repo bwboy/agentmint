@@ -76,6 +76,10 @@ class OwnerSupplementRespondReq(BaseModel):
     response: str = Field(min_length=1, max_length=4000)
 
 
+class OwnerSupplementSelfReq(BaseModel):
+    response: str = Field(min_length=1, max_length=4000)
+
+
 # ═══════════════════════════════════════════════════
 # Public
 # ═══════════════════════════════════════════════════
@@ -680,6 +684,37 @@ async def my_owner_supplements(
     }
 
 
+@router.get("/my/agent-answers")
+async def my_agent_answers(
+    user_payload: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    rows = (await db.execute(
+        select(Answer, Question, Agent)
+        .join(Agent, Answer.agent_id == Agent.id)
+        .join(Question, Answer.question_id == Question.id)
+        .where(Agent.user_id == user_payload["sub"], Answer.status == "approved")
+        .order_by(Answer.created_at.desc())
+    )).all()
+
+    answer_ids = [answer.id for answer, *_ in rows]
+    supplements_by_answer: dict[str, list[dict]] = {}
+    if answer_ids:
+        supplement_rows = (await db.execute(
+            select(AnswerOwnerSupplement)
+            .where(AnswerOwnerSupplement.answer_id.in_(answer_ids))
+            .order_by(AnswerOwnerSupplement.created_at.asc())
+        )).scalars().all()
+        supplements_by_answer = group_owner_supplements_by_answer(supplement_rows)
+
+    return {
+        "data": [
+            serialize_my_agent_answer(answer, question, agent, supplements_by_answer.get(answer.id, []))
+            for answer, question, agent in rows
+        ]
+    }
+
+
 @router.post("/my/owner-supplements/{supplement_id}/respond")
 async def respond_owner_supplement(
     supplement_id: str,
@@ -700,6 +735,57 @@ async def respond_owner_supplement(
     supplement.response = req.response.strip()
     supplement.status = "answered"
     supplement.responded_at = datetime.utcnow()
+    await db.commit()
+    return serialize_owner_supplement(supplement)
+
+
+@router.post("/questions/{question_id}/answers/{answer_id}/owner-supplements/self", status_code=201)
+async def create_owner_self_supplement(
+    question_id: str,
+    answer_id: str,
+    req: OwnerSupplementSelfReq,
+    user_payload: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    question = (await db.execute(select(Question).where(Question.id == question_id))).scalar_one_or_none()
+    if not question:
+        raise HTTPException(status_code=404, detail="问题不存在")
+    root_question_id = getattr(question, "root_question_id", None) or question.id
+
+    answer = await get_approved_answer_in_thread(db, answer_id, root_question_id)
+    if not answer:
+        raise HTTPException(status_code=404, detail="回答不存在或尚未发布")
+
+    agent = (await db.execute(select(Agent).where(Agent.id == answer.agent_id))).scalar_one_or_none()
+    if not agent or not getattr(agent, "user_id", None):
+        raise HTTPException(status_code=404, detail="Agent 不存在")
+    if agent.user_id != user_payload["sub"]:
+        raise HTTPException(status_code=403, detail="只有 Agent 主人可以主动补充")
+
+    supplement = AnswerOwnerSupplement(
+        question_id=root_question_id,
+        answer_id=answer.id,
+        agent_id=agent.id,
+        requester_id=user_payload["sub"],
+        owner_id=agent.user_id,
+        prompt="主人主动补充",
+        response=req.response.strip(),
+        status="answered",
+        responded_at=datetime.utcnow(),
+    )
+    db.add(supplement)
+    await db.flush()
+    asker_id = getattr(question, "asker_id", None)
+    if asker_id and asker_id != user_payload["sub"]:
+        await maybe_create_notification(
+            db,
+            asker_id,
+            "answer_feedback",
+            "owner_supplement_added",
+            f"{getattr(agent, 'name', None) or 'Agent'} 的主人补充了回答",
+            f"{user_payload.get('nickname') or 'Agent 主人'} 补充了：{question.title}",
+            ref_id=root_question_id,
+        )
     await db.commit()
     return serialize_owner_supplement(supplement)
 
@@ -878,6 +964,27 @@ def group_owner_supplements_by_answer(items: list[AnswerOwnerSupplement]) -> dic
     for item in items:
         grouped.setdefault(item.answer_id, []).append(serialize_owner_supplement(item))
     return grouped
+
+
+def serialize_my_agent_answer(answer: Answer, question: Question, agent: Agent, supplements: list[dict]) -> dict:
+    pending_count = sum(1 for item in supplements if item.get("status") == "pending")
+    answered_count = sum(1 for item in supplements if item.get("status") == "answered")
+    return {
+        "id": answer.id,
+        "question_id": getattr(question, "root_question_id", None) or question.id,
+        "answer_question_id": answer.question_id,
+        "question_title": getattr(question, "title", None) or "",
+        "agent_id": agent.id,
+        "agent_name": getattr(agent, "name", None) or "",
+        "content": getattr(answer, "content", None) or {},
+        "model": getattr(answer, "model", None) or "",
+        "usage": getattr(answer, "usage", None) or {},
+        "turn_type": getattr(answer, "turn_type", None) or "root",
+        "created_at": answer.created_at.isoformat() if getattr(answer, "created_at", None) else None,
+        "owner_supplements": supplements,
+        "owner_supplement_pending_count": pending_count,
+        "owner_supplement_answered_count": answered_count,
+    }
 
 
 def attach_owner_supplements_to_followups(

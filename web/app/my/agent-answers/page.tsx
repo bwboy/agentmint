@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { AgentAnswerWorkbench } from "@/components/owner/AgentAnswerWorkbench";
 
-export default function MyOwnerSupplementsPage() {
+export default function MyAgentAnswersPage() {
   return (
     <div className="mx-auto max-w-5xl px-4 py-8">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">

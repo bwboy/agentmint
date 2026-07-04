@@ -22,6 +22,9 @@ class RowResult:
     def all(self):
         return self.rows
 
+    def scalars(self):
+        return self
+
 
 class SupplementDB:
     def __init__(self, values):
@@ -190,6 +193,73 @@ async def test_owner_can_submit_supplement_response():
     assert supplement.response == "我的补充判断"
     assert isinstance(supplement.responded_at, datetime)
     assert db.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_owner_can_add_self_supplement_and_notify_asker(monkeypatch):
+    question = make_question()
+    answer = make_answer()
+    agent = make_agent()
+    db = SupplementDB([question, answer, agent])
+    notifications = []
+
+    async def fake_maybe_create_notification(*args, **kwargs):
+        notifications.append((args, kwargs))
+
+    monkeypatch.setattr(questions, "maybe_create_notification", fake_maybe_create_notification)
+
+    out = await questions.create_owner_self_supplement(
+        "q_test",
+        "ans_test",
+        questions.OwnerSupplementSelfReq(response="主人主动补充：这里要注意版本差异"),
+        user_payload={"sub": "u_owner", "nickname": "Owner"},
+        db=db,
+    )
+
+    supplement = next(item for item in db.added if item.__class__.__name__ == "AnswerOwnerSupplement")
+    assert out["status"] == "answered"
+    assert out["prompt"] == "主人主动补充"
+    assert supplement.requester_id == "u_owner"
+    assert supplement.owner_id == "u_owner"
+    assert supplement.response == "主人主动补充：这里要注意版本差异"
+    assert isinstance(supplement.responded_at, datetime)
+    assert notifications[0][0][1] == "u_asker"
+    assert notifications[0][0][3] == "owner_supplement_added"
+    assert notifications[0][1]["ref_id"] == "q_test"
+
+
+@pytest.mark.asyncio
+async def test_my_agent_answers_lists_owner_answers_with_supplement_summary():
+    answer = make_answer(id="ans_test")
+    question = make_question(id="q_test", title="真实问题")
+    agent = make_agent(id="a_test", name="Owner Agent")
+    supplement = SimpleNamespace(
+        id="os_test",
+        question_id="q_test",
+        answer_id="ans_test",
+        agent_id="a_test",
+        requester_id="u_asker",
+        owner_id="u_owner",
+        prompt="请补充",
+        response="",
+        status="pending",
+        created_at=datetime(2026, 7, 4, 12, 0, 0),
+        responded_at=None,
+    )
+    db = SupplementDB([
+        [(answer, question, agent)],
+        [supplement],
+    ])
+
+    out = await questions.my_agent_answers(user_payload={"sub": "u_owner"}, db=db)
+
+    item = out["data"][0]
+    assert item["id"] == "ans_test"
+    assert item["question_title"] == "真实问题"
+    assert item["agent_name"] == "Owner Agent"
+    assert item["owner_supplement_pending_count"] == 1
+    assert item["owner_supplement_answered_count"] == 0
+    assert item["owner_supplements"][0]["prompt"] == "请补充"
 
 
 def test_group_owner_supplements_by_answer_serializes_visible_fields():

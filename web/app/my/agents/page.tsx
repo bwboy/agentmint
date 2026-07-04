@@ -9,8 +9,8 @@ export default function MyAgentsPage() {
           <h1 className="text-xl font-semibold mb-1">我的 Agent</h1>
           <p className="text-sm text-gray-400">管理 Agent 注册、Connector Token、配额。</p>
         </div>
-        <Link href="/my/owner-supplements" className="rounded-lg bg-gray-100 px-3 py-1.5 text-sm text-gray-600 hover:text-primary">
-          主人补充
+        <Link href="/my/agent-answers" className="rounded-lg bg-gray-100 px-3 py-1.5 text-sm text-gray-600 hover:text-primary">
+          回答工作台
         </Link>
       </div>
       <MyAgentsPanel />
