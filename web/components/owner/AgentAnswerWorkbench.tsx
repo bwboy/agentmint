@@ -153,9 +153,13 @@ function AnswerCard({
   const pending = answer.owner_supplements.filter(item => item.status === "pending");
   const answered = answer.owner_supplements.filter(item => item.status === "answered");
   const selfKey = selfDraftKey(answer.id);
+  const [expanded, setExpanded] = useState(false);
+  const [activeReplyId, setActiveReplyId] = useState<string | null>(pending[0]?.id || null);
+  const [selfComposerOpen, setSelfComposerOpen] = useState(false);
+  const answerText = answer.content?.text || "无文本回答";
 
   return (
-    <section className="rounded-xl border border-gray-100 bg-white p-5">
+    <section className="rounded-xl border border-gray-100 bg-white p-5 transition hover:border-gray-200">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
@@ -175,39 +179,91 @@ function AnswerCard({
         )}
       </div>
 
-      <p className="mt-4 line-clamp-4 whitespace-pre-wrap rounded-lg bg-gray-50 p-3 text-sm text-gray-700">
-        {answer.content?.text || "无文本回答"}
+      <p className={`mt-4 whitespace-pre-wrap rounded-lg bg-gray-50 p-3 text-sm text-gray-700 ${expanded ? "" : "line-clamp-3"}`}>
+        {answerText}
       </p>
 
-      {pending.length > 0 && (
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => setExpanded(current => !current)}
+          className="rounded-lg bg-gray-100 px-3 py-1.5 text-sm text-gray-600 hover:text-primary"
+        >
+          {expanded ? "收起内容" : "展开全部"}
+        </button>
+        <div className="flex flex-wrap gap-2">
+          {pending.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setExpanded(true);
+                setSelfComposerOpen(false);
+                setActiveReplyId(activeReplyId || pending[0].id);
+              }}
+              className="rounded-lg bg-primary px-3 py-1.5 text-sm text-white hover:bg-primary-dark"
+            >
+              回复请求
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setExpanded(true);
+              setActiveReplyId(null);
+              setSelfComposerOpen(true);
+            }}
+            className="rounded-lg bg-gray-950 px-3 py-1.5 text-sm text-white hover:bg-gray-800"
+          >
+            主动补充
+          </button>
+        </div>
+      </div>
+
+      {expanded && pending.length > 0 && (
         <div className="mt-4 space-y-3 rounded-lg border border-amber-100 bg-amber-50/70 p-3">
           <p className="text-xs font-medium text-amber-700">提问者希望你补充</p>
           {pending.map(item => (
             <div key={item.id} className="rounded-lg bg-white p-3 ring-1 ring-amber-100">
-              <p className="text-sm text-gray-700">{item.prompt}</p>
-              <textarea
-                value={drafts[item.id] || ""}
-                onChange={event => onDraftChange(item.id, event.target.value)}
-                rows={3}
-                className="mt-3 w-full resize-y rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none transition focus:border-primary"
-                placeholder="补充你的真实经验、判断依据或注意事项..."
-              />
-              <div className="mt-2 flex justify-end">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <p className="text-sm text-gray-700">{item.prompt}</p>
                 <button
                   type="button"
-                  onClick={() => onRespond(answer, item)}
-                  disabled={busy === item.id}
-                  className="rounded-lg bg-primary px-3 py-1.5 text-sm text-white hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={() => {
+                    setSelfComposerOpen(false);
+                    setActiveReplyId(activeReplyId === item.id ? null : item.id);
+                  }}
+                  className="rounded-lg bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100"
                 >
-                  {busy === item.id ? "提交中..." : "回复补充请求"}
+                  {activeReplyId === item.id ? "收起回复" : "回答"}
                 </button>
               </div>
+              {activeReplyId === item.id && (
+                <>
+                  <textarea
+                    value={drafts[item.id] || ""}
+                    onChange={event => onDraftChange(item.id, event.target.value)}
+                    rows={3}
+                    className="mt-3 w-full resize-y rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none transition focus:border-primary"
+                    placeholder="补充你的真实经验、判断依据或注意事项..."
+                  />
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => onRespond(answer, item)}
+                      disabled={busy === item.id}
+                      className="rounded-lg bg-primary px-3 py-1.5 text-sm text-white hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {busy === item.id ? "提交中..." : "提交回答"}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           ))}
         </div>
       )}
 
-      {answered.length > 0 && (
+      {expanded && answered.length > 0 && (
         <div className="mt-4 space-y-2 rounded-lg border border-emerald-100 bg-emerald-50/60 p-3">
           <p className="text-xs font-medium text-emerald-700">已发布的主人补充</p>
           {answered.map(item => (
@@ -219,6 +275,7 @@ function AnswerCard({
         </div>
       )}
 
+      {expanded && selfComposerOpen && (
       <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-3">
         <p className="mb-2 text-xs font-medium text-gray-500">主动补充这个回答</p>
         <textarea
@@ -242,6 +299,7 @@ function AnswerCard({
           </button>
         </div>
       </div>
+      )}
     </section>
   );
 }
