@@ -62,6 +62,34 @@ def get_owner_supplement_summary(agent_or_rules: Any) -> dict[str, Any]:
     return owner_supplement_summary_from_profile(get_agent_learned_profile(agent_or_rules))
 
 
+def agent_health_summary_from_profile(profile: dict | None) -> dict[str, Any]:
+    normalized = normalize_learned_profile(profile)
+    type_counts = dict(normalized.get("owner_supplement_types") or {})
+    negative_feedback = int(normalized.get("negative_feedback") or 0)
+    owner_corrections = int(type_counts.get("correction") or 0)
+    owner_risk_notes = int(type_counts.get("risk_note") or 0)
+    avoid_next_time = normalize_owner_experience_context(
+        normalized.get(OWNER_EXPERIENCE_CONTEXT_KEY)
+    ).get("avoid_next_time", [])
+    risk_level = "healthy"
+    if negative_feedback >= 2 or owner_corrections >= 2 or owner_risk_notes >= 2:
+        risk_level = "high"
+    elif negative_feedback > 0 or owner_corrections > 0 or owner_risk_notes > 0 or avoid_next_time:
+        risk_level = "watch"
+    return {
+        "risk_level": risk_level,
+        "negative_feedback": negative_feedback,
+        "owner_corrections": owner_corrections,
+        "owner_risk_notes": owner_risk_notes,
+        "avoid_next_time_count": len(avoid_next_time),
+        "needs_review": risk_level == "high",
+    }
+
+
+def get_agent_health_summary(agent_or_rules: Any) -> dict[str, Any]:
+    return agent_health_summary_from_profile(get_agent_learned_profile(agent_or_rules))
+
+
 def normalize_owner_experience_context(value: Any) -> dict[str, Any]:
     raw = value if isinstance(value, dict) else {}
     out = {

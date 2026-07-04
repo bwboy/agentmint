@@ -32,6 +32,7 @@ def decide_review_method(
     asker_trust_level: int,
     review_rules: dict | None,
     match_type: str,
+    health_summary: dict | None = None,
 ) -> str:
     """Return "auto" or "review".
 
@@ -42,6 +43,8 @@ def decide_review_method(
       - else → "review"
     """
     if quota_state == "review_only":
+        return "review"
+    if (health_summary or {}).get("risk_level") == "high":
         return "review"
     rules = review_rules or {}
     if asker_trust_level >= int(rules.get("auto_trust_level", 2)):

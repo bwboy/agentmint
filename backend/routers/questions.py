@@ -33,6 +33,7 @@ from services.rewards import auto_award_due_rewards, award_reward_to_answer
 from services.quota import check_quota, increment_usage
 from services.notification import maybe_create_notification
 from services.learned_profile import (
+    get_agent_health_summary,
     normalize_owner_supplement_type,
     update_learned_profile_from_feedback,
     update_learned_profile_from_owner_supplement,
@@ -348,6 +349,7 @@ async def create_question(
             asker_trust_level=int(user.trust_level or 1),
             review_rules=agent.review_rules,
             match_type=match_type,
+            health_summary=get_agent_health_summary(agent),
         )
         ans = Answer(
             question_id=q.id,
@@ -537,6 +539,7 @@ async def create_followup(
             asker_trust_level=int(user.trust_level or 1),
             review_rules=agent.review_rules,
             match_type="followup",
+            health_summary=get_agent_health_summary(agent),
         )
         answer = Answer(
             question_id=followup.id,

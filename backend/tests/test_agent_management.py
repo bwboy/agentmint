@@ -273,6 +273,9 @@ def test_agent_to_dict_includes_readiness():
     assert out["learned_profile"]["sample_count"] == 2
     assert out["owner_supplement_summary"]["total"] == 3
     assert out["owner_supplement_summary"]["types"]["correction"] == 2
+    assert out["health_summary"]["risk_level"] == "high"
+    assert out["health_summary"]["owner_corrections"] == 2
+    assert out["health_summary"]["owner_risk_notes"] == 1
     assert out["visibility"] == "followers"
     assert out["service_mode"] == "direct_only"
     assert out["service_rules"]["price_multiplier"] == 1.5

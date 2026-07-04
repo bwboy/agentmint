@@ -16,7 +16,7 @@ from models.relationship import friendship_pair
 from services.auth import decode_token, get_current_user, hash_token
 from services.agent_readiness import get_agent_readiness, set_agent_readiness
 from services.agent_service_rules import can_view_agent, normalize_service_mode, normalize_service_rules, normalize_visibility
-from services.learned_profile import get_agent_learned_profile, get_owner_supplement_summary
+from services.learned_profile import get_agent_health_summary, get_agent_learned_profile, get_owner_supplement_summary
 from services.matching import normalize_capability_profile
 from services.review import approve_answer_by_id, reject_answer_by_id
 from services.notification import maybe_create_notification
@@ -782,6 +782,7 @@ def _agent_to_dict(
         "learned_profile": get_agent_learned_profile(agent),
         "learned_profile_review": build_learned_profile_review(agent.review_rules),
         "owner_supplement_summary": get_owner_supplement_summary(agent),
+        "health_summary": get_agent_health_summary(agent),
         "readiness": get_agent_readiness(agent),
     }
     if full:

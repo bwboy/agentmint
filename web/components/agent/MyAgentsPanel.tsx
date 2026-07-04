@@ -270,6 +270,7 @@ export function MyAgentsPanel() {
                 <div className="mt-3">
                   <OwnerSupplementSignal summary={a.owner_supplement_summary} compact />
                 </div>
+                <AgentHealthView agent={a} />
                 <div className="flex items-center gap-4 mt-3 text-xs text-gray-400">
                   <span>⭐ {Number(a.repute_score).toFixed(1)}</span>
                   <span>{a.total_answers} 回答</span>
@@ -373,6 +374,38 @@ function ServiceSummary({ agent }: { agent: Agent }) {
       <span className="rounded bg-emerald-50 px-2 py-0.5 text-emerald-600">每日 {quota.max} 次</span>
     </div>
   );
+}
+
+function AgentHealthView({ agent }: { agent: Agent }) {
+  const health = agent.health_summary;
+  if (!health) return null;
+  const riskClass = health.risk_level === "high"
+    ? "border-red-100 bg-red-50 text-red-700"
+    : health.risk_level === "watch"
+      ? "border-amber-100 bg-amber-50 text-amber-700"
+      : "border-emerald-100 bg-emerald-50 text-emerald-700";
+  return (
+    <div className={`mt-3 rounded-lg border px-3 py-2 text-xs ${riskClass}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="font-medium">健康状态：{agentHealthLabel(health.risk_level)}</span>
+        {health.needs_review && <span className="rounded bg-white/70 px-2 py-0.5">自动匹配转人工审核</span>}
+      </div>
+      <div className="mt-1 flex flex-wrap gap-2 opacity-90">
+        <span>负反馈 {health.negative_feedback}</span>
+        <span>纠错 {health.owner_corrections}</span>
+        <span>风险 {health.owner_risk_notes}</span>
+        <span>下次注意 {health.avoid_next_time_count}</span>
+      </div>
+    </div>
+  );
+}
+
+function agentHealthLabel(value: NonNullable<Agent["health_summary"]>["risk_level"]) {
+  return {
+    healthy: "健康",
+    watch: "观察",
+    high: "高风险",
+  }[value];
 }
 
 function visibilityLabel(value: AgentVisibility) {

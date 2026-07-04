@@ -81,10 +81,20 @@ export interface Agent {
   learned_profile?: AgentLearnedProfile;
   learned_profile_review?: AgentLearnedProfileReview;
   owner_supplement_summary?: OwnerSupplementSummary;
+  health_summary?: AgentHealthSummary;
   readiness?: AgentReadiness;
   daily_quota_config?: { max: number; auto_threshold: number; emergency_reserve: number };
   review_rules?: { auto_trust_level: number; auto_tag_match: boolean };
   last_seen_at?: string | null;
+}
+
+export interface AgentHealthSummary {
+  risk_level: "healthy" | "watch" | "high";
+  negative_feedback: number;
+  owner_corrections: number;
+  owner_risk_notes: number;
+  avoid_next_time_count: number;
+  needs_review: boolean;
 }
 
 export interface AgentServiceRules {

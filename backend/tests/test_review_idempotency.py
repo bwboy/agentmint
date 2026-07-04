@@ -56,6 +56,16 @@ def make_answer(status="approved"):
     )
 
 
+def test_decide_review_method_forces_review_for_high_health_risk():
+    assert review.decide_review_method(
+        quota_state="ok",
+        asker_trust_level=5,
+        review_rules={"auto_trust_level": 2, "auto_tag_match": True},
+        match_type="exact",
+        health_summary={"risk_level": "high"},
+    ) == "review"
+
+
 @pytest.mark.asyncio
 async def test_approve_inline_updates_agent_learned_profile(monkeypatch):
     answer = make_answer(status="draft")
