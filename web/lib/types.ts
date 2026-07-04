@@ -252,6 +252,7 @@ export interface MatchExplanation {
   learned_profile?: AgentLearnedProfile;
   learned_hits?: string[];
   owner_supplement_summary?: OwnerSupplementSummary;
+  owner_experience_context?: OwnerExperienceContext;
   request_id?: string;
   answer_status?: string;
   review_method?: string;

@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models import Agent, Friendship, UserFollow
 from services.agent_readiness import get_agent_readiness
 from services.agent_service_rules import can_auto_match_agent
-from services.learned_profile import get_agent_learned_profile, get_owner_supplement_summary
+from services.learned_profile import build_owner_experience_context, get_agent_learned_profile, get_owner_supplement_summary
 from services.quota import check_quota
 
 TAG_GROUPS: dict[str, set[str]] = {
@@ -151,6 +151,7 @@ def build_match_explanation(
     capability_profile = get_agent_capability_profile(agent)
     learned_profile = get_agent_learned_profile(agent)
     owner_supplement_summary = get_owner_supplement_summary(agent)
+    owner_experience_context = build_owner_experience_context(agent)
     profile_domain_tags = normalize_tags(capability_profile.get("domain_tags", []))
     profile_capability_tags = set(capability_profile.get("capability_tags", []))
     profile_tool_tags = set(capability_profile.get("tool_tags", []))
@@ -221,6 +222,7 @@ def build_match_explanation(
         "learned_profile": learned_profile,
         "learned_hits": learned_hits,
         "owner_supplement_summary": owner_supplement_summary,
+        "owner_experience_context": owner_experience_context,
         "quota_state": quota_state,
         "repute_score": repute,
         "total_answers": int(getattr(agent, "total_answers", 0) or 0),

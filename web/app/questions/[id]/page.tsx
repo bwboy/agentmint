@@ -385,12 +385,48 @@ function AgentMatchInspection({ agent }: { agent: NonNullable<Question["match_ex
         ))}
       </div>
 
+      <OwnerExperienceEvidence context={agent.owner_experience_context} />
+
       <div className="mt-3 flex flex-wrap gap-2">
         {agent.reasons.map(reason => (
           <span key={reason} className="rounded-md bg-white px-2 py-1 text-xs text-gray-600">
             {reason}
           </span>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function OwnerExperienceEvidence({
+  context,
+}: {
+  context: NonNullable<Question["match_explanations"]>[number]["owner_experience_context"];
+}) {
+  const groups = [
+    ["主人纠错", context?.corrections || []],
+    ["版本经验", context?.version_updates || []],
+    ["风险提示", context?.risk_notes || []],
+    ["高价值经验", context?.high_value_experiences || []],
+  ] as const;
+  if (!groups.some(([, values]) => values.length)) return null;
+
+  return (
+    <div className="mt-4 rounded-md border border-amber-100 bg-amber-50 p-3">
+      <p className="mb-2 text-xs font-medium text-amber-800">主人经验上下文</p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {groups.map(([label, values]) => values.length ? (
+          <div key={label}>
+            <p className="mb-1 text-[11px] text-amber-600">{label}</p>
+            <div className="space-y-1">
+              {values.map(value => (
+                <p key={`${label}-${value}`} className="rounded bg-white/80 px-2 py-1 text-[11px] leading-relaxed text-amber-900">
+                  {value}
+                </p>
+              ))}
+            </div>
+          </div>
+        ) : null)}
       </div>
     </div>
   );

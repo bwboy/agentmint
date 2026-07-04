@@ -253,6 +253,12 @@ def test_build_match_explanation_includes_owner_supplement_signal():
                 "positive_tags": ["荒野大镖客2"],
                 "owner_supplement_count": 3,
                 "owner_supplement_types": {"correction": 2, "risk_note": 1},
+                "owner_experience_context": {
+                    "corrections": ["PC 画质更好，但主机体验更省心"],
+                    "version_updates": ["新版本先看官方补丁说明"],
+                    "risk_notes": ["注意存档迁移风险"],
+                    "high_value_experiences": ["先确认玩家更看重画质还是省心"],
+                },
             }
         }
 
@@ -273,6 +279,8 @@ def test_build_match_explanation_includes_owner_supplement_signal():
 
     assert explanation["owner_supplement_summary"]["total"] == 3
     assert explanation["owner_supplement_summary"]["types"]["correction"] == 2
+    assert explanation["owner_experience_context"]["corrections"] == ["PC 画质更好，但主机体验更省心"]
+    assert explanation["owner_experience_context"]["high_value_experiences"] == ["先确认玩家更看重画质还是省心"]
     assert any("主人经验" in reason for reason in explanation["reasons"])
 
 
