@@ -357,11 +357,14 @@ function AgentMatchInspection({ agent }: { agent: NonNullable<Question["match_ex
         </div>
       </div>
 
-      <div className="mt-4 grid gap-2 sm:grid-cols-4">
+      <div className="mt-4 grid gap-2 sm:grid-cols-5">
         <ScoreBox label="match" value={agent.match_score} />
         <ScoreBox label="repute" value={Number(agent.repute_score).toFixed(1)} />
         <ScoreBox label="repute part" value={breakdown?.repute_component ?? "-"} />
         <ScoreBox label="match part" value={breakdown?.match_component ?? "-"} />
+        {!!breakdown?.subscription_boost && (
+          <ScoreBox label="sub boost" value={`+${breakdown.subscription_boost}`} />
+        )}
       </div>
 
       {breakdown && (

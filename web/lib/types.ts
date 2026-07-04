@@ -227,6 +227,7 @@ export interface MatchScoreBreakdown {
   match_score: number;
   repute_component: number;
   match_component: number;
+  subscription_boost?: number;
   overall_score: number;
 }
 
