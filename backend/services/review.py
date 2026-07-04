@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import AsyncSessionLocal
 from models import Answer, Agent, Question, User
-from services.billing import calculate_answer_fuel, credit_answer_owner
+from services.billing import calculate_answer_fuel, credit_answer_owner, record_fuel_ledger, refund_fuel
 from services.learned_profile import update_learned_profile_from_approval
 from services.notification import create_notification
 from services.rewards import mark_reward_auto_award_after_first_answer
@@ -181,6 +181,7 @@ async def _approve_inline(db: AsyncSession, answer: Answer):
         agent.total_answers = int(agent.total_answers or 0) + 1
         if question:
             question.base_fuel_spent = int(getattr(question, "base_fuel_spent", None) or 0) + fuel
+            await refund_unused_base_reserve(db, question, answer, fuel)
         if getattr(agent, "user_id", None):
             await credit_answer_owner(
                 db,
@@ -205,6 +206,24 @@ async def _approve_inline(db: AsyncSession, answer: Answer):
         )
 
     await db.commit()
+
+
+async def refund_unused_base_reserve(db: AsyncSession, question: Question, answer: Answer, fuel: int) -> None:
+    reserved = int(getattr(question, "estimated_fuel_per_answer", None) or 0)
+    refund_amount = reserved - int(fuel or 0)
+    if refund_amount <= 0:
+        return
+    if await refund_fuel(db, question.asker_id, refund_amount):
+        record_fuel_ledger(
+            db,
+            user_id=question.asker_id,
+            amount=refund_amount,
+            direction="credit",
+            event_type="base_refunded",
+            question_id=question.id,
+            answer_id=answer.id,
+            agent_id=answer.agent_id,
+        )
 
 
 def question_base_cap(question: Question | None) -> int | None:
