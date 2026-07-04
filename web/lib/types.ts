@@ -79,6 +79,7 @@ export interface Agent {
   created_at: string;
   capability_profile?: AgentCapabilityProfile;
   learned_profile?: AgentLearnedProfile;
+  learned_profile_review?: AgentLearnedProfileReview;
   owner_supplement_summary?: OwnerSupplementSummary;
   readiness?: AgentReadiness;
   daily_quota_config?: { max: number; auto_threshold: number; emergency_reserve: number };
@@ -132,6 +133,22 @@ export interface AgentLearnedProfile {
   owner_supplement_count?: number;
   owner_supplement_types?: Partial<Record<OwnerSupplementType, number>>;
   updated_at?: string | null;
+}
+
+export type AgentProfileTagField =
+  | "domain_tags"
+  | "capability_tags"
+  | "tool_tags"
+  | "style_tags"
+  | "positive_tags"
+  | "negative_tags";
+
+export type AgentLearnedProfileReviewGroups = Record<AgentProfileTagField, string[]>;
+
+export interface AgentLearnedProfileReview {
+  accepted: AgentLearnedProfileReviewGroups;
+  rejected: AgentLearnedProfileReviewGroups;
+  pending: AgentLearnedProfileReviewGroups;
 }
 
 export interface OwnerSupplementSummary {

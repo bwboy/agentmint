@@ -49,6 +49,11 @@ class UpdateAgentReq(BaseModel):
     service_rules: dict | None = None
 
 
+class LearnedProfileReviewReq(BaseModel):
+    accept: dict[str, list[str]] = {}
+    reject: dict[str, list[str]] = {}
+
+
 # ═══════════════════════════════════════════════════
 # Public endpoints
 # ═══════════════════════════════════════════════════
@@ -311,6 +316,20 @@ async def update_agent(
     if req.capability_profile is not None:
         agent.review_rules = merge_capability_profile(agent.review_rules, req.capability_profile)
 
+    await db.commit()
+    await db.refresh(agent)
+    return _agent_to_dict(agent, user.get("nickname", ""), full=True)
+
+
+@router.post("/my/agents/{agent_id}/learned-profile-review")
+async def review_learned_profile_tags(
+    agent_id: str,
+    req: LearnedProfileReviewReq,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    agent = await _get_owned_agent(db, agent_id, user["sub"])
+    agent.review_rules = apply_learned_profile_review(agent.review_rules, req.accept, req.reject)
     await db.commit()
     await db.refresh(agent)
     return _agent_to_dict(agent, user.get("nickname", ""), full=True)
@@ -747,6 +766,7 @@ def _agent_to_dict(
         "created_at": agent.created_at.isoformat() if agent.created_at else None,
         "capability_profile": normalize_capability_profile((agent.review_rules or {}).get("capability_profile")),
         "learned_profile": get_agent_learned_profile(agent),
+        "learned_profile_review": build_learned_profile_review(agent.review_rules),
         "owner_supplement_summary": get_owner_supplement_summary(agent),
         "readiness": get_agent_readiness(agent),
     }
@@ -769,6 +789,74 @@ def merge_capability_profile(review_rules: dict | None, capability_profile: dict
         rules["auto_tag_match"] = True
     rules["capability_profile"] = normalize_capability_profile(capability_profile)
     return rules
+
+
+LEARNED_REVIEW_FIELDS = ("domain_tags", "capability_tags", "tool_tags", "style_tags", "positive_tags", "negative_tags")
+
+
+def build_learned_profile_review(review_rules: dict | None) -> dict:
+    rules = dict(review_rules or {})
+    learned = get_agent_learned_profile(rules)
+    review = normalize_learned_profile_review(rules.get("learned_profile_review"))
+    pending: dict[str, list[str]] = {}
+    for field in LEARNED_REVIEW_FIELDS:
+        reviewed = set(review["accepted"].get(field, [])) | set(review["rejected"].get(field, []))
+        pending[field] = [value for value in learned.get(field, []) if value not in reviewed]
+    return {**review, "pending": pending}
+
+
+def apply_learned_profile_review(
+    review_rules: dict | None,
+    accept: dict[str, list[str]],
+    reject: dict[str, list[str]],
+) -> dict:
+    rules = dict(review_rules or {})
+    review = normalize_learned_profile_review(rules.get("learned_profile_review"))
+    capability_profile = normalize_capability_profile(rules.get("capability_profile"))
+
+    for field, values in (accept or {}).items():
+        if field not in LEARNED_REVIEW_FIELDS:
+            continue
+        review["accepted"][field] = merge_unique(review["accepted"].get(field, []), values)
+        review["rejected"][field] = [value for value in review["rejected"].get(field, []) if value not in set(values or [])]
+        if field in capability_profile:
+            capability_profile[field] = merge_unique(capability_profile.get(field, []), values)
+    for field, values in (reject or {}).items():
+        if field not in LEARNED_REVIEW_FIELDS:
+            continue
+        review["rejected"][field] = merge_unique(review["rejected"].get(field, []), values)
+        review["accepted"][field] = [value for value in review["accepted"].get(field, []) if value not in set(values or [])]
+        if field in capability_profile:
+            capability_profile[field] = [value for value in capability_profile.get(field, []) if value not in set(values or [])]
+
+    rules["learned_profile_review"] = review
+    rules["capability_profile"] = capability_profile
+    return rules
+
+
+def normalize_learned_profile_review(value: dict | None) -> dict[str, dict[str, list[str]]]:
+    raw = value if isinstance(value, dict) else {}
+    return {
+        "accepted": normalize_review_groups(raw.get("accepted")),
+        "rejected": normalize_review_groups(raw.get("rejected")),
+    }
+
+
+def normalize_review_groups(value: dict | None) -> dict[str, list[str]]:
+    raw = value if isinstance(value, dict) else {}
+    return {field: merge_unique([], raw.get(field, [])) for field in LEARNED_REVIEW_FIELDS}
+
+
+def merge_unique(current: list[str], values: list[str] | None) -> list[str]:
+    seen = {str(item).lower() for item in current or []}
+    out = list(current or [])
+    for item in values or []:
+        text = str(item).strip()
+        key = text.lower()
+        if text and key not in seen:
+            seen.add(key)
+            out.append(text)
+    return out
 
 
 def _friend_request_to_dict(req: FriendRequest, requester_id: str, nickname: str, repute_score) -> dict:

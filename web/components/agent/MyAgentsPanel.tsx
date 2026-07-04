@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { getToken } from "@/lib/auth";
-import type { Agent, AgentCapabilityProfile, AgentLearnedProfile, AgentReadinessState, AgentServiceMode, AgentServiceRules, AgentType, AgentVisibility } from "@/lib/types";
+import type { Agent, AgentCapabilityProfile, AgentLearnedProfile, AgentProfileTagField, AgentReadinessState, AgentServiceMode, AgentServiceRules, AgentType, AgentVisibility } from "@/lib/types";
 import { OwnerSupplementSignal } from "./OwnerSupplementSignal";
 import { getConnectorInstructions } from "./connectorInstructions";
 
@@ -203,6 +203,24 @@ export function MyAgentsPanel() {
     }
   }
 
+  async function reviewLearnedTag(agent: Agent, field: AgentProfileTagField, value: string, action: "accept" | "reject") {
+    const token = getToken();
+    if (!token) return;
+    try {
+      await api(`/api/my/agents/${agent.id}/learned-profile-review`, {
+        method: "POST",
+        token,
+        json: {
+          accept: action === "accept" ? { [field]: [value] } : {},
+          reject: action === "reject" ? { [field]: [value] } : {},
+        },
+      });
+      await refresh();
+    } catch (e: any) {
+      setErr(e.message || "处理系统学习标签失败");
+    }
+  }
+
   if (agents === null) return <p className="text-gray-400 text-sm">加载中…</p>;
   const connectorInstructions = tokenInfo ? getConnectorInstructions(tokenInfo) : null;
 
@@ -292,6 +310,10 @@ export function MyAgentsPanel() {
                 <AgentProfileForm
                   state={editState}
                   onChange={setEditState}
+                />
+                <LearnedProfileReviewPanel
+                  agent={a}
+                  onReview={(field, value, action) => reviewLearnedTag(a, field, value, action)}
                 />
                 <div className="mt-4 flex gap-2">
                   <button onClick={() => saveAgent(a)}
@@ -684,6 +706,81 @@ function LearnedProfileView({ profile }: { profile?: AgentLearnedProfile }) {
           </div>
         ) : null)}
       </div>
+    </div>
+  );
+}
+
+function LearnedProfileReviewPanel({
+  agent,
+  onReview,
+}: {
+  agent: Agent;
+  onReview: (field: AgentProfileTagField, value: string, action: "accept" | "reject") => void;
+}) {
+  const review = agent.learned_profile_review;
+  if (!review) return null;
+  const groups = [
+    ["领域", "domain_tags"],
+    ["能力", "capability_tags"],
+    ["工具", "tool_tags"],
+    ["风格", "style_tags"],
+    ["正向", "positive_tags"],
+    ["负向", "negative_tags"],
+  ] as const;
+  const hasPending = groups.some(([, field]) => review.pending?.[field]?.length);
+  const hasAccepted = groups.some(([, field]) => review.accepted?.[field]?.length);
+  const hasRejected = groups.some(([, field]) => review.rejected?.[field]?.length);
+  if (!hasPending && !hasAccepted && !hasRejected) return null;
+
+  return (
+    <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-3">
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+        <span className="font-medium text-blue-700">系统学习审核</span>
+        <span className="text-blue-500">确认后会进入主人设定；拒绝后不再作为建议显示</span>
+      </div>
+      <div className="space-y-3">
+        {groups.map(([label, field]) => {
+          const pending = review.pending?.[field] || [];
+          const accepted = review.accepted?.[field] || [];
+          const rejected = review.rejected?.[field] || [];
+          if (!pending.length && !accepted.length && !rejected.length) return null;
+          return (
+            <div key={field} className="space-y-1.5">
+              <p className="text-xs font-medium text-gray-500">{label}</p>
+              {pending.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {pending.map(value => (
+                    <span key={`${field}-${value}`} className="inline-flex items-center gap-1 rounded bg-white px-2 py-1 text-xs text-gray-700 ring-1 ring-blue-100">
+                      {value}
+                      <button type="button" onClick={() => onReview(field, value, "accept")} className="text-emerald-600 hover:underline">确认</button>
+                      <button type="button" onClick={() => onReview(field, value, "reject")} className="text-red-500 hover:underline">拒绝</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {accepted.length > 0 && (
+                <ReviewTagRow label="已确认" values={accepted} className="bg-emerald-50 text-emerald-700" />
+              )}
+              {rejected.length > 0 && (
+                <ReviewTagRow label="已拒绝" values={rejected} className="bg-red-50 text-red-500" />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ReviewTagRow({ label, values, className }: { label: string; values: string[]; className: string }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-xs">
+      <span className="text-gray-400">{label}</span>
+      {values.map(value => (
+        <span key={`${label}-${value}`} className={`rounded px-2 py-0.5 ${className}`}>
+          {value}
+        </span>
+      ))}
     </div>
   );
 }

@@ -212,6 +212,87 @@ def test_agent_to_dict_includes_readiness():
     assert out["service_rules"]["max_followup_depth"] == 3
 
 
+def test_agent_to_dict_includes_learned_profile_review_state():
+    agent = SimpleNamespace(
+        id="a_review",
+        name="Review Agent",
+        agent_type="hermes",
+        tags=[],
+        description="",
+        repute_score=0,
+        fuel_earned=0,
+        total_answers=0,
+        approval_rate=0,
+        status="online",
+        is_public=True,
+        visibility="public",
+        service_mode="auto_match",
+        service_rules={},
+        created_at=None,
+        review_rules={
+            "learned_profile": {
+                "domain_tags": ["魔兽世界", "硬核模式"],
+                "capability_tags": ["风险审查"],
+            },
+            "learned_profile_review": {
+                "accepted": {"domain_tags": ["魔兽世界"]},
+                "rejected": {"domain_tags": ["硬核模式"]},
+            },
+        },
+    )
+
+    out = agents._agent_to_dict(agent, "owner")
+
+    assert out["learned_profile_review"]["accepted"]["domain_tags"] == ["魔兽世界"]
+    assert out["learned_profile_review"]["rejected"]["domain_tags"] == ["硬核模式"]
+    assert out["learned_profile_review"]["pending"]["capability_tags"] == ["风险审查"]
+    assert out["learned_profile_review"]["pending"]["domain_tags"] == []
+
+
+@pytest.mark.asyncio
+async def test_owner_can_accept_and_reject_learned_profile_tags():
+    agent = SimpleNamespace(
+        id="a_review",
+        user_id="u_owner",
+        name="Review Agent",
+        agent_type="hermes",
+        tags=[],
+        description="",
+        repute_score=0,
+        fuel_earned=0,
+        total_answers=0,
+        approval_rate=0,
+        status="online",
+        is_public=True,
+        visibility="public",
+        service_mode="auto_match",
+        service_rules={},
+        daily_quota_config={},
+        last_seen_at=None,
+        created_at=None,
+        review_rules={
+            "capability_profile": {"domain_tags": [], "capability_tags": [], "tool_tags": [], "style_tags": [], "avoid_tags": []},
+            "learned_profile": {"domain_tags": ["魔兽世界"], "capability_tags": ["风险审查"]},
+        },
+    )
+    db = RefreshableDB(agent)
+
+    out = await agents.review_learned_profile_tags(
+        "a_review",
+        agents.LearnedProfileReviewReq(
+            accept={"domain_tags": ["魔兽世界"]},
+            reject={"capability_tags": ["风险审查"]},
+        ),
+        user={"sub": "u_owner"},
+        db=db,
+    )
+
+    assert out["capability_profile"]["domain_tags"] == ["魔兽世界"]
+    assert out["learned_profile_review"]["accepted"]["domain_tags"] == ["魔兽世界"]
+    assert out["learned_profile_review"]["rejected"]["capability_tags"] == ["风险审查"]
+    assert db.commits == 1
+
+
 def test_agent_to_dict_can_include_owner_id_and_relationships():
     agent = SimpleNamespace(
         id="a_public",
