@@ -5,6 +5,7 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Answer
+from services.learned_profile import build_owner_experience_context
 
 
 def build_conversation_id(root_question_id: str, agent_id: str) -> str:
@@ -97,8 +98,8 @@ def ensure_followup_targets(agent_ids: list[str], approved_root_answers: list[An
     return deduped
 
 
-def build_root_payload(question: Any, answer: Any, asker: dict) -> dict:
-    return {
+def build_root_payload(question: Any, answer: Any, asker: dict, agent: Any | None = None) -> dict:
+    payload = {
         "request_id": answer.request_id,
         "conversation_id": answer.conversation_id,
         "turn_type": "root",
@@ -110,6 +111,8 @@ def build_root_payload(question: Any, answer: Any, asker: dict) -> dict:
         "auto_release": answer.review_method == "auto",
         "deadline_at": question.deadline_at.isoformat(),
     }
+    _attach_owner_experience_context(payload, agent)
+    return payload
 
 
 def build_followup_payload(
@@ -119,8 +122,9 @@ def build_followup_payload(
     answer: Any,
     quoted_answer: Any,
     asker: dict,
+    agent: Any | None = None,
 ) -> dict:
-    return {
+    payload = {
         "request_id": answer.request_id,
         "conversation_id": answer.conversation_id,
         "turn_type": "followup",
@@ -144,3 +148,11 @@ def build_followup_payload(
         "auto_release": answer.review_method == "auto",
         "deadline_at": followup_question.deadline_at.isoformat(),
     }
+    _attach_owner_experience_context(payload, agent)
+    return payload
+
+
+def _attach_owner_experience_context(payload: dict, agent: Any | None) -> None:
+    context = build_owner_experience_context(agent) if agent is not None else None
+    if context and context.get("has_context"):
+        payload["owner_experience_context"] = context

@@ -684,7 +684,18 @@ function LearnedProfileView({ profile }: { profile?: AgentLearnedProfile }) {
     ["正向", profile.positive_tags],
     ["负向", profile.negative_tags],
   ] as const;
-  if (!profile.sample_count && !groups.some(([, values]) => values?.length)) return null;
+  const context = profile.owner_experience_context;
+  const contextGroups = [
+    ["纠错", context?.corrections],
+    ["版本", context?.version_updates],
+    ["风险", context?.risk_notes],
+    ["高价值", context?.high_value_experiences],
+  ] as const;
+  if (
+    !profile.sample_count
+    && !groups.some(([, values]) => values?.length)
+    && !contextGroups.some(([, values]) => values?.length)
+  ) return null;
 
   return (
     <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
@@ -703,6 +714,18 @@ function LearnedProfileView({ profile }: { profile?: AgentLearnedProfile }) {
                 {value}
               </span>
             ))}
+          </div>
+        ) : null)}
+        {contextGroups.map(([label, values]) => values?.length ? (
+          <div key={label} className="flex flex-wrap items-start gap-1.5 text-xs">
+            <span className="mt-0.5 text-gray-400">{label}</span>
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              {values.map(value => (
+                <span key={`${label}-${value}`} className="rounded border border-amber-100 bg-amber-50 px-2 py-1 text-amber-800">
+                  {value}
+                </span>
+              ))}
+            </div>
           </div>
         ) : null)}
       </div>

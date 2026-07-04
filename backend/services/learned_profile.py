@@ -14,6 +14,14 @@ LIST_FIELDS = (
     "negative_tags",
 )
 MAX_LIST_ITEMS = 16
+MAX_CONTEXT_ITEMS = 8
+OWNER_EXPERIENCE_CONTEXT_KEY = "owner_experience_context"
+OWNER_EXPERIENCE_CONTEXT_FIELDS = (
+    "corrections",
+    "version_updates",
+    "risk_notes",
+    "high_value_experiences",
+)
 
 
 def normalize_learned_profile(profile: dict | None) -> dict[str, Any]:
@@ -27,6 +35,7 @@ def normalize_learned_profile(profile: dict | None) -> dict[str, Any]:
     out["negative_feedback"] = _safe_int(profile.get("negative_feedback"))
     out["owner_supplement_count"] = _safe_int(profile.get("owner_supplement_count"))
     out["owner_supplement_types"] = _clean_type_counts(profile.get("owner_supplement_types"))
+    out[OWNER_EXPERIENCE_CONTEXT_KEY] = normalize_owner_experience_context(profile.get(OWNER_EXPERIENCE_CONTEXT_KEY))
     out["updated_at"] = profile.get("updated_at")
     return out
 
@@ -50,6 +59,21 @@ def owner_supplement_summary_from_profile(profile: dict | None) -> dict[str, Any
 
 def get_owner_supplement_summary(agent_or_rules: Any) -> dict[str, Any]:
     return owner_supplement_summary_from_profile(get_agent_learned_profile(agent_or_rules))
+
+
+def normalize_owner_experience_context(value: Any) -> dict[str, Any]:
+    raw = value if isinstance(value, dict) else {}
+    out = {
+        field: _clean_list(raw.get(field))[:MAX_CONTEXT_ITEMS]
+        for field in OWNER_EXPERIENCE_CONTEXT_FIELDS
+    }
+    out["has_context"] = any(out[field] for field in OWNER_EXPERIENCE_CONTEXT_FIELDS)
+    return out
+
+
+def build_owner_experience_context(agent_or_rules: Any) -> dict[str, Any]:
+    profile = get_agent_learned_profile(agent_or_rules)
+    return normalize_owner_experience_context(profile.get(OWNER_EXPERIENCE_CONTEXT_KEY))
 
 
 def update_learned_profile_from_approval(agent: Any, question: Any, answer: Any) -> dict[str, Any]:
@@ -120,6 +144,7 @@ def update_learned_profile_from_owner_supplement(agent: Any, question: Any, supp
     style_tag = OWNER_SUPPLEMENT_STYLE_TAGS.get(supplement_type)
     if style_tag:
         _merge(profile, "style_tags", [style_tag])
+    _merge_owner_experience_context(profile, supplement)
     profile["updated_at"] = datetime.utcnow().isoformat()
 
     rules[LEARNED_PROFILE_KEY] = profile
@@ -182,6 +207,29 @@ def _clean_list(value: Any) -> list[str]:
 
 def _merge(profile: dict[str, Any], field: str, values: list[str]) -> None:
     profile[field] = _clean_list(list(profile.get(field) or []) + list(values or []))
+
+
+def _merge_owner_experience_context(profile: dict[str, Any], supplement: Any) -> None:
+    response = str(getattr(supplement, "response", "") or "").strip()
+    if not response:
+        return
+    supplement_type = normalize_owner_supplement_type(getattr(supplement, "supplement_type", None))
+    context = normalize_owner_experience_context(profile.get(OWNER_EXPERIENCE_CONTEXT_KEY))
+    field_by_type = {
+        "experience": "high_value_experiences" if bool(getattr(supplement, "is_high_value", False)) else None,
+        "correction": "corrections",
+        "version_update": "version_updates",
+        "risk_note": "risk_notes",
+    }
+    field = field_by_type.get(supplement_type)
+    if field:
+        context[field] = _clean_list([response] + list(context.get(field) or []))[:MAX_CONTEXT_ITEMS]
+    if bool(getattr(supplement, "is_high_value", False)):
+        context["high_value_experiences"] = _clean_list(
+            [response] + list(context.get("high_value_experiences") or [])
+        )[:MAX_CONTEXT_ITEMS]
+    context["has_context"] = any(context[name] for name in OWNER_EXPERIENCE_CONTEXT_FIELDS)
+    profile[OWNER_EXPERIENCE_CONTEXT_KEY] = context
 
 
 def _used_tool_names(capability: dict) -> list[str]:

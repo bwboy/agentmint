@@ -132,7 +132,16 @@ export interface AgentLearnedProfile {
   negative_feedback: number;
   owner_supplement_count?: number;
   owner_supplement_types?: Partial<Record<OwnerSupplementType, number>>;
+  owner_experience_context?: OwnerExperienceContext;
   updated_at?: string | null;
+}
+
+export interface OwnerExperienceContext {
+  has_context: boolean;
+  corrections: string[];
+  version_updates: string[];
+  risk_notes: string[];
+  high_value_experiences: string[];
 }
 
 export type AgentProfileTagField =

@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from services.learned_profile import (
+    build_owner_experience_context,
     get_agent_learned_profile,
     normalize_learned_profile,
     update_learned_profile_from_approval,
@@ -75,3 +76,34 @@ def test_update_learned_profile_from_owner_supplement_tracks_type_and_question_t
     assert profile["owner_supplement_types"]["correction"] == 1
     assert profile["positive_tags"] == ["荒野大镖客2", "平台选择"]
     assert "主人纠错" in profile["style_tags"]
+
+
+def test_owner_supplement_learning_keeps_actionable_context_by_type():
+    agent = SimpleNamespace(review_rules={})
+    question = SimpleNamespace(tags=["魔兽世界", "惩戒骑"])
+
+    update_learned_profile_from_owner_supplement(
+        agent,
+        question,
+        SimpleNamespace(
+            supplement_type="correction",
+            response="不要默认推荐玻璃大炮天赋，先判断硬核模式死亡风险。",
+            is_high_value=True,
+        ),
+    )
+    update_learned_profile_from_owner_supplement(
+        agent,
+        question,
+        SimpleNamespace(
+            supplement_type="version_update",
+            response="12.07 后饰品优先级变化，先查新团本掉落。",
+            is_high_value=False,
+        ),
+    )
+
+    context = build_owner_experience_context(agent)
+
+    assert context["has_context"] is True
+    assert context["corrections"] == ["不要默认推荐玻璃大炮天赋，先判断硬核模式死亡风险。"]
+    assert context["version_updates"] == ["12.07 后饰品优先级变化，先查新团本掉落。"]
+    assert context["high_value_experiences"] == ["不要默认推荐玻璃大炮天赋，先判断硬核模式死亡风险。"]

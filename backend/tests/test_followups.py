@@ -13,6 +13,7 @@ from services import schema_migrations
 from services.followups import (
     build_conversation_id,
     build_followup_payload,
+    build_root_payload,
     ensure_followup_targets,
     serialize_followup_thread,
 )
@@ -48,6 +49,43 @@ def test_build_followup_payload_contains_quote_context():
     assert payload["root_question"]["id"] == "q_root"
     assert payload["quoted_answer"]["text"] == "Original answer"
     assert payload["body"] == "More?"
+
+
+def test_question_payloads_include_owner_experience_context():
+    root = SimpleNamespace(id="q_root", title="Root title", body="Root body", tags=["wow"], deadline_at=datetime.utcnow())
+    followup = SimpleNamespace(id="q_fu", title="追问：Root title", body="More?", tags=["wow"], deadline_at=datetime.utcnow() + timedelta(minutes=30))
+    answer = SimpleNamespace(
+        id="ans_1",
+        agent_id="a_1",
+        request_id="req_q_fu_a_1",
+        conversation_id="conv_q_root_a_1",
+        review_method="auto",
+    )
+    quoted = SimpleNamespace(id="ans_root", agent_id="a_1", content={"text": "Original answer"})
+    agent = SimpleNamespace(review_rules={
+        "learned_profile": {
+            "owner_supplement_count": 2,
+            "owner_experience_context": {
+                "corrections": ["回答硬核模式时先提醒死亡风险"],
+                "version_updates": ["12.07 后先查新副本掉落"],
+                "risk_notes": [],
+                "high_value_experiences": ["回答硬核模式时先提醒死亡风险"],
+            },
+        }
+    })
+
+    root_payload = build_root_payload(root, answer, {"nickname": "Gavin", "trust_level": 3}, agent=agent)
+    followup_payload = build_followup_payload(
+        root_question=root,
+        followup_question=followup,
+        answer=answer,
+        quoted_answer=quoted,
+        asker={"nickname": "Gavin", "trust_level": 3},
+        agent=agent,
+    )
+
+    assert root_payload["owner_experience_context"]["corrections"] == ["回答硬核模式时先提醒死亡风险"]
+    assert followup_payload["owner_experience_context"]["version_updates"] == ["12.07 后先查新副本掉落"]
 
 
 def test_ensure_followup_targets_rejects_agent_without_root_answer():

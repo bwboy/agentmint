@@ -360,6 +360,7 @@ async def test_owner_can_edit_mark_high_value_and_withdraw_supplement():
 @pytest.mark.asyncio
 async def test_asker_can_react_and_accept_owner_supplement(monkeypatch):
     question = make_question()
+    agent = make_agent(review_rules={})
     supplement = SimpleNamespace(
         id="os_test",
         question_id="q_test",
@@ -377,7 +378,7 @@ async def test_asker_can_react_and_accept_owner_supplement(monkeypatch):
         created_at=datetime.utcnow(),
         responded_at=datetime.utcnow(),
     )
-    db = SupplementDB([supplement, question])
+    db = SupplementDB([supplement, question, agent])
     notifications = []
 
     async def fake_maybe_create_notification(*args, **kwargs):
@@ -395,6 +396,7 @@ async def test_asker_can_react_and_accept_owner_supplement(monkeypatch):
     assert out["asker_reaction"] == "like"
     assert out["accepted_at"] is not None
     assert supplement.is_high_value is True
+    assert agent.review_rules["learned_profile"]["owner_experience_context"]["high_value_experiences"] == ["主人补充"]
     assert notifications[0][0][1] == "u_owner"
     assert notifications[0][0][3] == "owner_supplement_accepted"
 

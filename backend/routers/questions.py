@@ -373,6 +373,7 @@ async def create_question(
             q,
             ans,
             {"nickname": user.nickname, "trust_level": user.trust_level},
+            agent=agent,
         )
         delivered = await hub.push_question(agent.id, payload)
         if delivered:
@@ -563,6 +564,7 @@ async def create_followup(
             answer=answer,
             quoted_answer=quoted_answer,
             asker=asker,
+            agent=agent,
         )
         delivered = await hub.push_question(agent.id, payload)
         status = "assigned"
@@ -849,6 +851,9 @@ async def react_owner_supplement(
     if req.accepted:
         supplement.accepted_at = datetime.utcnow()
         supplement.is_high_value = True
+        agent = (await db.execute(select(Agent).where(Agent.id == supplement.agent_id))).scalar_one_or_none()
+        if agent:
+            update_learned_profile_from_owner_supplement(agent, question, supplement)
     if req.accepted and supplement.owner_id != user_payload["sub"]:
         await maybe_create_notification(
             db,
