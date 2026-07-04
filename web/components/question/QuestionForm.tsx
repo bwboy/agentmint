@@ -1,11 +1,19 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import type { Agent, QuestionVisibility } from "@/lib/types";
 
 const DEFAULT_ESTIMATED_FUEL_PER_ANSWER = 900;
+const DEFAULT_BASE_CAP_MULTIPLIER = 1.5;
+
+type FuelEstimate = {
+  estimated_fuel_per_answer: number;
+  base_cap_multiplier: number;
+  preauthorized_fuel_per_answer: number;
+  sample_window_days: number;
+};
 
 export function QuestionForm({ targetAgent }: { targetAgent?: Agent | null }) {
   const router = useRouter();
@@ -17,18 +25,34 @@ export function QuestionForm({ targetAgent }: { targetAgent?: Agent | null }) {
   const [maxResp, setMaxResp] = useState(3);
   const [emergency, setEmergency] = useState(false);
   const [visibility, setVisibility] = useState<QuestionVisibility>("public");
-  const [estimatedFuelPerAnswer, setEstimatedFuelPerAnswer] = useState(DEFAULT_ESTIMATED_FUEL_PER_ANSWER);
+  const [fuelEstimate, setFuelEstimate] = useState<FuelEstimate | null>(null);
   const [rewardFuel, setRewardFuel] = useState(0);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const targetAgentIds = targetAgent ? [targetAgent.id] : [];
   const responderCount = targetAgent ? 1 : maxResp;
-  const safeEstimate = Math.max(100, Number(estimatedFuelPerAnswer || DEFAULT_ESTIMATED_FUEL_PER_ANSWER));
   const safeReward = Math.max(0, Number(rewardFuel || 0));
-  const baseReserve = responderCount * safeEstimate * (emergency ? 3 : 1);
+  const basePlatformEstimate = Math.max(100, Number(fuelEstimate?.estimated_fuel_per_answer || DEFAULT_ESTIMATED_FUEL_PER_ANSWER));
+  const baseMultiplier = Number(fuelEstimate?.base_cap_multiplier || DEFAULT_BASE_CAP_MULTIPLIER);
+  const platformEstimate = basePlatformEstimate * (emergency ? 3 : 1);
+  const preauthPerAnswer = Math.round(platformEstimate * baseMultiplier);
+  const baseReserve = responderCount * preauthPerAnswer;
+  const expectedBaseSpend = responderCount * platformEstimate;
   const estFuel = baseReserve + safeReward;
   const previewCapabilities = inferCapabilityPreview(`${title} ${body} ${tags.join(" ")}`);
+
+  useEffect(() => {
+    let alive = true;
+    api<FuelEstimate>("/api/questions/fuel-estimate")
+      .then(data => {
+        if (alive) setFuelEstimate(data);
+      })
+      .catch(() => {
+        if (alive) setFuelEstimate(null);
+      });
+    return () => { alive = false; };
+  }, []);
 
   function addTag() {
     const t = tagInput.trim();
@@ -52,7 +76,6 @@ export function QuestionForm({ targetAgent }: { targetAgent?: Agent | null }) {
           is_emergency: emergency,
           agent_ids: targetAgentIds,
           visibility,
-          estimated_fuel_per_answer: safeEstimate,
           reward_fuel: safeReward,
         },
       });
@@ -169,16 +192,10 @@ export function QuestionForm({ targetAgent }: { targetAgent?: Agent | null }) {
             ))}
           </div>
           <div className="mt-4 grid grid-cols-2 gap-4">
-            <div>
-              <label className="mb-1 block text-xs text-gray-500">单答预估燃值</label>
-              <input
-                type="number"
-                value={estimatedFuelPerAnswer}
-                onChange={e => setEstimatedFuelPerAnswer(Number(e.target.value))}
-                min={100}
-                max={100000}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-              />
+            <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+              <p className="text-xs text-gray-500">平台单答基准</p>
+              <p className="mt-1 text-sm font-semibold text-gray-950">🔥 {platformEstimate}</p>
+              <p className="mt-1 text-[11px] text-gray-400">近 {fuelEstimate?.sample_window_days || 2} 天均值 · 预授权 {baseMultiplier}x：🔥 {preauthPerAnswer}</p>
             </div>
             <div>
               <label className="mb-1 block text-xs text-gray-500">最佳回答奖励</label>
@@ -195,8 +212,12 @@ export function QuestionForm({ targetAgent }: { targetAgent?: Agent | null }) {
           <div className="mt-4 border-t border-gray-100 pt-4">
             <div className="mb-3 space-y-2 text-sm">
               <div className="flex items-center justify-between text-gray-500">
-                <span>基础预留</span>
+                <span>基础预授权</span>
                 <span>🔥 {baseReserve}</span>
+              </div>
+              <div className="flex items-center justify-between text-gray-400">
+                <span>预计基础结算</span>
+                <span>约 🔥 {expectedBaseSpend}</span>
               </div>
               <div className="flex items-center justify-between text-gray-500">
                 <span>单一奖励</span>

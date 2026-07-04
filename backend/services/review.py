@@ -141,7 +141,7 @@ async def _apply_usage_correction(db: AsyncSession, answer: Answer, msg: dict) -
         question_result = await db.execute(select(Question).where(Question.id == answer.question_id))
         question = question_result.scalar_one_or_none()
         if agent:
-            new_fuel = calculate_answer_fuel(new_usage, agent, max_fuel=question_base_cap(question))
+            new_fuel = calculate_answer_fuel(new_usage, agent)
             delta = new_fuel - int(answer.fuel_earned or 0)
             answer.fuel_earned = new_fuel
             paid_delta = delta
@@ -185,7 +185,7 @@ async def _approve_inline(db: AsyncSession, answer: Answer):
     q_result = await db.execute(select(Question).where(Question.id == answer.question_id))
     question = q_result.scalar_one_or_none()
     calculated_fuel = (
-        calculate_answer_fuel(answer.usage or {}, agent, max_fuel=question_base_cap(question))
+        calculate_answer_fuel(answer.usage or {}, agent)
         if agent else int((answer.usage or {}).get("total_tokens", 0))
     )
     fuel = await settle_initial_base_fuel(db, question, answer, calculated_fuel)
@@ -225,7 +225,7 @@ async def settle_initial_base_fuel(db: AsyncSession, question: Question | None, 
     if not question or not hasattr(question, "estimated_fuel_per_answer"):
         return int(fuel or 0)
 
-    reserved = int(getattr(question, "estimated_fuel_per_answer", None) or 0)
+    reserved = reserved_base_fuel_per_answer(question)
     fuel = int(fuel or 0)
     if fuel < reserved:
         await refund_unused_base_reserve(db, question, answer, fuel)
@@ -268,7 +268,7 @@ async def charge_usage_correction_extra(
     if not hasattr(question, "estimated_fuel_per_answer") or not getattr(question, "asker_id", None):
         return delta
 
-    reserved = int(getattr(question, "estimated_fuel_per_answer", None) or 0)
+    reserved = reserved_base_fuel_per_answer(question)
     previous_extra = max(0, previous_fuel - reserved)
     new_extra = max(0, new_fuel - reserved)
     charge_amount = new_extra - previous_extra
@@ -291,7 +291,7 @@ async def charge_usage_correction_extra(
 
 
 async def refund_unused_base_reserve(db: AsyncSession, question: Question, answer: Answer, fuel: int) -> None:
-    reserved = int(getattr(question, "estimated_fuel_per_answer", None) or 0)
+    reserved = reserved_base_fuel_per_answer(question)
     refund_amount = reserved - int(fuel or 0)
     if refund_amount <= 0:
         return
@@ -319,3 +319,10 @@ def question_base_cap(question: Question | None) -> int | None:
     except (TypeError, ValueError):
         multiplier = 1.5
     return int(round(estimated * multiplier))
+
+
+def reserved_base_fuel_per_answer(question: Question) -> int:
+    cap = question_base_cap(question)
+    if cap is not None:
+        return cap
+    return int(getattr(question, "estimated_fuel_per_answer", None) or 0)

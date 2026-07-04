@@ -52,7 +52,7 @@ class CreateQuestionReq(BaseModel):
     is_emergency: bool = False
     agent_ids: list[str] = []
     visibility: str = "public"
-    estimated_fuel_per_answer: int = DEFAULT_ESTIMATED_FUEL_PER_ANSWER
+    estimated_fuel_per_answer: int | None = None
     reward_fuel: int = 0
 
 
@@ -113,6 +113,17 @@ async def list_questions(
             for q, nickname, tl in rows
         ],
         "pagination": {"page": page, "size": size, "total": total},
+    }
+
+
+@router.get("/questions/fuel-estimate")
+async def question_fuel_estimate(db: AsyncSession = Depends(get_db)):
+    estimated = await estimate_answer_fuel_per_answer(db)
+    return {
+        "estimated_fuel_per_answer": estimated,
+        "base_cap_multiplier": DEFAULT_BASE_CAP_MULTIPLIER,
+        "preauthorized_fuel_per_answer": preauthorize_base_fuel_per_answer(estimated),
+        "sample_window_days": 2,
     }
 
 
@@ -237,8 +248,9 @@ async def create_question(
     ]
 
     rate = EMERGENCY_FUEL_MULTIPLIER if req.is_emergency else 1
-    estimated_fuel_per_answer = normalize_estimated_fuel_per_answer(req.estimated_fuel_per_answer) * rate
-    base_reserve = len(matched) * estimated_fuel_per_answer
+    estimated_fuel_per_answer = await estimate_answer_fuel_per_answer(db) * rate
+    base_reserve_per_answer = preauthorize_base_fuel_per_answer(estimated_fuel_per_answer)
+    base_reserve = len(matched) * base_reserve_per_answer
     reward_fuel = normalize_reward_fuel(req.reward_fuel)
     total_reserve = base_reserve + reward_fuel
 
@@ -339,7 +351,7 @@ async def create_question(
 
     fuel_cost = pushed_count * estimated_fuel_per_answer
     q.fuel_cost = fuel_cost
-    refund_amount = base_reserve - fuel_cost
+    refund_amount = (len(matched) - pushed_count) * base_reserve_per_answer
     await refund_fuel(db, user.id, refund_amount)
     record_fuel_ledger(
         db,
@@ -433,7 +445,8 @@ async def create_followup(
         raise HTTPException(status_code=400, detail=f"超过 Agent 追问深度限制: {', '.join(too_deep)}")
 
     estimated_fuel_per_answer = int(getattr(root, "estimated_fuel_per_answer", None) or DEFAULT_ESTIMATED_FUEL_PER_ANSWER)
-    base_reserve = len(target_agent_ids) * estimated_fuel_per_answer
+    base_reserve_per_answer = int(round(estimated_fuel_per_answer * float(getattr(root, "base_cap_multiplier", None) or DEFAULT_BASE_CAP_MULTIPLIER)))
+    base_reserve = len(target_agent_ids) * base_reserve_per_answer
     if not await deduct_fuel_if_available(db, user.id, base_reserve):
         raise HTTPException(status_code=402, detail="燃值不足")
 
@@ -536,7 +549,7 @@ async def create_followup(
 
     fuel_cost = pushed_count * estimated_fuel_per_answer
     followup.fuel_cost = fuel_cost
-    refund_amount = base_reserve - fuel_cost
+    refund_amount = (len(target_agent_ids) - pushed_count) * base_reserve_per_answer
     await refund_fuel(db, user.id, refund_amount)
     record_fuel_ledger(
         db,
@@ -718,6 +731,23 @@ def normalize_estimated_fuel_per_answer(value: int | None) -> int:
     except (TypeError, ValueError):
         amount = DEFAULT_ESTIMATED_FUEL_PER_ANSWER
     return max(100, min(amount, 100_000))
+
+
+async def estimate_answer_fuel_per_answer(db: AsyncSession) -> int:
+    since = datetime.utcnow() - timedelta(days=2)
+    result = await db.execute(
+        select(func.avg(Answer.fuel_earned))
+        .where(Answer.status == "approved", Answer.fuel_earned > 0, Answer.reviewed_at >= since)
+    )
+    try:
+        average = result.scalar()
+    except AttributeError:
+        average = None
+    return normalize_estimated_fuel_per_answer(average)
+
+
+def preauthorize_base_fuel_per_answer(estimated_fuel_per_answer: int) -> int:
+    return int(round(normalize_estimated_fuel_per_answer(estimated_fuel_per_answer) * DEFAULT_BASE_CAP_MULTIPLIER))
 
 
 def normalize_reward_fuel(value: int | None) -> int:

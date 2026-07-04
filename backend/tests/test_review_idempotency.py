@@ -162,7 +162,7 @@ async def test_approve_inline_credits_owner_balance_and_records_ledger(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_approve_inline_caps_answer_fuel_by_question_estimate(monkeypatch):
+async def test_approve_inline_charges_extra_fuel_above_preauthorization(monkeypatch):
     answer = make_answer(status="draft")
     answer.usage = {"prompt_tokens": 1000, "completion_tokens": 1000}
     agent = SimpleNamespace(
@@ -185,7 +185,7 @@ async def test_approve_inline_caps_answer_fuel_by_question_estimate(monkeypatch)
         base_fuel_spent=0,
     )
     owner = SimpleNamespace(id="u_owner", fuel_balance=100)
-    asker = SimpleNamespace(id="u_asker", fuel_balance=1_000)
+    asker = SimpleNamespace(id="u_asker", fuel_balance=2_000)
 
     class ApprovalSession:
         def __init__(self):
@@ -219,15 +219,15 @@ async def test_approve_inline_caps_answer_fuel_by_question_estimate(monkeypatch)
 
     await review._approve_inline(session, answer)
 
-    assert answer.fuel_earned == 1350
-    assert agent.fuel_earned == 1350
-    assert owner.fuel_balance == 1450
-    assert asker.fuel_balance == 550
-    assert question.base_fuel_spent == 1350
+    assert answer.fuel_earned == 3000
+    assert agent.fuel_earned == 3000
+    assert owner.fuel_balance == 3100
+    assert asker.fuel_balance == 350
+    assert question.base_fuel_spent == 3000
     ledger = [item for item in session.added if item.__class__.__name__ == "FuelLedgerEntry"]
     assert [(entry.user_id, entry.direction, entry.event_type, entry.amount) for entry in ledger] == [
-        ("u_asker", "debit", "base_extra_charged", 450),
-        ("u_owner", "credit", "answer_base_earned", 1350),
+        ("u_asker", "debit", "base_extra_charged", 1650),
+        ("u_owner", "credit", "answer_base_earned", 3000),
     ]
 
 
@@ -291,18 +291,18 @@ async def test_approve_inline_refunds_unused_base_reserve_to_asker(monkeypatch):
 
     assert answer.fuel_earned == 50
     assert owner.fuel_balance == 150
-    assert asker.fuel_balance == 99_450
+    assert asker.fuel_balance == 99_900
     ledgers = [item for item in session.added if item.__class__.__name__ == "FuelLedgerEntry"]
     assert [(entry.user_id, entry.direction, entry.event_type, entry.amount) for entry in ledgers] == [
-        ("u_asker", "credit", "base_refunded", 850),
+        ("u_asker", "credit", "base_refunded", 1300),
         ("u_owner", "credit", "answer_base_earned", 50),
     ]
 
 
 @pytest.mark.asyncio
-async def test_approve_inline_charges_asker_for_actual_fuel_above_estimate(monkeypatch):
+async def test_approve_inline_uses_preauthorized_base_before_charging_extra(monkeypatch):
     answer = make_answer(status="draft")
-    answer.usage = {"prompt_tokens": 900, "completion_tokens": 900}
+    answer.usage = {"prompt_tokens": 450, "completion_tokens": 450}
     agent = SimpleNamespace(
         id="a_test",
         user_id="u_owner",
@@ -322,7 +322,7 @@ async def test_approve_inline_charges_asker_for_actual_fuel_above_estimate(monke
         base_cap_multiplier=1.5,
         base_fuel_spent=0,
     )
-    asker = SimpleNamespace(id="u_asker", fuel_balance=1_000)
+    asker = SimpleNamespace(id="u_asker", fuel_balance=2_000)
     owner = SimpleNamespace(id="u_owner", fuel_balance=100)
 
     class ApprovalSession:
@@ -360,19 +360,157 @@ async def test_approve_inline_charges_asker_for_actual_fuel_above_estimate(monke
     assert answer.fuel_earned == 1350
     assert agent.fuel_earned == 1350
     assert owner.fuel_balance == 1450
-    assert asker.fuel_balance == 550
+    assert asker.fuel_balance == 2_000
     assert question.base_fuel_spent == 1350
     ledgers = [item for item in session.added if item.__class__.__name__ == "FuelLedgerEntry"]
     assert [(entry.user_id, entry.direction, entry.event_type, entry.amount) for entry in ledgers] == [
-        ("u_asker", "debit", "base_extra_charged", 450),
         ("u_owner", "credit", "answer_base_earned", 1350),
     ]
 
 
 @pytest.mark.asyncio
-async def test_approve_inline_caps_owner_earning_at_reserved_fuel_when_extra_charge_fails(monkeypatch):
+async def test_approve_inline_accepts_actual_fuel_equal_to_preauthorized_base(monkeypatch):
     answer = make_answer(status="draft")
-    answer.usage = {"prompt_tokens": 900, "completion_tokens": 900}
+    answer.usage = {"prompt_tokens": 500, "completion_tokens": 500}
+    agent = SimpleNamespace(
+        id="a_test",
+        user_id="u_owner",
+        fuel_earned=0,
+        total_answers=0,
+        review_rules={},
+        service_rules={"min_fuel_per_answer": 0, "max_fuel_per_answer": 100000, "price_multiplier": 1.0},
+    )
+    question = SimpleNamespace(
+        id="q_test",
+        asker_id="u_asker",
+        title="Over authorization settlement",
+        body="",
+        tags=[],
+        max_responders=1,
+        estimated_fuel_per_answer=1000,
+        base_cap_multiplier=1.5,
+        base_fuel_spent=0,
+    )
+    asker = SimpleNamespace(id="u_asker", fuel_balance=2_000)
+    owner = SimpleNamespace(id="u_owner", fuel_balance=100)
+
+    class ApprovalSession:
+        def __init__(self):
+            self.executes = 0
+            self.commits = 0
+            self.added = []
+
+        async def execute(self, stmt):
+            if isinstance(stmt, Update):
+                value = next(iter(stmt._values.values()))
+                amount = int(value.right.value)
+                if value.operator.__name__ == "sub":
+                    asker.fuel_balance -= amount
+                    return RowcountResult(1)
+                raise AssertionError(f"unexpected update: {stmt}")
+            self.executes += 1
+            values = [agent, question, owner]
+            return FakeExecuteResult(values[self.executes - 1])
+
+        def add(self, obj):
+            self.added.append(obj)
+
+        async def commit(self):
+            self.commits += 1
+
+    async def fake_create_notification(*args, **kwargs):
+        return None
+
+    session = ApprovalSession()
+    monkeypatch.setattr(review, "create_notification", fake_create_notification)
+
+    await review._approve_inline(session, answer)
+
+    assert answer.fuel_earned == 1500
+    assert agent.fuel_earned == 1500
+    assert owner.fuel_balance == 1600
+    assert asker.fuel_balance == 2_000
+    assert question.base_fuel_spent == 1500
+    ledgers = [item for item in session.added if item.__class__.__name__ == "FuelLedgerEntry"]
+    assert [(entry.user_id, entry.direction, entry.event_type, entry.amount) for entry in ledgers] == [
+        ("u_owner", "credit", "answer_base_earned", 1500),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_approve_inline_charges_asker_when_actual_fuel_exceeds_preauthorization(monkeypatch):
+    answer = make_answer(status="draft")
+    answer.usage = {"prompt_tokens": 1000, "completion_tokens": 1000}
+    agent = SimpleNamespace(
+        id="a_test",
+        user_id="u_owner",
+        fuel_earned=0,
+        total_answers=0,
+        review_rules={},
+        service_rules={"min_fuel_per_answer": 0, "max_fuel_per_answer": 100000, "price_multiplier": 1.0},
+    )
+    question = SimpleNamespace(
+        id="q_test",
+        asker_id="u_asker",
+        title="Over authorization settlement",
+        body="",
+        tags=[],
+        max_responders=1,
+        estimated_fuel_per_answer=900,
+        base_cap_multiplier=1.5,
+        base_fuel_spent=0,
+    )
+    asker = SimpleNamespace(id="u_asker", fuel_balance=2_000)
+    owner = SimpleNamespace(id="u_owner", fuel_balance=100)
+
+    class ApprovalSession:
+        def __init__(self):
+            self.executes = 0
+            self.commits = 0
+            self.added = []
+
+        async def execute(self, stmt):
+            if isinstance(stmt, Update):
+                value = next(iter(stmt._values.values()))
+                amount = int(value.right.value)
+                if value.operator.__name__ == "sub":
+                    asker.fuel_balance -= amount
+                    return RowcountResult(1)
+                raise AssertionError(f"unexpected update: {stmt}")
+            self.executes += 1
+            values = [agent, question, owner]
+            return FakeExecuteResult(values[self.executes - 1])
+
+        def add(self, obj):
+            self.added.append(obj)
+
+        async def commit(self):
+            self.commits += 1
+
+    async def fake_create_notification(*args, **kwargs):
+        return None
+
+    session = ApprovalSession()
+    monkeypatch.setattr(review, "create_notification", fake_create_notification)
+
+    await review._approve_inline(session, answer)
+
+    assert answer.fuel_earned == 3000
+    assert agent.fuel_earned == 3000
+    assert owner.fuel_balance == 3100
+    assert asker.fuel_balance == 350
+    assert question.base_fuel_spent == 3000
+    ledgers = [item for item in session.added if item.__class__.__name__ == "FuelLedgerEntry"]
+    assert [(entry.user_id, entry.direction, entry.event_type, entry.amount) for entry in ledgers] == [
+        ("u_asker", "debit", "base_extra_charged", 1650),
+        ("u_owner", "credit", "answer_base_earned", 3000),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_approve_inline_caps_owner_earning_at_preauthorized_fuel_when_extra_charge_fails(monkeypatch):
+    answer = make_answer(status="draft")
+    answer.usage = {"prompt_tokens": 1000, "completion_tokens": 1000}
     agent = SimpleNamespace(
         id="a_test",
         user_id="u_owner",
@@ -424,13 +562,13 @@ async def test_approve_inline_caps_owner_earning_at_reserved_fuel_when_extra_cha
 
     await review._approve_inline(session, answer)
 
-    assert answer.fuel_earned == 900
-    assert agent.fuel_earned == 900
-    assert owner.fuel_balance == 1000
-    assert question.base_fuel_spent == 900
+    assert answer.fuel_earned == 1350
+    assert agent.fuel_earned == 1350
+    assert owner.fuel_balance == 1450
+    assert question.base_fuel_spent == 1350
     ledgers = [item for item in session.added if item.__class__.__name__ == "FuelLedgerEntry"]
     assert [(entry.user_id, entry.direction, entry.event_type, entry.amount) for entry in ledgers] == [
-        ("u_owner", "credit", "answer_base_earned", 900),
+        ("u_owner", "credit", "answer_base_earned", 1350),
     ]
 
 
@@ -558,7 +696,7 @@ async def test_usage_correction_adjusts_owner_balance_and_records_delta(monkeypa
 
 
 @pytest.mark.asyncio
-async def test_usage_correction_charges_asker_for_new_extra_above_reserved_fuel(monkeypatch):
+async def test_usage_correction_charges_asker_for_new_extra_above_preauthorization(monkeypatch):
     answer = make_answer(status="approved")
     answer.fuel_earned = 900
     agent = SimpleNamespace(id="a_test", user_id="u_owner", fuel_earned=900, service_rules={
@@ -573,7 +711,7 @@ async def test_usage_correction_charges_asker_for_new_extra_above_reserved_fuel(
         base_cap_multiplier=1.5,
         base_fuel_spent=900,
     )
-    asker = SimpleNamespace(id="u_asker", fuel_balance=1_000)
+    asker = SimpleNamespace(id="u_asker", fuel_balance=2_000)
     owner = SimpleNamespace(id="u_owner", fuel_balance=100)
 
     class CorrectionSession(FakeSession):
@@ -614,13 +752,13 @@ async def test_usage_correction_charges_asker_for_new_extra_above_reserved_fuel(
         },
     })
 
-    assert answer.fuel_earned == 1350
-    assert agent.fuel_earned == 1350
-    assert question.base_fuel_spent == 1350
-    assert asker.fuel_balance == 550
-    assert owner.fuel_balance == 550
+    assert answer.fuel_earned == 2700
+    assert agent.fuel_earned == 2700
+    assert question.base_fuel_spent == 2700
+    assert asker.fuel_balance == 650
+    assert owner.fuel_balance == 1900
     ledger = [item for item in session.added if item.__class__.__name__ == "FuelLedgerEntry"]
     assert [(entry.user_id, entry.direction, entry.event_type, entry.amount) for entry in ledger] == [
-        ("u_asker", "debit", "base_extra_charged", 450),
-        ("u_owner", "credit", "usage_correction", 450),
+        ("u_asker", "debit", "base_extra_charged", 1350),
+        ("u_owner", "credit", "usage_correction", 1800),
     ]

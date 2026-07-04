@@ -15,10 +15,14 @@ class FakeScalarResult:
     def scalar_one_or_none(self):
         return self.value
 
+    def scalar(self):
+        return self.value
+
 
 class FakeDB:
-    def __init__(self, user):
+    def __init__(self, user, scalar_values=None):
         self.user = user
+        self.scalar_values = list(scalar_values or [])
         self.added = []
         self.commits = 0
         self.flushed = 0
@@ -29,6 +33,11 @@ class FakeDB:
     async def execute(self, stmt):
         if isinstance(stmt, Update):
             return self._execute_update(stmt)
+        entity = stmt.column_descriptions[0].get("entity") if getattr(stmt, "column_descriptions", None) else None
+        if getattr(entity, "__name__", None) == "User":
+            return FakeScalarResult(self.user)
+        if self.scalar_values:
+            return FakeScalarResult(self.scalar_values.pop(0))
         return FakeScalarResult(self.user)
 
     def add(self, obj):
@@ -65,6 +74,8 @@ class FakeDB:
             self.fuel_deductions.append({"user_id": user_id, "fuel_cost": amount, "rowcount": rowcount})
             return SimpleNamespace(rowcount=rowcount)
         if value.operator.__name__ == "add":
+            if amount <= 0:
+                return SimpleNamespace(rowcount=1)
             if self.user.id == user_id:
                 self.user.fuel_balance = int(self.user.fuel_balance or 0) + amount
             self.fuel_refunds.append({"user_id": user_id, "fuel_amount": amount})
@@ -264,6 +275,33 @@ async def test_resolve_question_targets_rejects_stopped_agents(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_estimate_answer_fuel_uses_recent_two_day_average_usage():
+    class EstimateDB:
+        async def execute(self, stmt):
+            return SimpleNamespace(scalar=lambda: 1000)
+
+    estimated = await questions.estimate_answer_fuel_per_answer(EstimateDB())
+
+    assert estimated == 1000
+
+
+@pytest.mark.asyncio
+async def test_question_fuel_estimate_endpoint_returns_preauthorization_fields():
+    class EstimateDB:
+        async def execute(self, stmt):
+            return SimpleNamespace(scalar=lambda: 1000)
+
+    out = await questions.question_fuel_estimate(EstimateDB())
+
+    assert out == {
+        "estimated_fuel_per_answer": 1000,
+        "base_cap_multiplier": 1.5,
+        "preauthorized_fuel_per_answer": 1500,
+        "sample_window_days": 2,
+    }
+
+
+@pytest.mark.asyncio
 async def test_create_question_zero_push_reserves_then_refunds_all(monkeypatch):
     user = make_user()
     db = FakeDB(user)
@@ -294,17 +332,17 @@ async def test_create_question_zero_push_reserves_then_refunds_all(monkeypatch):
     assert res["estimated_fuel_cost"] == 0
     assert user.fuel_balance == 100_000
     assert db.fuel_deductions == [
-        {"user_id": user.id, "fuel_cost": questions.DEFAULT_ESTIMATED_FUEL_PER_ANSWER, "rowcount": 1}
+        {"user_id": user.id, "fuel_cost": 1350, "rowcount": 1}
     ]
     assert db.fuel_refunds == [
-        {"user_id": user.id, "fuel_amount": questions.DEFAULT_ESTIMATED_FUEL_PER_ANSWER}
+        {"user_id": user.id, "fuel_amount": 1350}
     ]
 
 
 @pytest.mark.asyncio
 async def test_create_question_reserves_base_estimate_and_reward(monkeypatch):
     user = make_user()
-    db = FakeDB(user)
+    db = FakeDB(user, scalar_values=[1000])
     agents = [make_agent("a_one"), make_agent("a_two")]
 
     async def fake_resolve_question_targets(db_arg, req, viewer_id):
@@ -321,7 +359,7 @@ async def test_create_question_reserves_base_estimate_and_reward(monkeypatch):
             title="Reward ask",
             max_responders=2,
             visibility="private",
-            estimated_fuel_per_answer=900,
+            estimated_fuel_per_answer=99999,
             reward_fuel=500,
         ),
         user_payload={"sub": user.id},
@@ -331,24 +369,66 @@ async def test_create_question_reserves_base_estimate_and_reward(monkeypatch):
     created_question = next(item for item in db.added if item.__class__.__name__ == "Question")
     ledgers = [item for item in db.added if item.__class__.__name__ == "FuelLedgerEntry"]
     assert res["visibility"] == "private"
-    assert res["estimated_fuel_per_answer"] == 900
-    assert res["base_fuel_reserved"] == 1800
+    assert res["estimated_fuel_per_answer"] == 1000
+    assert res["base_fuel_reserved"] == 3000
     assert res["reward_fuel"] == 500
     assert res["reward_status"] == "pending"
-    assert created_question.base_fuel_reserved == 1800
+    assert created_question.base_fuel_reserved == 3000
     assert created_question.reward_fuel == 500
     assert user.fuel_balance == 100_000 - 500
     assert db.fuel_deductions == [
-        {"user_id": user.id, "fuel_cost": 2300, "rowcount": 1}
+        {"user_id": user.id, "fuel_cost": 3500, "rowcount": 1}
     ]
     assert db.fuel_refunds == [
-        {"user_id": user.id, "fuel_amount": 1800}
+        {"user_id": user.id, "fuel_amount": 3000}
     ]
     assert [(entry.direction, entry.event_type, entry.amount) for entry in ledgers] == [
-        ("debit", "base_reserved", 1800),
+        ("debit", "base_reserved", 3000),
         ("debit", "reward_reserved", 500),
-        ("credit", "base_refunded", 1800),
+        ("credit", "base_refunded", 3000),
     ]
+
+
+@pytest.mark.asyncio
+async def test_create_question_reserves_platform_estimate_with_authorization_multiplier(monkeypatch):
+    user = make_user()
+    db = FakeDB(user, scalar_values=[1000])
+    agents = [make_agent("a_one"), make_agent("a_two"), make_agent("a_three")]
+
+    async def fake_resolve_question_targets(db_arg, req, viewer_id):
+        return [(agent, 1.0, "direct", "ok") for agent in agents]
+
+    async def fake_push_question(agent_id, payload):
+        return True
+
+    async def fake_increment_usage(db_arg, agent_id):
+        return 1
+
+    monkeypatch.setattr(questions, "resolve_question_targets", fake_resolve_question_targets)
+    monkeypatch.setattr(questions.hub, "push_question", fake_push_question)
+    monkeypatch.setattr(questions, "increment_usage", fake_increment_usage)
+
+    res = await questions.create_question(
+        questions.CreateQuestionReq(
+            title="Platform estimated ask",
+            max_responders=3,
+            estimated_fuel_per_answer=99999,
+        ),
+        user_payload={"sub": user.id},
+        db=db,
+    )
+
+    created_question = next(item for item in db.added if item.__class__.__name__ == "Question")
+    assert res["estimated_fuel_per_answer"] == 1000
+    assert res["base_fuel_reserved"] == 4500
+    assert res["fuel_cost"] == 3000
+    assert created_question.base_cap_multiplier == 1.5
+    assert created_question.base_fuel_reserved == 4500
+    assert user.fuel_balance == 100_000 - 4500
+    assert db.fuel_deductions == [
+        {"user_id": user.id, "fuel_cost": 4500, "rowcount": 1}
+    ]
+    assert db.fuel_refunds == []
 
 
 @pytest.mark.asyncio
@@ -387,7 +467,7 @@ async def test_create_question_partial_push_reserves_max_and_refunds_undelivered
     assert res["pushed_count"] == 1
     assert res["fuel_cost"] == questions.DEFAULT_ESTIMATED_FUEL_PER_ANSWER
     assert res["estimated_fuel_cost"] == questions.DEFAULT_ESTIMATED_FUEL_PER_ANSWER
-    assert user.fuel_balance == 100_000 - questions.DEFAULT_ESTIMATED_FUEL_PER_ANSWER
+    assert user.fuel_balance == 100_000 - 1350
     assert incremented == ["a_ok"]
     assert [(agent_id, payload["conversation_id"], payload["turn_type"], payload["context_mode"])
             for agent_id, payload in pushed_payloads] == [
@@ -395,10 +475,10 @@ async def test_create_question_partial_push_reserves_max_and_refunds_undelivered
         ("a_fail", "conv_q_test_a_fail", "root", "root"),
     ]
     assert db.fuel_deductions == [
-        {"user_id": user.id, "fuel_cost": 2 * questions.DEFAULT_ESTIMATED_FUEL_PER_ANSWER, "rowcount": 1}
+        {"user_id": user.id, "fuel_cost": 2700, "rowcount": 1}
     ]
     assert db.fuel_refunds == [
-        {"user_id": user.id, "fuel_amount": questions.DEFAULT_ESTIMATED_FUEL_PER_ANSWER}
+        {"user_id": user.id, "fuel_amount": 1350}
     ]
 
 
