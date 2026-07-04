@@ -352,6 +352,15 @@ export interface MyAgentAnswerItem {
   };
   turn_type: "root" | "followup";
   owner_quality_mark?: "excellent" | "needs_improvement" | "stale" | null;
+  vote_summary?: { up: number; down: number };
+  quality_signals?: {
+    needs_attention?: boolean;
+    reasons?: string[];
+    negative_feedback?: number;
+    pending_owner_requests?: number;
+    owner_corrections?: number;
+    owner_risk_notes?: number;
+  };
   created_at: string | null;
   owner_supplements: AnswerOwnerSupplement[];
   owner_supplement_pending_count: number;

@@ -241,7 +241,7 @@ async def test_owner_can_add_self_supplement_and_notify_asker(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_my_agent_answers_lists_owner_answers_with_supplement_summary():
-    answer = make_answer(id="ans_test")
+    answer = make_answer(id="ans_test", owner_quality_mark="needs_improvement")
     question = make_question(id="q_test", title="真实问题")
     agent = make_agent(id="a_test", name="Owner Agent")
     supplement = SimpleNamespace(
@@ -260,6 +260,7 @@ async def test_my_agent_answers_lists_owner_answers_with_supplement_summary():
     db = SupplementDB([
         [(answer, question, agent)],
         [supplement],
+        [],
     ])
 
     out = await questions.my_agent_answers(user_payload={"sub": "u_owner"}, db=db)
@@ -271,7 +272,26 @@ async def test_my_agent_answers_lists_owner_answers_with_supplement_summary():
     assert item["owner_supplement_pending_count"] == 1
     assert item["owner_supplement_answered_count"] == 0
     assert item["owner_supplements"][0]["prompt"] == "请补充"
-    assert item["owner_quality_mark"] is None
+    assert item["owner_quality_mark"] == "needs_improvement"
+    assert item["vote_summary"] == {"up": 0, "down": 0}
+    assert item["quality_signals"]["needs_attention"] is True
+    assert "owner_mark_needs_improvement" in item["quality_signals"]["reasons"]
+
+
+def test_serialize_my_agent_answer_includes_negative_feedback_quality_signal():
+    answer = make_answer(id="ans_test")
+    item = questions.serialize_my_agent_answer(
+        answer,
+        make_question(id="q_test", tags=["wow"]),
+        make_agent(id="a_test", name="Owner Agent"),
+        [],
+        vote_summary={"up": 1, "down": 3},
+    )
+
+    assert item["vote_summary"] == {"up": 1, "down": 3}
+    assert item["quality_signals"]["needs_attention"] is True
+    assert item["quality_signals"]["negative_feedback"] == 3
+    assert "negative_feedback" in item["quality_signals"]["reasons"]
 
 
 @pytest.mark.asyncio

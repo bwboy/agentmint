@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import type { AnswerOwnerSupplement, MyAgentAnswerItem, OwnerSupplementType } from "@/lib/types";
+import { buildAgentHealthSummaries, type AgentHealthSummary } from "@/components/owner/AgentAnswerWorkbench.logic";
 
 type FilterMode = "all" | "requested" | "answered" | "unanswered";
 type QualityMark = "excellent" | "needs_improvement" | "stale" | "none";
@@ -93,6 +94,8 @@ export function AgentAnswerWorkbench() {
       stale: all.filter(item => item.owner_quality_mark === "stale").length,
     };
   }, [items]);
+
+  const agentHealth = useMemo(() => buildAgentHealthSummaries(items || []), [items]);
 
   async function respondToRequest(answer: MyAgentAnswerItem, supplement: AnswerOwnerSupplement) {
     const response = (drafts[supplement.id] || "").trim();
@@ -193,6 +196,13 @@ export function AgentAnswerWorkbench() {
           <TrendBox label="需改进" value={trend.needsImprovement} />
           <TrendBox label="失效" value={trend.stale} />
         </div>
+        {agentHealth.length > 0 && (
+          <AgentHealthStrip
+            summaries={agentHealth}
+            activeAgentId={agentFilter}
+            onSelect={setAgentFilter}
+          />
+        )}
         <div className="flex flex-wrap items-center gap-2">
           <FilterButton active={filter === "all"} onClick={() => setFilter("all")}>全部回答</FilterButton>
           <FilterButton active={filter === "requested"} onClick={() => setFilter("requested")}>待补充 {pendingCount}</FilterButton>
@@ -353,6 +363,10 @@ function AnswerCard({
             <span>{answer.turn_type === "followup" ? "追问回答" : "首轮回答"}</span>
             {answer.created_at && <span>{formatDate(answer.created_at)}</span>}
             <span>Token {answer.usage?.total_tokens ?? 0}</span>
+            {!!answer.vote_summary?.down && <span className="rounded bg-red-50 px-2 py-0.5 text-red-600">负反馈 {answer.vote_summary.down}</span>}
+            {!!answer.quality_signals?.pending_owner_requests && <span className="rounded bg-amber-50 px-2 py-0.5 text-amber-700">待补充 {answer.quality_signals.pending_owner_requests}</span>}
+            {!!answer.quality_signals?.owner_corrections && <span className="rounded bg-amber-50 px-2 py-0.5 text-amber-700">纠错 {answer.quality_signals.owner_corrections}</span>}
+            {!!answer.quality_signals?.owner_risk_notes && <span className="rounded bg-red-50 px-2 py-0.5 text-red-600">风险 {answer.quality_signals.owner_risk_notes}</span>}
             {answer.owner_quality_mark && <span className={`rounded px-2 py-0.5 ${qualityMarkClass(answer.owner_quality_mark)}`}>{qualityMarkLabel(answer.owner_quality_mark)}</span>}
           </div>
           <Link href={`/questions/${answer.question_id}`} className="mt-1 block font-medium text-gray-950 hover:text-primary">
@@ -633,8 +647,87 @@ function TrendBox({ label, value }: { label: string; value: number }) {
   );
 }
 
+function AgentHealthStrip({
+  summaries,
+  activeAgentId,
+  onSelect,
+}: {
+  summaries: AgentHealthSummary[];
+  activeAgentId: string;
+  onSelect: (agentId: string) => void;
+}) {
+  return (
+    <div className="space-y-2 rounded-lg border border-gray-100 bg-gray-50 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-medium text-gray-500">Agent 健康</p>
+        {activeAgentId !== "all" && (
+          <button
+            type="button"
+            onClick={() => onSelect("all")}
+            className="rounded bg-white px-2 py-1 text-[11px] text-gray-500 hover:text-primary"
+          >
+            查看全部
+          </button>
+        )}
+      </div>
+      <div className="grid gap-2 lg:grid-cols-3">
+        {summaries.map(summary => (
+          <button
+            key={summary.agentId}
+            type="button"
+            onClick={() => onSelect(summary.agentId)}
+            className={`rounded-lg border bg-white p-3 text-left transition hover:border-primary ${
+              activeAgentId === summary.agentId ? "border-primary ring-1 ring-primary/20" : "border-gray-100"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-gray-950">{summary.agentName}</p>
+                <p className="mt-1 text-[11px] text-gray-400">{summary.totalAnswers} 回答 · {summary.attentionAnswers} 需关注</p>
+              </div>
+              <span className={`rounded px-2 py-1 text-[11px] ${healthRiskClass(summary.riskLevel)}`}>
+                {healthRiskLabel(summary.riskLevel)}
+              </span>
+            </div>
+            <div className="mt-3 grid grid-cols-3 gap-1 text-center text-[11px]">
+              <HealthSignal label="负反馈" value={summary.negativeFeedback} />
+              <HealthSignal label="纠错" value={summary.ownerCorrections} />
+              <HealthSignal label="风险" value={summary.ownerRiskNotes} />
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function HealthSignal({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded bg-gray-50 px-2 py-1">
+      <p className="text-gray-400">{label}</p>
+      <p className="font-semibold text-gray-800">{value}</p>
+    </div>
+  );
+}
+
 function selfDraftKey(answerId: string) {
   return `self:${answerId}`;
+}
+
+function healthRiskLabel(value: AgentHealthSummary["riskLevel"]) {
+  return {
+    healthy: "健康",
+    watch: "观察",
+    high: "高风险",
+  }[value];
+}
+
+function healthRiskClass(value: AgentHealthSummary["riskLevel"]) {
+  return {
+    healthy: "bg-emerald-50 text-emerald-700",
+    watch: "bg-amber-50 text-amber-700",
+    high: "bg-red-50 text-red-600",
+  }[value];
 }
 
 function qualityMarkLabel(value: NonNullable<MyAgentAnswerItem["owner_quality_mark"]>) {

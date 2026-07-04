@@ -723,6 +723,7 @@ async def my_agent_answers(
 
     answer_ids = [answer.id for answer, *_ in rows]
     supplements_by_answer: dict[str, list[dict]] = {}
+    vote_rows: dict[str, dict[str, int]] = {}
     if answer_ids:
         supplement_rows = (await db.execute(
             select(AnswerOwnerSupplement)
@@ -730,10 +731,23 @@ async def my_agent_answers(
             .order_by(AnswerOwnerSupplement.created_at.asc())
         )).scalars().all()
         supplements_by_answer = group_owner_supplements_by_answer(supplement_rows)
+        feedback_rows = await db.execute(
+            select(Feedback.answer_id, Feedback.vote, func.count(Feedback.id))
+            .where(Feedback.answer_id.in_(answer_ids))
+            .group_by(Feedback.answer_id, Feedback.vote)
+        )
+        for answer_id, vote, count in feedback_rows.all():
+            vote_rows.setdefault(answer_id, {"up": 0, "down": 0})[vote] = int(count or 0)
 
     return {
         "data": [
-            serialize_my_agent_answer(answer, question, agent, supplements_by_answer.get(answer.id, []))
+            serialize_my_agent_answer(
+                answer,
+                question,
+                agent,
+                supplements_by_answer.get(answer.id, []),
+                vote_summary=vote_rows.get(answer.id, {"up": 0, "down": 0}),
+            )
             for answer, question, agent in rows
         ]
     }
@@ -1144,9 +1158,20 @@ def group_owner_supplements_by_answer(items: list[AnswerOwnerSupplement]) -> dic
     return grouped
 
 
-def serialize_my_agent_answer(answer: Answer, question: Question, agent: Agent, supplements: list[dict]) -> dict:
+def serialize_my_agent_answer(
+    answer: Answer,
+    question: Question,
+    agent: Agent,
+    supplements: list[dict],
+    vote_summary: dict | None = None,
+) -> dict:
     pending_count = sum(1 for item in supplements if item.get("status") == "pending")
     answered_count = sum(1 for item in supplements if item.get("status") == "answered")
+    votes = {
+        "up": int((vote_summary or {}).get("up") or 0),
+        "down": int((vote_summary or {}).get("down") or 0),
+    }
+    quality_signals = build_answer_quality_signals(answer, supplements, votes)
     return {
         "id": answer.id,
         "question_id": getattr(question, "root_question_id", None) or question.id,
@@ -1159,10 +1184,41 @@ def serialize_my_agent_answer(answer: Answer, question: Question, agent: Agent, 
         "usage": getattr(answer, "usage", None) or {},
         "turn_type": getattr(answer, "turn_type", None) or "root",
         "owner_quality_mark": getattr(answer, "owner_quality_mark", None),
+        "vote_summary": votes,
+        "quality_signals": quality_signals,
         "created_at": answer.created_at.isoformat() if getattr(answer, "created_at", None) else None,
         "owner_supplements": supplements,
         "owner_supplement_pending_count": pending_count,
         "owner_supplement_answered_count": answered_count,
+    }
+
+
+def build_answer_quality_signals(answer: Answer, supplements: list[dict], vote_summary: dict) -> dict:
+    reasons: list[str] = []
+    mark = getattr(answer, "owner_quality_mark", None)
+    negative_feedback = int((vote_summary or {}).get("down") or 0)
+    pending_requests = sum(1 for item in supplements if item.get("status") == "pending")
+    correction_count = sum(1 for item in supplements if item.get("status") == "answered" and item.get("supplement_type") == "correction")
+    risk_note_count = sum(1 for item in supplements if item.get("status") == "answered" and item.get("supplement_type") == "risk_note")
+
+    if mark in {"needs_improvement", "stale"}:
+        reasons.append(f"owner_mark_{mark}")
+    if negative_feedback > 0:
+        reasons.append("negative_feedback")
+    if pending_requests > 0:
+        reasons.append("pending_owner_request")
+    if correction_count > 0:
+        reasons.append("owner_correction")
+    if risk_note_count > 0:
+        reasons.append("owner_risk_note")
+
+    return {
+        "needs_attention": bool(reasons),
+        "reasons": reasons,
+        "negative_feedback": negative_feedback,
+        "pending_owner_requests": pending_requests,
+        "owner_corrections": correction_count,
+        "owner_risk_notes": risk_note_count,
     }
 
 
