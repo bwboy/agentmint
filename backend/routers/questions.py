@@ -32,7 +32,11 @@ from services.review import decide_review_method, approve_answer_by_id, reject_a
 from services.rewards import auto_award_due_rewards, award_reward_to_answer
 from services.quota import check_quota, increment_usage
 from services.notification import maybe_create_notification
-from services.learned_profile import update_learned_profile_from_feedback
+from services.learned_profile import (
+    normalize_owner_supplement_type,
+    update_learned_profile_from_feedback,
+    update_learned_profile_from_owner_supplement,
+)
 from ws.hub import hub
 
 router = APIRouter(prefix="/api", tags=["questions"])
@@ -74,10 +78,12 @@ class OwnerSupplementRequestReq(BaseModel):
 
 class OwnerSupplementRespondReq(BaseModel):
     response: str = Field(min_length=1, max_length=4000)
+    supplement_type: str = "experience"
 
 
 class OwnerSupplementSelfReq(BaseModel):
     response: str = Field(min_length=1, max_length=4000)
+    supplement_type: str = "experience"
 
 
 # ═══════════════════════════════════════════════════
@@ -733,8 +739,13 @@ async def respond_owner_supplement(
         raise HTTPException(status_code=400, detail="补充请求已处理")
 
     supplement.response = req.response.strip()
+    supplement.supplement_type = normalize_owner_supplement_type(req.supplement_type)
     supplement.status = "answered"
     supplement.responded_at = datetime.utcnow()
+    question = (await db.execute(select(Question).where(Question.id == supplement.question_id))).scalar_one_or_none()
+    agent = (await db.execute(select(Agent).where(Agent.id == supplement.agent_id))).scalar_one_or_none()
+    if question and agent:
+        update_learned_profile_from_owner_supplement(agent, question, supplement)
     await db.commit()
     return serialize_owner_supplement(supplement)
 
@@ -770,11 +781,13 @@ async def create_owner_self_supplement(
         owner_id=agent.user_id,
         prompt="主人主动补充",
         response=req.response.strip(),
+        supplement_type=normalize_owner_supplement_type(req.supplement_type),
         status="answered",
         responded_at=datetime.utcnow(),
     )
     db.add(supplement)
     await db.flush()
+    update_learned_profile_from_owner_supplement(agent, question, supplement)
     asker_id = getattr(question, "asker_id", None)
     if asker_id and asker_id != user_payload["sub"]:
         await maybe_create_notification(
@@ -953,6 +966,7 @@ def serialize_owner_supplement(item: AnswerOwnerSupplement) -> dict:
         "owner_id": getattr(item, "owner_id", None),
         "prompt": getattr(item, "prompt", None) or "",
         "response": getattr(item, "response", None) or "",
+        "supplement_type": normalize_owner_supplement_type(getattr(item, "supplement_type", None)),
         "status": getattr(item, "status", None) or "pending",
         "created_at": item.created_at.isoformat() if getattr(item, "created_at", None) else None,
         "responded_at": item.responded_at.isoformat() if getattr(item, "responded_at", None) else None,

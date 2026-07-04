@@ -5,6 +5,7 @@ from services.learned_profile import (
     normalize_learned_profile,
     update_learned_profile_from_approval,
     update_learned_profile_from_feedback,
+    update_learned_profile_from_owner_supplement,
 )
 
 
@@ -61,3 +62,16 @@ def test_update_learned_profile_from_feedback_tracks_vote_changes():
     assert switched["positive_feedback"] == 0
     assert switched["negative_feedback"] == 1
     assert switched["negative_tags"] == ["魔兽世界", "硬核模式"]
+
+
+def test_update_learned_profile_from_owner_supplement_tracks_type_and_question_tags():
+    agent = SimpleNamespace(review_rules={})
+    question = SimpleNamespace(tags=["荒野大镖客2", "平台选择"])
+    supplement = SimpleNamespace(supplement_type="correction", response="PC 画质更好，但主机体验更省心")
+
+    profile = update_learned_profile_from_owner_supplement(agent, question, supplement)
+
+    assert profile["owner_supplement_count"] == 1
+    assert profile["owner_supplement_types"]["correction"] == 1
+    assert profile["positive_tags"] == ["荒野大镖客2", "平台选择"]
+    assert "主人纠错" in profile["style_tags"]

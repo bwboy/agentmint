@@ -24,6 +24,7 @@ export function OwnerSupplements({ items }: { items?: AnswerOwnerSupplement[] })
         <div key={item.id} className="rounded-lg bg-white p-3 text-sm ring-1 ring-amber-100">
           <div className="flex flex-wrap items-center gap-2 text-xs text-amber-700">
             <span className="font-medium">{item.prompt === "主人主动补充" ? "主人主动补充" : "补充请求"}</span>
+            <span className="rounded bg-amber-100 px-2 py-0.5">{supplementTypeLabel(item.supplement_type)}</span>
             <span>{item.status === "answered" ? "已补充" : "等待主人补充"}</span>
             {item.created_at && <span className="text-amber-600/70">{formatDate(item.created_at)}</span>}
           </div>
@@ -45,4 +46,13 @@ function formatDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
+}
+
+function supplementTypeLabel(value: AnswerOwnerSupplement["supplement_type"]) {
+  return {
+    experience: "经验补充",
+    correction: "纠错",
+    version_update: "版本更新",
+    risk_note: "风险提醒",
+  }[value] || "经验补充";
 }

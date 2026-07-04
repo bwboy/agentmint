@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { getToken } from "@/lib/auth";
-import type { AnswerOwnerSupplement, MyAgentAnswerItem } from "@/lib/types";
+import type { AnswerOwnerSupplement, MyAgentAnswerItem, OwnerSupplementType } from "@/lib/types";
 
 type FilterMode = "all" | "requested" | "answered" | "unanswered";
 
@@ -15,6 +15,7 @@ export function AgentAnswerWorkbench() {
   const [items, setItems] = useState<MyAgentAnswerItem[] | null>(null);
   const [filter, setFilter] = useState<FilterMode>("all");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [draftTypes, setDraftTypes] = useState<Record<string, OwnerSupplementType>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -75,15 +76,21 @@ export function AgentAnswerWorkbench() {
   async function submitSupplement(path: string, draftKey: string, response: string) {
     const token = getToken();
     if (!token) return;
+    const supplementType = draftTypes[draftKey] || "experience";
     setBusy(draftKey);
     setErr(null);
     try {
       await api(path, {
         method: "POST",
         token,
-        json: { response },
+        json: { response, supplement_type: supplementType },
       });
       setDrafts(current => {
+        const next = { ...current };
+        delete next[draftKey];
+        return next;
+      });
+      setDraftTypes(current => {
         const next = { ...current };
         delete next[draftKey];
         return next;
@@ -124,8 +131,10 @@ export function AgentAnswerWorkbench() {
             key={answer.id}
             answer={answer}
             drafts={drafts}
+            draftTypes={draftTypes}
             busy={busy}
             onDraftChange={(key, value) => setDrafts(current => ({ ...current, [key]: value }))}
+            onDraftTypeChange={(key, value) => setDraftTypes(current => ({ ...current, [key]: value }))}
             onRespond={respondToRequest}
             onSelfSupplement={addSelfSupplement}
           />
@@ -138,15 +147,19 @@ export function AgentAnswerWorkbench() {
 function AnswerCard({
   answer,
   drafts,
+  draftTypes,
   busy,
   onDraftChange,
+  onDraftTypeChange,
   onRespond,
   onSelfSupplement,
 }: {
   answer: MyAgentAnswerItem;
   drafts: Record<string, string>;
+  draftTypes: Record<string, OwnerSupplementType>;
   busy: string | null;
   onDraftChange: (key: string, value: string) => void;
+  onDraftTypeChange: (key: string, value: OwnerSupplementType) => void;
   onRespond: (answer: MyAgentAnswerItem, supplement: AnswerOwnerSupplement) => void;
   onSelfSupplement: (answer: MyAgentAnswerItem) => void;
 }) {
@@ -246,7 +259,11 @@ function AnswerCard({
                     className="mt-3 w-full resize-y rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none transition focus:border-primary"
                     placeholder="补充你的真实经验、判断依据或注意事项..."
                   />
-                  <div className="mt-2 flex justify-end">
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                    <SupplementTypeSelect
+                      value={draftTypes[item.id] || "experience"}
+                      onChange={value => onDraftTypeChange(item.id, value)}
+                    />
                     <button
                       type="button"
                       onClick={() => onRespond(answer, item)}
@@ -268,7 +285,10 @@ function AnswerCard({
           <p className="text-xs font-medium text-emerald-700">已发布的主人补充</p>
           {answered.map(item => (
             <div key={item.id} className="rounded-lg bg-white p-3 text-sm text-gray-700 ring-1 ring-emerald-100">
-              {item.prompt !== "主人主动补充" && <p className="mb-2 text-xs text-gray-400">问：{item.prompt}</p>}
+              <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-gray-400">
+                <span className="rounded bg-emerald-50 px-2 py-0.5 text-emerald-700">{supplementTypeLabel(item.supplement_type)}</span>
+                {item.prompt !== "主人主动补充" && <span>问：{item.prompt}</span>}
+              </div>
               <p className="whitespace-pre-wrap">{item.response}</p>
             </div>
           ))}
@@ -289,19 +309,55 @@ function AnswerCard({
           <Link href={`/questions/${answer.question_id}`} className="text-xs text-gray-400 hover:text-primary">
             查看问题详情
           </Link>
-          <button
-            type="button"
-            onClick={() => onSelfSupplement(answer)}
-            disabled={busy === selfKey}
-            className="rounded-lg bg-gray-950 px-3 py-1.5 text-sm text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {busy === selfKey ? "提交中..." : "发布主动补充"}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <SupplementTypeSelect
+              value={draftTypes[selfKey] || "experience"}
+              onChange={value => onDraftTypeChange(selfKey, value)}
+            />
+            <button
+              type="button"
+              onClick={() => onSelfSupplement(answer)}
+              disabled={busy === selfKey}
+              className="rounded-lg bg-gray-950 px-3 py-1.5 text-sm text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {busy === selfKey ? "提交中..." : "发布主动补充"}
+            </button>
+          </div>
         </div>
       </div>
       )}
     </section>
   );
+}
+
+function SupplementTypeSelect({
+  value,
+  onChange,
+}: {
+  value: OwnerSupplementType;
+  onChange: (value: OwnerSupplementType) => void;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={event => onChange(event.target.value as OwnerSupplementType)}
+      className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-600 outline-none transition focus:border-primary"
+    >
+      <option value="experience">经验补充</option>
+      <option value="correction">纠错</option>
+      <option value="version_update">版本更新</option>
+      <option value="risk_note">风险提醒</option>
+    </select>
+  );
+}
+
+function supplementTypeLabel(value: OwnerSupplementType) {
+  return {
+    experience: "经验补充",
+    correction: "纠错",
+    version_update: "版本更新",
+    risk_note: "风险提醒",
+  }[value] || "经验补充";
 }
 
 function FilterButton({

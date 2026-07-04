@@ -25,6 +25,8 @@ def normalize_learned_profile(profile: dict | None) -> dict[str, Any]:
     out["sample_count"] = _safe_int(profile.get("sample_count"))
     out["positive_feedback"] = _safe_int(profile.get("positive_feedback"))
     out["negative_feedback"] = _safe_int(profile.get("negative_feedback"))
+    out["owner_supplement_count"] = _safe_int(profile.get("owner_supplement_count"))
+    out["owner_supplement_types"] = _clean_type_counts(profile.get("owner_supplement_types"))
     out["updated_at"] = profile.get("updated_at")
     return out
 
@@ -90,11 +92,55 @@ def update_learned_profile_from_feedback(
     return profile
 
 
+def update_learned_profile_from_owner_supplement(agent: Any, question: Any, supplement: Any) -> dict[str, Any]:
+    rules = dict(getattr(agent, "review_rules", None) or {})
+    profile = normalize_learned_profile(rules.get(LEARNED_PROFILE_KEY))
+    supplement_type = normalize_owner_supplement_type(getattr(supplement, "supplement_type", None))
+    type_counts = dict(profile.get("owner_supplement_types") or {})
+
+    profile["owner_supplement_count"] = int(profile["owner_supplement_count"]) + 1
+    type_counts[supplement_type] = int(type_counts.get(supplement_type, 0)) + 1
+    profile["owner_supplement_types"] = type_counts
+    _merge(profile, "positive_tags", list(getattr(question, "tags", None) or []))
+    style_tag = OWNER_SUPPLEMENT_STYLE_TAGS.get(supplement_type)
+    if style_tag:
+        _merge(profile, "style_tags", [style_tag])
+    profile["updated_at"] = datetime.utcnow().isoformat()
+
+    rules[LEARNED_PROFILE_KEY] = profile
+    agent.review_rules = rules
+    return profile
+
+
 def _safe_int(value: Any) -> int:
     try:
         return max(0, int(value or 0))
     except (TypeError, ValueError):
         return 0
+
+
+OWNER_SUPPLEMENT_TYPES = {"experience", "correction", "version_update", "risk_note"}
+OWNER_SUPPLEMENT_STYLE_TAGS = {
+    "experience": "主人经验",
+    "correction": "主人纠错",
+    "version_update": "版本更新",
+    "risk_note": "风险提醒",
+}
+
+
+def normalize_owner_supplement_type(value: Any) -> str:
+    text = str(value or "").strip()
+    return text if text in OWNER_SUPPLEMENT_TYPES else "experience"
+
+
+def _clean_type_counts(value: Any) -> dict[str, int]:
+    if not isinstance(value, dict):
+        return {}
+    out: dict[str, int] = {}
+    for key, count in value.items():
+        normalized = normalize_owner_supplement_type(key)
+        out[normalized] = out.get(normalized, 0) + _safe_int(count)
+    return out
 
 
 def _clean_list(value: Any) -> list[str]:

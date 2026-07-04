@@ -263,6 +263,7 @@ export interface Answer {
 }
 
 export type OwnerSupplementStatus = "pending" | "answered";
+export type OwnerSupplementType = "experience" | "correction" | "version_update" | "risk_note";
 
 export interface AnswerOwnerSupplement {
   id: string;
@@ -273,6 +274,7 @@ export interface AnswerOwnerSupplement {
   owner_id: string;
   prompt: string;
   response: string;
+  supplement_type: OwnerSupplementType;
   status: OwnerSupplementStatus;
   created_at: string | null;
   responded_at: string | null;

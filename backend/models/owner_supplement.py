@@ -17,6 +17,7 @@ class AnswerOwnerSupplement(Base):
     owner_id: Mapped[str] = mapped_column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     prompt: Mapped[str] = mapped_column(Text, default="")
     response: Mapped[str] = mapped_column(Text, default="")
+    supplement_type: Mapped[str] = mapped_column(String, default="experience")
     status: Mapped[str] = mapped_column(String, default="pending")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

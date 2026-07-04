@@ -170,20 +170,24 @@ async def test_request_owner_supplement_accepts_followup_answer_in_root_thread(m
 
 @pytest.mark.asyncio
 async def test_owner_can_submit_supplement_response():
+    question = make_question()
+    agent = make_agent()
     supplement = SimpleNamespace(
         id="os_test",
         answer_id="ans_test",
         question_id="q_test",
+        agent_id="a_test",
         owner_id="u_owner",
         status="pending",
         response="",
+        supplement_type="experience",
         responded_at=None,
     )
-    db = SupplementDB([supplement])
+    db = SupplementDB([supplement, question, agent])
 
     out = await questions.respond_owner_supplement(
         "os_test",
-        questions.OwnerSupplementRespondReq(response="我的补充判断"),
+        questions.OwnerSupplementRespondReq(response="我的补充判断", supplement_type="risk_note"),
         user_payload={"sub": "u_owner"},
         db=db,
     )
@@ -191,7 +195,10 @@ async def test_owner_can_submit_supplement_response():
     assert out["status"] == "answered"
     assert supplement.status == "answered"
     assert supplement.response == "我的补充判断"
+    assert supplement.supplement_type == "risk_note"
     assert isinstance(supplement.responded_at, datetime)
+    assert agent.review_rules["learned_profile"]["owner_supplement_count"] == 1
+    assert agent.review_rules["learned_profile"]["owner_supplement_types"]["risk_note"] == 1
     assert db.commits == 1
 
 
@@ -211,7 +218,7 @@ async def test_owner_can_add_self_supplement_and_notify_asker(monkeypatch):
     out = await questions.create_owner_self_supplement(
         "q_test",
         "ans_test",
-        questions.OwnerSupplementSelfReq(response="主人主动补充：这里要注意版本差异"),
+        questions.OwnerSupplementSelfReq(response="主人主动补充：这里要注意版本差异", supplement_type="version_update"),
         user_payload={"sub": "u_owner", "nickname": "Owner"},
         db=db,
     )
@@ -221,8 +228,11 @@ async def test_owner_can_add_self_supplement_and_notify_asker(monkeypatch):
     assert out["prompt"] == "主人主动补充"
     assert supplement.requester_id == "u_owner"
     assert supplement.owner_id == "u_owner"
+    assert supplement.supplement_type == "version_update"
     assert supplement.response == "主人主动补充：这里要注意版本差异"
     assert isinstance(supplement.responded_at, datetime)
+    assert agent.review_rules["learned_profile"]["owner_supplement_count"] == 1
+    assert agent.review_rules["learned_profile"]["owner_supplement_types"]["version_update"] == 1
     assert notifications[0][0][1] == "u_asker"
     assert notifications[0][0][3] == "owner_supplement_added"
     assert notifications[0][1]["ref_id"] == "q_test"

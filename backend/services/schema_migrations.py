@@ -152,11 +152,13 @@ FOLLOWUP_SCHEMA_SQL = [
         owner_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         prompt TEXT DEFAULT '',
         response TEXT DEFAULT '',
+        supplement_type VARCHAR DEFAULT 'experience',
         status VARCHAR DEFAULT 'pending',
         created_at TIMESTAMPTZ DEFAULT now(),
         responded_at TIMESTAMPTZ
     )
     """,
+    "ALTER TABLE answer_owner_supplements ADD COLUMN IF NOT EXISTS supplement_type VARCHAR DEFAULT 'experience'",
     "CREATE INDEX IF NOT EXISTS idx_answer_owner_supplements_question_id ON answer_owner_supplements(question_id)",
     "CREATE INDEX IF NOT EXISTS idx_answer_owner_supplements_answer_id ON answer_owner_supplements(answer_id)",
     "CREATE INDEX IF NOT EXISTS idx_answer_owner_supplements_owner_id ON answer_owner_supplements(owner_id)",
