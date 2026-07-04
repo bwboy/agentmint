@@ -237,6 +237,45 @@ def test_build_match_explanation_includes_learned_hits():
     assert "风险审查" in explanation["learned_hits"]
 
 
+def test_build_match_explanation_includes_owner_supplement_signal():
+    class AgentStub:
+        id = "a_owner_signal"
+        name = "Owner Signal Agent"
+        agent_type = "hermes"
+        tags = []
+        description = ""
+        repute_score = 4.0
+        total_answers = 8
+        approval_rate = 0.75
+        status = "online"
+        review_rules = {
+            "learned_profile": {
+                "positive_tags": ["荒野大镖客2"],
+                "owner_supplement_count": 3,
+                "owner_supplement_types": {"correction": 2, "risk_note": 1},
+            }
+        }
+
+    profile = build_task_profile(
+        title="荒野大镖客2 平台选择",
+        body="哪个平台更适合",
+        tags=[],
+        max_responders=3,
+    )
+
+    explanation = build_match_explanation(
+        AgentStub(),
+        task_profile=profile,
+        match_score=0.5,
+        match_type="exact",
+        quota_state="ok",
+    )
+
+    assert explanation["owner_supplement_summary"]["total"] == 3
+    assert explanation["owner_supplement_summary"]["types"]["correction"] == 2
+    assert any("主人经验" in reason for reason in explanation["reasons"])
+
+
 def test_filter_matchable_agents_uses_visibility_relationships_and_service_mode():
     public = _agent_for_filter("a_public", "u_public", "public", "auto_match")
     follower = _agent_for_filter("a_follower", "u_followed", "followers", "auto_match")

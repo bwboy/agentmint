@@ -79,6 +79,7 @@ export interface Agent {
   created_at: string;
   capability_profile?: AgentCapabilityProfile;
   learned_profile?: AgentLearnedProfile;
+  owner_supplement_summary?: OwnerSupplementSummary;
   readiness?: AgentReadiness;
   daily_quota_config?: { max: number; auto_threshold: number; emergency_reserve: number };
   review_rules?: { auto_trust_level: number; auto_tag_match: boolean };
@@ -128,7 +129,16 @@ export interface AgentLearnedProfile {
   sample_count: number;
   positive_feedback: number;
   negative_feedback: number;
+  owner_supplement_count?: number;
+  owner_supplement_types?: Partial<Record<OwnerSupplementType, number>>;
   updated_at?: string | null;
+}
+
+export interface OwnerSupplementSummary {
+  total: number;
+  types: Partial<Record<OwnerSupplementType, number>>;
+  has_signal: boolean;
+  dominant_type?: OwnerSupplementType | null;
 }
 
 export interface Question {
@@ -215,6 +225,7 @@ export interface MatchExplanation {
   score_breakdown?: MatchScoreBreakdown;
   learned_profile?: AgentLearnedProfile;
   learned_hits?: string[];
+  owner_supplement_summary?: OwnerSupplementSummary;
   request_id?: string;
   answer_status?: string;
   review_method?: string;

@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models import Agent, Friendship, UserFollow
 from services.agent_readiness import get_agent_readiness
 from services.agent_service_rules import can_auto_match_agent
-from services.learned_profile import get_agent_learned_profile
+from services.learned_profile import get_agent_learned_profile, get_owner_supplement_summary
 from services.quota import check_quota
 
 TAG_GROUPS: dict[str, set[str]] = {
@@ -150,6 +150,7 @@ def build_match_explanation(
     agent_tags = normalize_tags(list(getattr(agent, "tags", None) or []))
     capability_profile = get_agent_capability_profile(agent)
     learned_profile = get_agent_learned_profile(agent)
+    owner_supplement_summary = get_owner_supplement_summary(agent)
     profile_domain_tags = normalize_tags(capability_profile.get("domain_tags", []))
     profile_capability_tags = set(capability_profile.get("capability_tags", []))
     profile_tool_tags = set(capability_profile.get("tool_tags", []))
@@ -201,6 +202,8 @@ def build_match_explanation(
         reasons.append(f"回答风格：{', '.join(style_hits[:3])}")
     if quota_state == "review_only":
         reasons.append("当前配额接近上限，回答需要人工审核")
+    if owner_supplement_summary["total"] > 0:
+        reasons.append(f"主人经验信号：{owner_supplement_summary['total']} 次补充/纠错")
 
     return {
         "id": agent.id,
@@ -217,6 +220,7 @@ def build_match_explanation(
         "avoid_tags": sorted(profile_avoid_tags),
         "learned_profile": learned_profile,
         "learned_hits": learned_hits,
+        "owner_supplement_summary": owner_supplement_summary,
         "quota_state": quota_state,
         "repute_score": repute,
         "total_answers": int(getattr(agent, "total_answers", 0) or 0),

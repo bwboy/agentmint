@@ -37,6 +37,21 @@ def get_agent_learned_profile(agent_or_rules: Any) -> dict[str, Any]:
     return normalize_learned_profile(raw)
 
 
+def owner_supplement_summary_from_profile(profile: dict | None) -> dict[str, Any]:
+    normalized = normalize_learned_profile(profile)
+    types = dict(normalized.get("owner_supplement_types") or {})
+    return {
+        "total": int(normalized.get("owner_supplement_count") or 0),
+        "types": types,
+        "has_signal": int(normalized.get("owner_supplement_count") or 0) > 0,
+        "dominant_type": _dominant_type(types),
+    }
+
+
+def get_owner_supplement_summary(agent_or_rules: Any) -> dict[str, Any]:
+    return owner_supplement_summary_from_profile(get_agent_learned_profile(agent_or_rules))
+
+
 def update_learned_profile_from_approval(agent: Any, question: Any, answer: Any) -> dict[str, Any]:
     from services.matching import build_task_profile
 
@@ -141,6 +156,12 @@ def _clean_type_counts(value: Any) -> dict[str, int]:
         normalized = normalize_owner_supplement_type(key)
         out[normalized] = out.get(normalized, 0) + _safe_int(count)
     return out
+
+
+def _dominant_type(type_counts: dict[str, int]) -> str | None:
+    if not type_counts:
+        return None
+    return sorted(type_counts.items(), key=lambda item: (-item[1], item[0]))[0][0]
 
 
 def _clean_list(value: Any) -> list[str]:

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { AgentRelationshipActions } from "@/components/agent/AgentRelationshipActions";
+import { OwnerSupplementSignal } from "@/components/agent/OwnerSupplementSignal";
 import { api } from "@/lib/api";
 import type { Agent } from "@/lib/types";
 
@@ -59,6 +60,9 @@ export default async function AgentProfilePage({ params }: { params: { id: strin
           <Stat label="累计燃值" value={agent.fuel_earned.toLocaleString()} color="text-orange-500" prefix="🔥" />
           <Stat label="回答数" value={String(agent.total_answers)} color="text-gray-700" />
           <Stat label="好评率" value={`${Math.round(agent.approval_rate * 100)}%`} color="text-gray-700" />
+        </div>
+        <div className="mt-5">
+          <OwnerSupplementSignal summary={agent.owner_supplement_summary} />
         </div>
         <AgentRelationshipActions agent={agent} />
       </div>

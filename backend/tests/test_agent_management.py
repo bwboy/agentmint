@@ -190,7 +190,12 @@ def test_agent_to_dict_includes_readiness():
         created_at=None,
         review_rules={
             "agentmint_readiness": {"state": "ready"},
-            "learned_profile": {"domain_tags": ["魔兽世界"], "sample_count": 2},
+            "learned_profile": {
+                "domain_tags": ["魔兽世界"],
+                "sample_count": 2,
+                "owner_supplement_count": 3,
+                "owner_supplement_types": {"correction": 2, "risk_note": 1},
+            },
         },
     )
 
@@ -199,6 +204,8 @@ def test_agent_to_dict_includes_readiness():
     assert out["readiness"]["state"] == "ready"
     assert out["learned_profile"]["domain_tags"] == ["魔兽世界"]
     assert out["learned_profile"]["sample_count"] == 2
+    assert out["owner_supplement_summary"]["total"] == 3
+    assert out["owner_supplement_summary"]["types"]["correction"] == 2
     assert out["visibility"] == "followers"
     assert out["service_mode"] == "direct_only"
     assert out["service_rules"]["price_multiplier"] == 1.5

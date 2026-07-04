@@ -376,6 +376,7 @@ function AgentMatchInspection({ agent }: { agent: NonNullable<Question["match_ex
         <RouteSignal label="answers" value={String(agent.total_answers)} />
         <RouteSignal label="approval" value={`${Math.round(agent.approval_rate * 100)}%`} />
         <RouteSignal label="learned_samples" value={String(agent.learned_profile?.sample_count || 0)} />
+        <RouteSignal label="owner_signal" value={String(agent.owner_supplement_summary?.total || 0)} />
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">

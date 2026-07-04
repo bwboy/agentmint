@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import type { Agent, AgentCapabilityProfile, AgentLearnedProfile, AgentReadinessState, AgentServiceMode, AgentServiceRules, AgentType, AgentVisibility } from "@/lib/types";
+import { OwnerSupplementSignal } from "./OwnerSupplementSignal";
 import { getConnectorInstructions } from "./connectorInstructions";
 
 const emptyProfile: AgentCapabilityProfile = {
@@ -248,6 +249,9 @@ export function MyAgentsPanel() {
                 </div>
                 <CapabilityProfileView profile={a.capability_profile} />
                 <LearnedProfileView profile={a.learned_profile} />
+                <div className="mt-3">
+                  <OwnerSupplementSignal summary={a.owner_supplement_summary} compact />
+                </div>
                 <div className="flex items-center gap-4 mt-3 text-xs text-gray-400">
                   <span>⭐ {Number(a.repute_score).toFixed(1)}</span>
                   <span>{a.total_answers} 回答</span>
