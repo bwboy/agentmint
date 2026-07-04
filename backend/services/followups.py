@@ -36,6 +36,7 @@ def serialize_answer(
     repute_score: float,
     vote_summary: dict | None = None,
 ) -> dict:
+    fuel_earned = max(0, int(getattr(answer, "fuel_earned", None) or 0))
     return {
         "id": answer.id,
         "question_id": answer.question_id,
@@ -52,6 +53,10 @@ def serialize_answer(
         "content": answer.content or {},
         "model": answer.model,
         "usage": answer.usage or {},
+        "fuel_earned": fuel_earned,
+        "settlement": {
+            "base_fuel_charged": fuel_earned,
+        },
         "capability": answer.capability or None,
         "status": answer.status,
         "review_method": answer.review_method,

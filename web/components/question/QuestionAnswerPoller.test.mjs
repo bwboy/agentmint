@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  answerSettlementSummary,
   answerUsageSignature,
   followupsForAnswer,
   questionPollingDeadline,
@@ -40,8 +41,8 @@ test("refreshes when answer usage changes before the deadline", () => {
     shouldRefreshQuestionAnswers({
       currentAnswerCount: 1,
       latestAnswerCount: 1,
-      currentUsageSignature: "ans_1:75:990:1065:estimated",
-      latestUsageSignature: "ans_1:70:816:886:provider",
+      currentUsageSignature: "ans_1:75:990:1065:estimated:0:0",
+      latestUsageSignature: "ans_1:70:816:886:provider:0:0",
       deadlineAt: "2026-06-21T12:01:00.000Z",
       now: new Date("2026-06-21T12:00:00.000Z"),
     }),
@@ -72,6 +73,8 @@ test("builds an answer usage signature from token counts and estimate state", ()
           total_tokens: 1065,
           estimated: true,
         },
+        fuel_earned: 50,
+        settlement: { base_fuel_charged: 50 },
       },
       {
         id: "ans_2",
@@ -81,9 +84,25 @@ test("builds an answer usage signature from token counts and estimate state", ()
           total_tokens: 886,
           estimated: false,
         },
+        fuel_earned: 1702,
+        settlement: { base_fuel_charged: 1702 },
       },
     ]),
-    "ans_1:75:990:1065:estimated|ans_2:70:816:886:provider",
+    "ans_1:75:990:1065:estimated:50:50|ans_2:70:816:886:provider:1702:1702",
+  );
+});
+
+test("refreshes when answer settlement changes before the deadline", () => {
+  assert.equal(
+    shouldRefreshQuestionAnswers({
+      currentAnswerCount: 1,
+      latestAnswerCount: 1,
+      currentUsageSignature: "ans_1:70:816:886:provider:0:0",
+      latestUsageSignature: "ans_1:70:816:886:provider:1702:1702",
+      deadlineAt: "2026-06-21T12:01:00.000Z",
+      now: new Date("2026-06-21T12:00:00.000Z"),
+    }),
+    true,
   );
 });
 
@@ -98,6 +117,8 @@ test("includes follow-up answers when provided in the combined answer array", ()
           total_tokens: 160,
           estimated: false,
         },
+        fuel_earned: 400,
+        settlement: { base_fuel_charged: 400 },
       },
       {
         id: "ans_followup",
@@ -109,9 +130,11 @@ test("includes follow-up answers when provided in the combined answer array", ()
           total_tokens: 120,
           estimated: true,
         },
+        fuel_earned: 220,
+        settlement: { base_fuel_charged: 220 },
       },
     ]),
-    "ans_root:40:120:160:provider|ans_followup:30:90:120:estimated",
+    "ans_root:40:120:160:provider:400:400|ans_followup:30:90:120:estimated:220:220",
   );
 });
 
@@ -183,6 +206,40 @@ test("summarizes question fuel reservation and reward state", () => {
       totalReserved: 5000,
       estimatedPerAnswer: 900,
       matchedCount: 3,
+    },
+  );
+});
+
+test("summarizes per-answer token usage and fuel settlement", () => {
+  assert.deepEqual(
+    answerSettlementSummary(
+      {
+        id: "ans_1",
+        usage: {
+          prompt_tokens: 70,
+          completion_tokens: 816,
+          total_tokens: 886,
+          estimated: false,
+          source: "provider",
+        },
+        fuel_earned: 1702,
+        settlement: { base_fuel_charged: 1702 },
+      },
+      {
+        reward_answer_id: "ans_1",
+        reward_fuel: 500,
+        reward_status: "auto_awarded",
+      },
+    ),
+    {
+      promptTokens: 70,
+      completionTokens: 816,
+      totalTokens: 886,
+      usageSourceLabel: "模型真实回传",
+      baseFuelCharged: 1702,
+      rewardFuel: 500,
+      totalFuelEarned: 2202,
+      rewardLabel: "系统分配奖励",
     },
   );
 });

@@ -288,6 +288,10 @@ export interface Answer {
     estimated?: boolean;
     source?: string;
   };
+  fuel_earned?: number;
+  settlement?: {
+    base_fuel_charged?: number;
+  };
   capability?: {
     engine?: { provider: string; model: string };
     skills?: Array<{ name: string; version: string; source: string }>;

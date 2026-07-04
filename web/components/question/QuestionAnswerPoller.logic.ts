@@ -1,4 +1,4 @@
-import type { Question } from "@/lib/types";
+import type { Answer, Question } from "@/lib/types";
 
 export function shouldPollQuestionAnswers({
   currentAnswerCount,
@@ -42,6 +42,8 @@ export function answerUsageSignature(answers: Question["answers"] = []) {
       answer.usage?.completion_tokens ?? 0,
       answer.usage?.total_tokens ?? 0,
       answer.usage?.estimated ? "estimated" : "provider",
+      answer.fuel_earned ?? 0,
+      answer.settlement?.base_fuel_charged ?? 0,
     ].join(":"))
     .join("|");
 }
@@ -97,5 +99,32 @@ export function questionFuelSummary(
     totalReserved: baseReserved + rewardFuel,
     estimatedPerAnswer: Math.max(0, Number(question.estimated_fuel_per_answer || 0)),
     matchedCount: Math.max(0, Number(question.matched_count || 0)),
+  };
+}
+
+export function answerSettlementSummary(
+  answer: Pick<Answer, "id" | "usage" | "fuel_earned" | "settlement">,
+  question: Pick<Question, "reward_answer_id" | "reward_fuel" | "reward_status">,
+) {
+  const usage = answer.usage || {};
+  const promptTokens = Math.max(0, Number(usage.prompt_tokens || 0));
+  const completionTokens = Math.max(0, Number(usage.completion_tokens || 0));
+  const totalTokens = Math.max(0, Number(usage.total_tokens || promptTokens + completionTokens));
+  const baseFuelCharged = Math.max(0, Number(answer.settlement?.base_fuel_charged ?? answer.fuel_earned ?? 0));
+  const rewardFuel = question.reward_answer_id && question.reward_answer_id === answer.id
+    ? Math.max(0, Number(question.reward_fuel || 0))
+    : 0;
+
+  return {
+    promptTokens,
+    completionTokens,
+    totalTokens,
+    usageSourceLabel: usage.estimated ? "平台估算" : usage.source === "provider" ? "模型真实回传" : "Agent 回传",
+    baseFuelCharged,
+    rewardFuel,
+    totalFuelEarned: baseFuelCharged + rewardFuel,
+    rewardLabel: rewardFuel > 0
+      ? (question.reward_status === "auto_awarded" ? "系统分配奖励" : "提问者奖励")
+      : "未获得奖励",
   };
 }

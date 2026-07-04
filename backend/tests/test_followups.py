@@ -120,6 +120,7 @@ def test_serialize_followup_thread_exposes_thread_and_answer_linkage():
         capability={},
         status="approved",
         review_method="auto",
+        fuel_earned=1350,
         created_at=datetime(2026, 7, 1, 12, 1, 0),
         turn_type="followup",
     )
@@ -135,6 +136,8 @@ def test_serialize_followup_thread_exposes_thread_and_answer_linkage():
     assert out["deadline_at"] == "2026-07-01T12:30:00"
     assert out["answers"][0]["conversation_id"] == "conv_q_root_a_1"
     assert out["answers"][0]["parent_answer_id"] == "ans_root"
+    assert out["answers"][0]["fuel_earned"] == 1350
+    assert out["answers"][0]["settlement"]["base_fuel_charged"] == 1350
 
 
 def test_followup_schema_migration_adds_question_columns():

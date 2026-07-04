@@ -10,6 +10,7 @@ import { OwnerSupplements } from "@/components/question/OwnerSupplements";
 import { QuestionAnswerPoller } from "@/components/question/QuestionAnswerPoller";
 import { RewardButton } from "@/components/question/RewardButton";
 import {
+  answerSettlementSummary,
   answerUsageSignature,
   followupsForAnswer,
   questionAnswersForPolling,
@@ -103,6 +104,7 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
 
               <AnswerMarkdown text={ans.content?.text || ""} />
               <OwnerSupplements items={ans.owner_supplements} />
+              <AnswerSettlementPanel answer={ans} question={question} />
 
               {ans.content?.attachments && ans.content.attachments.length > 0 && (
                 <div className="mt-4 flex flex-wrap gap-2">
@@ -180,6 +182,7 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
                   quotedAnswerId={ans.id}
                   followups={followups}
                   approvedAnswers={answers}
+                  rewardQuestion={question}
                   depth={0}
                 />
               </div>
@@ -213,6 +216,50 @@ function FuelSignal({ label, value }: { label: string; value: string }) {
   );
 }
 
+function AnswerSettlementPanel({
+  answer,
+  question,
+  compact = false,
+}: {
+  answer: Answer;
+  question: Pick<Question, "reward_answer_id" | "reward_fuel" | "reward_status">;
+  compact?: boolean;
+}) {
+  const summary = answerSettlementSummary(answer, question);
+  return (
+    <div className={`mt-4 rounded-lg border border-gray-100 bg-gray-50 ${compact ? "p-3" : "p-4"}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-medium text-gray-500">结算明细</p>
+        <span className="rounded bg-white px-2 py-1 text-[11px] text-gray-500">
+          {summary.usageSourceLabel}
+        </span>
+      </div>
+      <div className={`mt-3 grid gap-2 ${compact ? "grid-cols-2" : "sm:grid-cols-4"}`}>
+        <SettlementSignal label="输入 Token" value={summary.promptTokens} />
+        <SettlementSignal label="输出 Token" value={summary.completionTokens} />
+        <SettlementSignal label="总 Token" value={summary.totalTokens} />
+        <SettlementSignal label="基础结算" value={`🔥 ${summary.baseFuelCharged}`} strong />
+      </div>
+      {(summary.rewardFuel > 0 || !compact) && (
+        <p className="mt-3 text-xs text-gray-500">
+          {summary.rewardFuel > 0
+            ? `${summary.rewardLabel} 🔥 ${summary.rewardFuel}，本回答合计收入 🔥 ${summary.totalFuelEarned}`
+            : "奖励燃值只会分配给最终选中的最佳回答。"}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function SettlementSignal({ label, value, strong = false }: { label: string; value: number | string; strong?: boolean }) {
+  return (
+    <div className="rounded-md bg-white px-3 py-2">
+      <p className="text-[11px] text-gray-400">{label}</p>
+      <p className={`mt-1 text-sm ${strong ? "font-semibold text-orange-600" : "font-medium text-gray-800"}`}>{value}</p>
+    </div>
+  );
+}
+
 function rewardStatusLabel(status: Question["reward_status"]) {
   const labels: Record<string, string> = {
     none: "无奖励",
@@ -229,12 +276,14 @@ function FollowUpThreads({
   quotedAnswerId,
   followups,
   approvedAnswers,
+  rewardQuestion,
   depth,
 }: {
   questionId: string;
   quotedAnswerId: string;
   followups: FollowUpThread[];
   approvedAnswers: Answer[];
+  rewardQuestion: Pick<Question, "reward_answer_id" | "reward_fuel" | "reward_status">;
   depth: number;
 }) {
   const threads = followupsForAnswer(followups, quotedAnswerId);
@@ -254,6 +303,11 @@ function FollowUpThreads({
                 </div>
                 <AnswerMarkdown text={followupAnswer.content?.text || ""} />
                 <OwnerSupplements items={followupAnswer.owner_supplements} />
+                <AnswerSettlementPanel
+                  answer={followupAnswer}
+                  question={rewardQuestion}
+                  compact
+                />
                 <div className="mt-3 flex flex-wrap justify-end gap-2 border-t border-gray-100 pt-3">
                   <FollowUpComposer
                     questionId={questionId}
@@ -271,6 +325,7 @@ function FollowUpThreads({
                     quotedAnswerId={followupAnswer.id}
                     followups={followups}
                     approvedAnswers={approvedAnswers}
+                    rewardQuestion={rewardQuestion}
                     depth={depth + 1}
                   />
                 </div>
