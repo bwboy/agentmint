@@ -99,6 +99,7 @@ function eventLabel(type: string) {
     base_reserved: "基础回答预留",
     base_settled: "基础回答结算",
     base_refunded: "基础预留退回",
+    base_extra_charged: "基础回答补扣",
     answer_base_earned: "基础回答收入",
     reward_reserved: "最佳回答奖励预留",
     reward_awarded: "最佳回答奖励收入",
