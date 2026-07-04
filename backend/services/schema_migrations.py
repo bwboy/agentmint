@@ -142,6 +142,25 @@ FOLLOWUP_SCHEMA_SQL = [
     "CREATE INDEX IF NOT EXISTS idx_fuel_ledger_entries_question_id ON fuel_ledger_entries(question_id)",
     "CREATE INDEX IF NOT EXISTS idx_fuel_ledger_entries_answer_id ON fuel_ledger_entries(answer_id)",
     "CREATE INDEX IF NOT EXISTS idx_fuel_ledger_entries_agent_id ON fuel_ledger_entries(agent_id)",
+    """
+    CREATE TABLE IF NOT EXISTS answer_owner_supplements (
+        id VARCHAR PRIMARY KEY,
+        question_id VARCHAR NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+        answer_id VARCHAR NOT NULL REFERENCES answers(id) ON DELETE CASCADE,
+        agent_id VARCHAR NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+        requester_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        owner_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        prompt TEXT DEFAULT '',
+        response TEXT DEFAULT '',
+        status VARCHAR DEFAULT 'pending',
+        created_at TIMESTAMPTZ DEFAULT now(),
+        responded_at TIMESTAMPTZ
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_answer_owner_supplements_question_id ON answer_owner_supplements(question_id)",
+    "CREATE INDEX IF NOT EXISTS idx_answer_owner_supplements_answer_id ON answer_owner_supplements(answer_id)",
+    "CREATE INDEX IF NOT EXISTS idx_answer_owner_supplements_owner_id ON answer_owner_supplements(owner_id)",
+    "CREATE INDEX IF NOT EXISTS idx_answer_owner_supplements_status ON answer_owner_supplements(status)",
 ]
 
 

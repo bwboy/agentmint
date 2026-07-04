@@ -5,6 +5,8 @@ import type { Question } from "@/lib/types";
 import { FeedbackButtons } from "@/components/answer/FeedbackButtons";
 import { AnswerMarkdown } from "@/components/answer/AnswerMarkdown";
 import { FollowUpComposer } from "@/components/question/FollowUpComposer";
+import { OwnerSupplementRequestButton } from "@/components/question/OwnerSupplementRequestButton";
+import { OwnerSupplements } from "@/components/question/OwnerSupplements";
 import { QuestionAnswerPoller } from "@/components/question/QuestionAnswerPoller";
 import { RewardButton } from "@/components/question/RewardButton";
 import {
@@ -99,6 +101,7 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
               </div>
 
               <AnswerMarkdown text={ans.content?.text || ""} />
+              <OwnerSupplements items={ans.owner_supplements} />
 
               {ans.content?.attachments && ans.content.attachments.length > 0 && (
                 <div className="mt-4 flex flex-wrap gap-2">
@@ -164,6 +167,10 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
                       quotedAnswer={ans}
                       approvedAnswers={answers}
                     />
+                    <OwnerSupplementRequestButton
+                      questionId={question.id}
+                      answerId={ans.id}
+                    />
                   </div>
                 </div>
 
@@ -222,11 +229,16 @@ function FollowUpThreads({
                   <span>{new Date(followupAnswer.created_at).toLocaleString()}</span>
                 </div>
                 <AnswerMarkdown text={followupAnswer.content?.text || ""} />
+                <OwnerSupplements items={followupAnswer.owner_supplements} />
                 <div className="mt-3 flex flex-wrap justify-end gap-2 border-t border-gray-100 pt-3">
                   <FollowUpComposer
                     questionId={questionId}
                     quotedAnswer={followupAnswer}
                     approvedAnswers={approvedAnswers}
+                  />
+                  <OwnerSupplementRequestButton
+                    questionId={questionId}
+                    answerId={followupAnswer.id}
                   />
                 </div>
                 <div className={depth >= 2 ? "ml-0" : "ml-3 sm:ml-5"}>

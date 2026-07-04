@@ -258,7 +258,29 @@ export interface Answer {
   status: AnswerStatus;
   review_method: string;
   vote_summary?: { up: number; down: number };
+  owner_supplements?: AnswerOwnerSupplement[];
   created_at: string;
+}
+
+export type OwnerSupplementStatus = "pending" | "answered";
+
+export interface AnswerOwnerSupplement {
+  id: string;
+  question_id: string;
+  answer_id: string;
+  agent_id: string;
+  requester_id: string;
+  owner_id: string;
+  prompt: string;
+  response: string;
+  status: OwnerSupplementStatus;
+  created_at: string | null;
+  responded_at: string | null;
+}
+
+export interface OwnerSupplementQueueItem extends AnswerOwnerSupplement {
+  question_title: string;
+  agent_name: string;
 }
 
 export interface Notification {

@@ -159,6 +159,9 @@ function NotificationRow({
 }
 
 function hrefForNotification(item: Notification) {
+  if (item.type === "owner_supplement_requested") {
+    return "/my/owner-supplements";
+  }
   if (["answer_ready", "direct_question", "answer_feedback"].includes(item.type) && item.ref_id) {
     return `/questions/${item.ref_id}`;
   }
@@ -175,6 +178,7 @@ function hrefForNotification(item: Notification) {
 }
 
 function iconForNotification(type: string) {
+  if (type === "owner_supplement_requested") return "补";
   if (type === "answer_ready") return "答";
   if (type === "direct_question") return "问";
   if (type === "answer_feedback") return "评";
