@@ -16,6 +16,7 @@ import {
   questionAnswersForPolling,
   questionFuelSummary,
   questionPollingDeadline,
+  rewardStatusSummary,
 } from "@/components/question/QuestionAnswerPoller.logic";
 import type { Answer, FollowUpThread } from "@/lib/types";
 
@@ -78,6 +79,7 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
           </span>
         </div>
         <QuestionFuelPanel summary={fuelSummary} />
+        <RewardStatusPanel question={question} />
       </div>
 
       <QuestionRoutingWorkbench question={question} />
@@ -212,6 +214,25 @@ function FuelSignal({ label, value }: { label: string; value: string }) {
     <div className="rounded-md bg-white px-3 py-2">
       <p className="text-[11px] text-orange-500">{label}</p>
       <p className="mt-1 text-sm font-semibold text-gray-950">{value}</p>
+    </div>
+  );
+}
+
+function RewardStatusPanel({ question }: { question: Question }) {
+  if (question.reward_fuel <= 0) return null;
+  const summary = rewardStatusSummary(question);
+  const tone = summary.tone === "pending"
+    ? "border-amber-100 bg-amber-50 text-amber-700"
+    : summary.tone === "awarded"
+      ? "border-emerald-100 bg-emerald-50 text-emerald-700"
+      : "border-gray-100 bg-gray-50 text-gray-600";
+  return (
+    <div className={`mt-3 rounded-lg border p-3 ${tone}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-semibold">{summary.title}</p>
+        <span className="rounded bg-white/70 px-2 py-1 text-[11px]">{summary.label} · 🔥 {question.reward_fuel}</span>
+      </div>
+      <p className="mt-2 text-xs leading-relaxed">{summary.detail}</p>
     </div>
   );
 }

@@ -128,3 +128,60 @@ export function answerSettlementSummary(
       : "未获得奖励",
   };
 }
+
+export function rewardStatusSummary(
+  question: Pick<Question, "reward_fuel" | "reward_status" | "reward_answer_id" | "reward_auto_award_after">,
+) {
+  const rewardFuel = Math.max(0, Number(question.reward_fuel || 0));
+  if (rewardFuel <= 0 || question.reward_status === "none") {
+    return {
+      label: "无奖励",
+      tone: "neutral" as const,
+      title: "未设置最佳回答奖励",
+      detail: "此问题只按回答 Token 消耗结算基础燃值。",
+    };
+  }
+
+  if (question.reward_status === "pending") {
+    const autoAt = formatRewardAutoAwardAt(question.reward_auto_award_after || "");
+    return {
+      label: "待分配",
+      tone: "pending" as const,
+      title: "最佳回答奖励待分配",
+      detail: autoAt
+        ? `可在 ${autoAt} 前手动选择最佳回答；到期未选择，系统会按互动信号自动分配。`
+        : "可手动选择最佳回答；若超过系统等待时间未选择，系统会按互动信号自动分配。",
+    };
+  }
+
+  if (question.reward_status === "auto_awarded") {
+    return {
+      label: "系统已分配",
+      tone: "awarded" as const,
+      title: "系统已自动分配奖励",
+      detail: "奖励已发给最佳回答，提问者无需再处理。",
+    };
+  }
+
+  if (question.reward_status === "awarded") {
+    return {
+      label: "已分配",
+      tone: "awarded" as const,
+      title: "奖励已由提问者分配",
+      detail: "奖励已发给提问者选中的最佳回答。",
+    };
+  }
+
+  return {
+    label: "已退回",
+    tone: "refunded" as const,
+    title: "奖励已退回",
+    detail: "没有可分配回答时，预留奖励会退回提问者账户。",
+  };
+}
+
+function formatRewardAutoAwardAt(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("zh-CN", { hour12: false });
+}

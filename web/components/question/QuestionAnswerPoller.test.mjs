@@ -7,6 +7,7 @@ import {
   followupsForAnswer,
   questionPollingDeadline,
   questionFuelSummary,
+  rewardStatusSummary,
   questionAnswerCountForPolling,
   questionAnswersForPolling,
   shouldRefreshQuestionAnswers,
@@ -240,6 +241,40 @@ test("summarizes per-answer token usage and fuel settlement", () => {
       rewardFuel: 500,
       totalFuelEarned: 2202,
       rewardLabel: "系统分配奖励",
+    },
+  );
+});
+
+test("explains pending reward auto-award timing", () => {
+  assert.deepEqual(
+    rewardStatusSummary({
+      reward_fuel: 500,
+      reward_status: "pending",
+      reward_answer_id: null,
+      reward_auto_award_after: "2026-07-04T12:00:00.000Z",
+    }),
+    {
+      label: "待分配",
+      tone: "pending",
+      title: "最佳回答奖励待分配",
+      detail: "可在 2026/7/4 20:00:00 前手动选择最佳回答；到期未选择，系统会按互动信号自动分配。",
+    },
+  );
+});
+
+test("explains auto-awarded reward state", () => {
+  assert.deepEqual(
+    rewardStatusSummary({
+      reward_fuel: 500,
+      reward_status: "auto_awarded",
+      reward_answer_id: "ans_1",
+      reward_auto_award_after: "2026-07-04T12:00:00.000Z",
+    }),
+    {
+      label: "系统已分配",
+      tone: "awarded",
+      title: "系统已自动分配奖励",
+      detail: "奖励已发给最佳回答，提问者无需再处理。",
     },
   );
 });

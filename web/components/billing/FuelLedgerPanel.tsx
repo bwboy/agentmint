@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import type { ApiList, FuelLedgerEntry } from "@/lib/types";
+import { ledgerCategory, ledgerEventMeta, type LedgerFilter } from "@/components/billing/FuelLedgerPanel.logic";
 
 export function FuelLedgerPanel() {
   const router = useRouter();
@@ -87,8 +88,6 @@ export function FuelLedgerPanel() {
   );
 }
 
-type LedgerFilter = "all" | "reserve" | "settlement" | "refund" | "reward" | "correction" | "other";
-
 const LEDGER_FILTERS: { key: LedgerFilter; label: string }[] = [
   { key: "all", label: "全部" },
   { key: "reserve", label: "预授权" },
@@ -111,13 +110,18 @@ function Metric({ label, value, tone, compact = false }: { label: string; value:
 
 function LedgerRow({ item }: { item: FuelLedgerEntry }) {
   const isCredit = item.direction === "credit";
+  const meta = ledgerEventMeta(item.event_type);
   return (
     <div className="flex flex-wrap items-center gap-3 px-4 py-3">
       <div className={`flex h-9 w-9 items-center justify-center rounded-lg text-sm font-semibold ${isCredit ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"}`}>
         {isCredit ? "+" : "-"}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-gray-950">{eventLabel(item.event_type)}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-sm font-medium text-gray-950">{meta.label}</p>
+          <span className="rounded bg-gray-100 px-2 py-0.5 text-[11px] text-gray-500">{categoryLabel(meta.category)}</span>
+        </div>
+        <p className="mt-1 text-xs leading-relaxed text-gray-500">{meta.explanation}</p>
         <div className="mt-1 flex flex-wrap gap-2 text-xs text-gray-400">
           <span>{formatDate(item.created_at || "")}</span>
           {item.question_id && <Link href={`/questions/${item.question_id}`} className="hover:text-primary">问题 {item.question_id}</Link>}
@@ -131,32 +135,17 @@ function LedgerRow({ item }: { item: FuelLedgerEntry }) {
   );
 }
 
-function eventLabel(type: string) {
-  const labels: Record<string, string> = {
-    question_reserved: "问题预留支出",
-    question_refunded: "未投递退款",
-    answer_earned: "回答收入",
-    base_reserved: "基础回答预留",
-    base_settled: "基础回答结算",
-    base_refunded: "基础预留退回",
-    base_extra_charged: "基础回答补扣",
-    answer_base_earned: "基础回答收入",
-    reward_reserved: "最佳回答奖励预留",
-    reward_awarded: "最佳回答奖励收入",
-    reward_auto_awarded: "系统分配奖励收入",
-    reward_refunded: "奖励退回",
-    usage_correction: "Token 用量修正",
+function categoryLabel(category: LedgerFilter) {
+  const labels: Record<LedgerFilter, string> = {
+    all: "全部",
+    reserve: "预授权",
+    settlement: "结算",
+    refund: "退款",
+    reward: "奖励",
+    correction: "修正",
+    other: "其他",
   };
-  return labels[type] || type;
-}
-
-function ledgerCategory(type: string): LedgerFilter {
-  if (["base_reserved", "reward_reserved", "question_reserved"].includes(type)) return "reserve";
-  if (["answer_base_earned", "base_settled", "answer_earned", "base_extra_charged"].includes(type)) return "settlement";
-  if (["base_refunded", "reward_refunded", "question_refunded"].includes(type)) return "refund";
-  if (["reward_awarded", "reward_auto_awarded"].includes(type)) return "reward";
-  if (["usage_correction"].includes(type)) return "correction";
-  return "other";
+  return labels[category] || category;
 }
 
 function formatDate(value: string) {
