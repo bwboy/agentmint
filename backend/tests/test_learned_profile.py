@@ -107,3 +107,24 @@ def test_owner_supplement_learning_keeps_actionable_context_by_type():
     assert context["corrections"] == ["不要默认推荐玻璃大炮天赋，先判断硬核模式死亡风险。"]
     assert context["version_updates"] == ["12.07 后饰品优先级变化，先查新团本掉落。"]
     assert context["high_value_experiences"] == ["不要默认推荐玻璃大炮天赋，先判断硬核模式死亡风险。"]
+    assert context["avoid_next_time"] == ["不要默认推荐玻璃大炮天赋，先判断硬核模式死亡风险。"]
+
+
+def test_risk_notes_become_next_answer_constraints():
+    agent = SimpleNamespace(review_rules={})
+    question = SimpleNamespace(tags=["魔兽世界", "硬核模式"])
+
+    update_learned_profile_from_owner_supplement(
+        agent,
+        question,
+        SimpleNamespace(
+            supplement_type="risk_note",
+            response="硬核模式回答前必须提醒死亡不可逆，避免只按普通服输出推荐。",
+            is_high_value=False,
+        ),
+    )
+
+    context = build_owner_experience_context(agent)
+
+    assert context["risk_notes"] == ["硬核模式回答前必须提醒死亡不可逆，避免只按普通服输出推荐。"]
+    assert context["avoid_next_time"] == ["硬核模式回答前必须提醒死亡不可逆，避免只按普通服输出推荐。"]

@@ -174,6 +174,7 @@ function LearnedProfile({ profile }: { profile?: AgentLearnedProfile }) {
 
 function OwnerExperience({ context }: { context?: OwnerExperienceContext }) {
   const groups = [
+    ["下次注意", context?.avoid_next_time || []],
     ["纠错", context?.corrections || []],
     ["版本", context?.version_updates || []],
     ["风险", context?.risk_notes || []],

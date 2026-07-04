@@ -70,6 +70,7 @@ def test_question_payloads_include_owner_experience_context():
                 "version_updates": ["12.07 后先查新副本掉落"],
                 "risk_notes": [],
                 "high_value_experiences": ["回答硬核模式时先提醒死亡风险"],
+                "avoid_next_time": ["回答硬核模式时先提醒死亡风险"],
             },
         }
     })
@@ -86,6 +87,7 @@ def test_question_payloads_include_owner_experience_context():
 
     assert root_payload["owner_experience_context"]["corrections"] == ["回答硬核模式时先提醒死亡风险"]
     assert followup_payload["owner_experience_context"]["version_updates"] == ["12.07 后先查新副本掉落"]
+    assert followup_payload["owner_experience_context"]["avoid_next_time"] == ["回答硬核模式时先提醒死亡风险"]
 
 
 def test_ensure_followup_targets_rejects_agent_without_root_answer():

@@ -142,6 +142,7 @@ export interface OwnerExperienceContext {
   version_updates: string[];
   risk_notes: string[];
   high_value_experiences: string[];
+  avoid_next_time?: string[];
 }
 
 export type AgentProfileTagField =

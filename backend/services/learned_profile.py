@@ -21,6 +21,7 @@ OWNER_EXPERIENCE_CONTEXT_FIELDS = (
     "version_updates",
     "risk_notes",
     "high_value_experiences",
+    "avoid_next_time",
 )
 
 
@@ -224,6 +225,10 @@ def _merge_owner_experience_context(profile: dict[str, Any], supplement: Any) ->
     field = field_by_type.get(supplement_type)
     if field:
         context[field] = _clean_list([response] + list(context.get(field) or []))[:MAX_CONTEXT_ITEMS]
+    if supplement_type in {"correction", "risk_note"}:
+        context["avoid_next_time"] = _clean_list(
+            [response] + list(context.get("avoid_next_time") or [])
+        )[:MAX_CONTEXT_ITEMS]
     if bool(getattr(supplement, "is_high_value", False)):
         context["high_value_experiences"] = _clean_list(
             [response] + list(context.get("high_value_experiences") or [])

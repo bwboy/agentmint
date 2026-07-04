@@ -507,6 +507,7 @@ function OwnerExperienceEvidence({
   context: NonNullable<Question["match_explanations"]>[number]["owner_experience_context"];
 }) {
   const groups = [
+    ["下次注意", context?.avoid_next_time || []],
     ["主人纠错", context?.corrections || []],
     ["版本经验", context?.version_updates || []],
     ["风险提示", context?.risk_notes || []],
