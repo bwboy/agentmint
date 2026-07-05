@@ -743,3 +743,116 @@ async def test_submit_feedback_stores_structured_reasons_and_learning_signals():
     assert "反馈:过期" in learned["negative_tags"]
     assert "反馈:需要来源" in learned["negative_tags"]
     assert "反馈:建议主人修正" in learned["negative_tags"]
+
+
+@pytest.mark.asyncio
+async def test_submit_feedback_owner_review_creates_owner_supplement_request(monkeypatch):
+    answer = SimpleNamespace(id="ans_test", question_id="q_test", agent_id="a_test", status="approved")
+    agent = SimpleNamespace(id="a_test", user_id="u_owner", name="测试 Agent", repute_score=4.0, review_rules={})
+    question = SimpleNamespace(id="q_test", title="真实问题", tags=["魔兽世界"])
+    notifications = []
+
+    class FeedbackDB:
+        def __init__(self):
+            self.calls = 0
+            self.added = []
+            self.commits = 0
+            self.flushed = 0
+
+        async def execute(self, stmt):
+            self.calls += 1
+            values = [answer, None, agent, question, None]
+            return FeedbackResult(values[self.calls - 1])
+
+        def add(self, obj):
+            self.added.append(obj)
+            if obj.__class__.__name__ == "Feedback":
+                obj.id = "fb_new"
+                obj.created_at = datetime.utcnow()
+
+        async def flush(self):
+            self.flushed += 1
+            for obj in self.added:
+                if obj.__class__.__name__ == "AnswerOwnerSupplement" and getattr(obj, "id", None) is None:
+                    obj.id = "os_auto"
+
+        async def commit(self):
+            self.commits += 1
+
+    async def fake_maybe_create_notification(*args, **kwargs):
+        notifications.append((args, kwargs))
+
+    monkeypatch.setattr(questions, "maybe_create_notification", fake_maybe_create_notification)
+    db = FeedbackDB()
+
+    await questions.submit_feedback(
+        "q_test",
+        "ans_test",
+        questions.FeedbackReq(vote="down", comment="希望主人修正一下", reasons=["owner_review"]),
+        user_payload={"sub": "u_asker", "nickname": "提问者"},
+        db=db,
+    )
+
+    supplements = [item for item in db.added if item.__class__.__name__ == "AnswerOwnerSupplement"]
+    assert len(supplements) == 1
+    supplement = supplements[0]
+    assert supplement.requester_id == "u_asker"
+    assert supplement.owner_id == "u_owner"
+    assert supplement.question_id == "q_test"
+    assert supplement.answer_id == "ans_test"
+    assert supplement.supplement_type == "correction"
+    assert supplement.status == "pending"
+    assert "希望主人修正一下" in supplement.prompt
+    assert any(args[1] == "u_owner" and args[3] == "owner_supplement_requested" for args, _ in notifications)
+
+
+@pytest.mark.asyncio
+async def test_submit_feedback_owner_review_does_not_duplicate_pending_request(monkeypatch):
+    answer = SimpleNamespace(id="ans_test", question_id="q_test", agent_id="a_test", status="approved")
+    agent = SimpleNamespace(id="a_test", user_id="u_owner", name="测试 Agent", repute_score=4.0, review_rules={})
+    question = SimpleNamespace(id="q_test", title="真实问题", tags=["魔兽世界"])
+    existing_supplement = SimpleNamespace(id="os_existing", status="pending")
+    notifications = []
+
+    class FeedbackDB:
+        def __init__(self):
+            self.calls = 0
+            self.added = []
+            self.commits = 0
+            self.flushed = 0
+
+        async def execute(self, stmt):
+            self.calls += 1
+            values = [answer, None, agent, question, existing_supplement]
+            return FeedbackResult(values[self.calls - 1])
+
+        def add(self, obj):
+            self.added.append(obj)
+            if obj.__class__.__name__ == "Feedback":
+                obj.id = "fb_new"
+                obj.created_at = datetime.utcnow()
+
+        async def flush(self):
+            self.flushed += 1
+
+        async def commit(self):
+            self.commits += 1
+
+    async def fake_maybe_create_notification(*args, **kwargs):
+        notifications.append((args, kwargs))
+
+    monkeypatch.setattr(questions, "maybe_create_notification", fake_maybe_create_notification)
+    db = FeedbackDB()
+
+    await questions.submit_feedback(
+        "q_test",
+        "ans_test",
+        questions.FeedbackReq(vote="down", comment="再次建议修正", reasons=["owner_review"]),
+        user_payload={"sub": "u_asker", "nickname": "提问者"},
+        db=db,
+    )
+
+    supplements = [item for item in db.added if item.__class__.__name__ == "AnswerOwnerSupplement"]
+    assert supplements == []
+    assert db.flushed == 0
+    assert not any(args[3] == "owner_supplement_requested" for args, _ in notifications)

@@ -1406,6 +1406,16 @@ async def submit_feedback(
         question = (await db.execute(select(Question).where(Question.id == answer.question_id))).scalar_one_or_none()
         if question:
             update_learned_profile_from_feedback(agent, question, req.vote, previous_vote=prev_vote, reasons=feedback_reasons)
+            await maybe_create_owner_review_supplement_request(
+                db,
+                answer=answer,
+                question=question,
+                agent=agent,
+                voter=user_payload,
+                vote=req.vote,
+                comment=req.comment,
+                reasons=feedback_reasons,
+            )
             agent_owner_id = getattr(agent, "user_id", None)
             if agent_owner_id and agent_owner_id != user_payload["sub"]:
                 vote_text = "赞同" if req.vote == "up" else "指出问题"
@@ -1421,6 +1431,70 @@ async def submit_feedback(
 
     await db.commit()
     return {"id": fb.id, "vote": fb.vote, "reasons": feedback_reasons, "created_at": fb.created_at.isoformat()}
+
+
+async def maybe_create_owner_review_supplement_request(
+    db: AsyncSession,
+    *,
+    answer: Answer,
+    question: Question,
+    agent: Agent,
+    voter: dict,
+    vote: str,
+    comment: str,
+    reasons: list[str],
+) -> AnswerOwnerSupplement | None:
+    owner_id = getattr(agent, "user_id", None)
+    voter_id = voter.get("sub")
+    if vote != "down" or "owner_review" not in reasons or not owner_id or owner_id == voter_id:
+        return None
+
+    existing = (await db.execute(
+        select(AnswerOwnerSupplement).where(
+            AnswerOwnerSupplement.answer_id == answer.id,
+            AnswerOwnerSupplement.owner_id == owner_id,
+            AnswerOwnerSupplement.status == "pending",
+            AnswerOwnerSupplement.supplement_type == "correction",
+        )
+    )).scalar_one_or_none()
+    if existing:
+        return existing
+
+    prompt = build_owner_review_feedback_prompt(comment, reasons)
+    supplement = AnswerOwnerSupplement(
+        question_id=question.id,
+        answer_id=answer.id,
+        agent_id=answer.agent_id,
+        requester_id=voter_id,
+        owner_id=owner_id,
+        prompt=prompt,
+        response="",
+        supplement_type="correction",
+        status="pending",
+    )
+    db.add(supplement)
+    await db.flush()
+    await maybe_create_notification(
+        db,
+        owner_id,
+        "answer_feedback",
+        "owner_supplement_requested",
+        f"{getattr(agent, 'name', None) or 'Agent'} 有一条修正请求",
+        f"{voter.get('nickname') or '提问者'} 建议你修正「{question.title}」中的回答",
+        ref_id=question.id,
+    )
+    return supplement
+
+
+def build_owner_review_feedback_prompt(comment: str, reasons: list[str]) -> str:
+    labels = [FEEDBACK_REASON_LABELS[item] for item in reasons if item in FEEDBACK_REASON_LABELS]
+    detail = comment.strip() if comment else ""
+    parts = ["用户反馈建议主人修正这条回答。"]
+    if labels:
+        parts.append("反馈原因：" + "、".join(labels))
+    if detail:
+        parts.append("用户补充：" + detail)
+    return "\n".join(parts)
 
 
 FEEDBACK_REASON_LABELS = {

@@ -261,6 +261,7 @@ async def test_my_agent_answers_lists_owner_answers_with_supplement_summary():
         [(answer, question, agent)],
         [supplement],
         [],
+        [],
     ])
 
     out = await questions.my_agent_answers(user_payload={"sub": "u_owner"}, db=db)
