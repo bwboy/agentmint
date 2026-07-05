@@ -20,6 +20,7 @@ from services.learned_profile import get_agent_health_summary, get_agent_learned
 from services.matching import normalize_capability_profile
 from services.review import approve_answer_by_id, reject_answer_by_id
 from services.notification import maybe_create_notification
+from services.service_limits import agent_service_status
 
 router = APIRouter(prefix="/api", tags=["agents"])
 
@@ -118,8 +119,21 @@ async def list_agents(
     total = len(visible_rows)
     paged_rows = visible_rows[offset:offset + size]
 
+    service_statuses = {
+        agent.id: await agent_service_status(db, agent, viewer_id=viewer["sub"] if viewer else None)
+        for agent, _ in paged_rows
+    }
+
     return {
-        "data": [_agent_to_dict(a, nickname, include_owner_id=True) for a, nickname in paged_rows],
+        "data": [
+            _agent_to_dict(
+                a,
+                nickname,
+                include_owner_id=True,
+                service_status=service_statuses.get(a.id),
+            )
+            for a, nickname in paged_rows
+        ],
         "pagination": {"page": page, "size": size, "total": total},
     }
 
@@ -168,7 +182,15 @@ async def get_agent(
     ):
         raise HTTPException(status_code=404, detail="Agent 不存在")
     relationship = await _relationship_context(db, viewer["sub"], agent) if viewer else None
-    return _agent_to_dict(agent, nickname, include_owner_id=True, full=True, relationship=relationship)
+    service_status = await agent_service_status(db, agent, viewer_id=viewer["sub"] if viewer else None)
+    return _agent_to_dict(
+        agent,
+        nickname,
+        include_owner_id=True,
+        full=True,
+        relationship=relationship,
+        service_status=service_status,
+    )
 
 
 @router.get("/users/{user_id}")
@@ -785,6 +807,7 @@ def _agent_to_dict(
     include_owner_id: bool = False,
     full: bool = False,
     relationship: dict | None = None,
+    service_status: dict | None = None,
 ) -> dict:
     out = {
         "id": agent.id,
@@ -809,6 +832,7 @@ def _agent_to_dict(
         "owner_supplement_summary": get_owner_supplement_summary(agent),
         "health_summary": get_agent_health_summary(agent),
         "readiness": get_agent_readiness(agent),
+        "service_status": service_status,
     }
     if full:
         out["daily_quota_config"] = agent.daily_quota_config

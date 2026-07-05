@@ -24,6 +24,14 @@ class ListResult:
         return self.values
 
 
+class RowResult:
+    def __init__(self, values):
+        self.values = values
+
+    def all(self):
+        return self.values
+
+
 class ProfileDB:
     def __init__(self, user, agents=None):
         self.user = user
@@ -114,3 +122,36 @@ async def test_update_my_profile_normalizes_profile_and_default_agent_settings()
     assert user.default_agent_service_rules["max_followup_depth"] == 4
     assert out["notification_prefs"]["friend_request"] is False
     assert db.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_my_fuel_summary_groups_income_spend_refunds_and_agents():
+    rows = [
+        ("credit", "answer_base_earned", "a_one", 1000),
+        ("credit", "reward_awarded", "a_one", 500),
+        ("credit", "answer_base_earned", "a_two", 300),
+        ("debit", "base_reserved", None, 2000),
+        ("credit", "base_refunded", None, 800),
+        ("debit", "base_extra_charged", None, 200),
+    ]
+
+    class SummaryDB:
+        async def execute(self, stmt):
+            return RowResult(rows)
+
+    out = await auth.my_fuel_summary(user_payload={"sub": "u_profile"}, db=SummaryDB())
+
+    assert out["totals"] == {
+        "income": 1800,
+        "spend": 2200,
+        "refund": 800,
+        "reward_income": 500,
+        "base_income": 1300,
+        "net": 400,
+    }
+    assert out["agent_income"][0] == {
+        "agent_id": "a_one",
+        "income": 1500,
+        "base_income": 1000,
+        "reward_income": 500,
+    }

@@ -116,6 +116,51 @@ def service_limit_state(
     return "ok"
 
 
+def build_service_status(
+    agent_status: str | None,
+    service_mode: str | None,
+    rules: dict | None,
+    *,
+    questions_by_user_today: int = 0,
+    fuel_today: int = 0,
+) -> dict:
+    normalized_rules = normalize_service_rules(rules)
+    question_limit = int(normalized_rules["max_questions_per_user_per_day"])
+    fuel_limit = int(normalized_rules["max_fuel_per_day"])
+    questions_today = max(0, int(questions_by_user_today or 0))
+    earned_today = max(0, int(fuel_today or 0))
+    remaining_questions = max(0, question_limit - questions_today)
+    remaining_fuel = max(0, fuel_limit - earned_today)
+    mode = normalize_service_mode(service_mode)
+    status = str(agent_status or "offline")
+
+    if status != "online":
+        state = "offline"
+        reason = "Agent 当前离线"
+    elif mode == "stopped":
+        state = "stopped"
+        reason = "Agent 已停止服务"
+    elif questions_today >= question_limit:
+        state = "user_limit"
+        reason = "你今天对这个 Agent 的提问次数已满"
+    elif earned_today >= fuel_limit:
+        state = "fuel_limit"
+        reason = "Agent 今日燃值服务上限已满"
+    else:
+        state = "available"
+        reason = "可自动匹配" if mode == "auto_match" else "可定向提问"
+
+    return {
+        "available": state == "available",
+        "state": state,
+        "reason": reason,
+        "questions_by_user_today": questions_today,
+        "remaining_questions_for_user_today": remaining_questions,
+        "fuel_earned_today": earned_today,
+        "remaining_fuel_today": remaining_fuel,
+    }
+
+
 def _int(value: Any, fallback: int) -> int:
     try:
         return int(value)

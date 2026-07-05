@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { getToken } from "@/lib/auth";
-import type { ApiList, FuelLedgerEntry } from "@/lib/types";
+import type { ApiList, FuelLedgerEntry, FuelSummary } from "@/lib/types";
 import { ledgerCategory, ledgerEventMeta, type LedgerFilter } from "@/components/billing/FuelLedgerPanel.logic";
 
 export function FuelLedgerPanel() {
@@ -15,6 +15,7 @@ export function FuelLedgerPanel() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
+  const [summary, setSummary] = useState<FuelSummary | null>(null);
 
   useEffect(() => {
     const token = getToken();
@@ -22,10 +23,14 @@ export function FuelLedgerPanel() {
       router.push("/login");
       return;
     }
-    api<ApiList<FuelLedgerEntry>>("/api/auth/my/fuel-ledger?size=80", { token })
-      .then(res => {
+    Promise.all([
+      api<ApiList<FuelLedgerEntry>>("/api/auth/my/fuel-ledger?size=80", { token }),
+      api<FuelSummary>("/api/auth/my/fuel-summary", { token }).catch(() => null),
+    ])
+      .then(([res, fuelSummary]) => {
         setItems(res.data || []);
         setTotal(res.pagination?.total || 0);
+        setSummary(fuelSummary);
         setErr(null);
       })
       .catch((e: any) => {
@@ -42,21 +47,44 @@ export function FuelLedgerPanel() {
   const settlement = items.filter(item => ledgerCategory(item.event_type) === "settlement").reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const refund = items.filter(item => ledgerCategory(item.event_type) === "refund").reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const reward = items.filter(item => ledgerCategory(item.event_type) === "reward").reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const totals = summary?.totals;
 
   return (
     <div className="space-y-4">
       {err && <div className="rounded-lg border border-red-100 bg-red-50 p-3 text-xs text-red-500">{err}</div>}
       <div className="grid gap-3 md:grid-cols-3">
-        <Metric label="近期收入" value={income} tone="credit" />
-        <Metric label="近期支出" value={expense} tone="debit" />
-        <Metric label="流水数量" value={total} tone="neutral" />
+        <Metric label="累计收入" value={totals?.income ?? income} tone="credit" />
+        <Metric label="累计支出" value={totals?.spend ?? expense} tone="debit" />
+        <Metric label="净变化" value={totals?.net ?? income - expense + refund} tone="neutral" />
       </div>
       <div className="grid gap-3 md:grid-cols-4">
         <Metric label="预授权" value={reserve} tone="debit" compact />
-        <Metric label="基础结算" value={settlement} tone="credit" compact />
-        <Metric label="退款" value={refund} tone="credit" compact />
-        <Metric label="奖励" value={reward} tone="credit" compact />
+        <Metric label="基础收入" value={totals?.base_income ?? settlement} tone="credit" compact />
+        <Metric label="退款" value={totals?.refund ?? refund} tone="credit" compact />
+        <Metric label="奖励收入" value={totals?.reward_income ?? reward} tone="credit" compact />
       </div>
+      {summary?.agent_income?.length ? (
+        <div className="rounded-lg border border-gray-100 bg-white p-4 shadow-sm">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Agent Income</p>
+              <h2 className="mt-1 text-base font-semibold text-gray-950">Agent 收益分布</h2>
+            </div>
+            <span className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-500">{summary.agent_income.length} agents</span>
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            {summary.agent_income.slice(0, 6).map(item => (
+              <div key={item.agent_id} className="rounded-md bg-gray-50 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium text-gray-800">Agent {item.agent_id}</span>
+                  <span className="text-sm font-semibold text-emerald-600">🔥 {item.income}</span>
+                </div>
+                <p className="mt-1 text-xs text-gray-400">基础 {item.base_income} · 奖励 {item.reward_income}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <div className="rounded-lg border border-gray-100 bg-white shadow-sm">
         <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 px-4 py-3">
           {LEDGER_FILTERS.map(item => (

@@ -203,6 +203,74 @@ async def my_fuel_ledger(
     }
 
 
+@router.get("/my/fuel-summary")
+async def my_fuel_summary(
+    user_payload: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    user_id = user_payload["sub"]
+    rows = (await db.execute(
+        select(
+            FuelLedgerEntry.direction,
+            FuelLedgerEntry.event_type,
+            FuelLedgerEntry.agent_id,
+            func.coalesce(func.sum(FuelLedgerEntry.amount), 0),
+        )
+        .where(FuelLedgerEntry.user_id == user_id)
+        .group_by(FuelLedgerEntry.direction, FuelLedgerEntry.event_type, FuelLedgerEntry.agent_id)
+    )).all()
+    return build_fuel_summary(rows)
+
+
+def build_fuel_summary(rows: list[tuple]) -> dict:
+    totals = {
+        "income": 0,
+        "spend": 0,
+        "refund": 0,
+        "reward_income": 0,
+        "base_income": 0,
+        "net": 0,
+    }
+    by_agent: dict[str, dict] = {}
+    by_event: dict[str, int] = {}
+
+    for direction, event_type, agent_id, amount in rows:
+        amount = int(amount or 0)
+        event_type = str(event_type or "")
+        by_event[event_type] = by_event.get(event_type, 0) + amount
+        is_refund = event_type.endswith("_refunded") or event_type in {"base_refunded", "reward_refunded"}
+        if direction == "credit" and not is_refund:
+            totals["income"] += amount
+        elif direction == "debit":
+            totals["spend"] += amount
+        if is_refund:
+            totals["refund"] += amount
+        if event_type in {"reward_awarded", "reward_auto_awarded"}:
+            totals["reward_income"] += amount
+        if event_type in {"answer_base_earned", "usage_correction"}:
+            totals["base_income"] += amount
+        if agent_id and direction == "credit":
+            item = by_agent.setdefault(str(agent_id), {
+                "agent_id": str(agent_id),
+                "income": 0,
+                "base_income": 0,
+                "reward_income": 0,
+            })
+            item["income"] += amount
+            if event_type in {"reward_awarded", "reward_auto_awarded"}:
+                item["reward_income"] += amount
+            else:
+                item["base_income"] += amount
+
+    totals["net"] = totals["income"] - totals["spend"] + totals["refund"]
+    agent_income = sorted(by_agent.values(), key=lambda item: item["income"], reverse=True)
+    return {
+        "totals": totals,
+        "by_event": by_event,
+        "agent_income": agent_income,
+    }
+
+
 def _mask_phone(phone: str) -> str:
     if len(phone) <= 7:
         return phone

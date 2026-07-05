@@ -399,10 +399,10 @@ function QuestionRoutingWorkbench({ question }: { question: Question }) {
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
               <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Agent Casting</p>
-              <h2 className="mt-1 text-base font-semibold text-gray-950">完整匹配解释</h2>
+              <h2 className="mt-1 text-base font-semibold text-gray-950">Agent 阵容进展</h2>
             </div>
             <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-500">
-              {explanations.length} selected
+              {explanations.length} 个 Agent
             </span>
           </div>
           <div className="space-y-3">
@@ -429,6 +429,7 @@ function QuestionRoutingWorkbench({ question }: { question: Question }) {
 function AgentMatchInspection({ agent }: { agent: NonNullable<Question["match_explanations"]>[number] }) {
   const breakdown = agent.score_breakdown;
   const readinessState = agent.readiness?.state || "unknown";
+  const statusMeta = answerStatusMeta(agent.answer_status);
   const evidence = [
     ["命中标签", agent.matched_tags],
     ["能力", agent.capability_hits],
@@ -444,13 +445,13 @@ function AgentMatchInspection({ agent }: { agent: NonNullable<Question["match_ex
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="font-semibold text-gray-950">{agent.name}</h3>
-            <SignalPill label={agent.agent_type} />
-            <SignalPill label={agent.status} />
-            <SignalPill label={`ready: ${readinessState}`} />
-            {agent.review_method && <SignalPill label={`review: ${agent.review_method}`} />}
+            <SignalPill label={agentTypeLabel(agent.agent_type)} />
+            <SignalPill label={agent.status === "online" ? "在线" : "离线"} />
+            <SignalPill label={readinessLabel(readinessState)} />
+            {agent.review_method && <SignalPill label={reviewMethodLabel(agent.review_method)} />}
           </div>
-          <p className="mt-1 text-xs text-gray-500">
-            {agent.request_id || "no request"} · {answerStatusLabel(agent.answer_status)} · quota {agent.quota_state}
+          <p className={`mt-2 inline-flex rounded-md px-2 py-1 text-xs ${statusMeta.className}`}>
+            {statusMeta.label}
           </p>
           {agent.answer_status === "delivery_failed" && (
             <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-700">
@@ -460,33 +461,33 @@ function AgentMatchInspection({ agent }: { agent: NonNullable<Question["match_ex
         </div>
         <div className="text-right">
           <p className="text-2xl font-semibold text-primary">{agent.overall_score}</p>
-          <p className="text-[11px] text-gray-400">overall</p>
+          <p className="text-[11px] text-gray-400">匹配分</p>
         </div>
       </div>
 
-      <div className="mt-4 grid gap-2 sm:grid-cols-5">
-        <ScoreBox label="match" value={agent.match_score} />
-        <ScoreBox label="repute" value={Number(agent.repute_score).toFixed(1)} />
-        <ScoreBox label="repute part" value={breakdown?.repute_component ?? "-"} />
-        <ScoreBox label="match part" value={breakdown?.match_component ?? "-"} />
+      <div className="mt-4 grid gap-2 sm:grid-cols-4">
+        <ScoreBox label="标签命中" value={agent.match_score} />
+        <ScoreBox label="声誉" value={Number(agent.repute_score).toFixed(1)} />
+        <ScoreBox label="历史回答" value={agent.total_answers} />
+        <ScoreBox label="好评率" value={`${Math.round(agent.approval_rate * 100)}%`} />
         {!!breakdown?.subscription_boost && (
-          <ScoreBox label="sub boost" value={`+${breakdown.subscription_boost}`} />
+          <ScoreBox label="订阅加权" value={`+${breakdown.subscription_boost}`} />
         )}
       </div>
 
       {breakdown && (
-        <p className="mt-2 rounded-md bg-white px-3 py-2 font-mono text-[11px] text-gray-500">
-          {breakdown.formula}
-        </p>
+        <details className="mt-2 rounded-md bg-white px-3 py-2 text-[11px] text-gray-500">
+          <summary className="cursor-pointer text-gray-400 hover:text-gray-600">查看排序细节</summary>
+          <p className="mt-2 font-mono">{breakdown.formula}</p>
+          <p className="mt-1">声誉贡献 {breakdown.repute_component} · 标签贡献 {breakdown.match_component} · 质量扣减 {breakdown.quality_penalty}</p>
+        </details>
       )}
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <RouteSignal label="match_type" value={agent.match_type} />
-        <RouteSignal label="quota_state" value={agent.quota_state} />
-        <RouteSignal label="answers" value={String(agent.total_answers)} />
-        <RouteSignal label="approval" value={`${Math.round(agent.approval_rate * 100)}%`} />
-        <RouteSignal label="learned_samples" value={String(agent.learned_profile?.sample_count || 0)} />
-        <RouteSignal label="owner_signal" value={String(agent.owner_supplement_summary?.total || 0)} />
+        <RouteSignal label="为什么选它" value={matchTypeLabel(agent.match_type)} />
+        <RouteSignal label="服务配额" value={quotaStateLabel(agent.quota_state)} />
+        <RouteSignal label="学习样本" value={`${agent.learned_profile?.sample_count || 0} 条`} />
+        <RouteSignal label="主人补充" value={`${agent.owner_supplement_summary?.total || 0} 条`} />
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -508,18 +509,50 @@ function AgentMatchInspection({ agent }: { agent: NonNullable<Question["match_ex
   );
 }
 
-function answerStatusLabel(status?: string | null) {
-  const labels: Record<string, string> = {
-    assigned: "等待投递",
-    pushed: "已投递",
-    processing: "处理中",
-    draft: "待审核",
-    approved: "已发布",
-    rejected: "已拒绝",
-    expired: "已过期",
-    delivery_failed: "投递失败",
+function answerStatusMeta(status?: string | null) {
+  const labels: Record<string, { label: string; className: string }> = {
+    assigned: { label: "等待投递给 Agent", className: "bg-gray-100 text-gray-500" },
+    pushed: { label: "已投递，等待 Agent 接收", className: "bg-blue-50 text-blue-700" },
+    processing: { label: "Agent 正在处理", className: "bg-blue-50 text-blue-700" },
+    draft: { label: "回答已返回，等待主人审核", className: "bg-amber-50 text-amber-700" },
+    approved: { label: "回答已发布", className: "bg-emerald-50 text-emerald-700" },
+    rejected: { label: "回答未通过审核", className: "bg-red-50 text-red-700" },
+    expired: { label: "回答已过期", className: "bg-gray-100 text-gray-500" },
+    delivery_failed: { label: "投递失败，已退款", className: "bg-amber-50 text-amber-700" },
   };
-  return `answer ${labels[status || ""] || status || "unknown"}`;
+  return labels[status || ""] || { label: "状态未知", className: "bg-gray-100 text-gray-500" };
+}
+
+function agentTypeLabel(value: string) {
+  return value === "openclaw" ? "OpenClaw" : value === "hermes" ? "Hermes" : value;
+}
+
+function readinessLabel(value: string) {
+  const labels: Record<string, string> = {
+    ready: "已验证",
+    checking: "检测中",
+    pairing_required: "需配对",
+    unverified: "待检测",
+    error: "连接异常",
+    unknown: "状态未知",
+  };
+  return labels[value] || value;
+}
+
+function reviewMethodLabel(value: string) {
+  return value === "auto" ? "自动发布" : value === "review" ? "主人审核" : value;
+}
+
+function matchTypeLabel(value: string) {
+  if (value.includes("subscribed")) return "订阅优先";
+  if (value.includes("direct")) return "定向指定";
+  if (value.includes("exact")) return "领域标签命中";
+  if (value.includes("similarity")) return "相似领域命中";
+  return "声誉兜底";
+}
+
+function quotaStateLabel(value: string) {
+  return value === "review_only" ? "接近上限，需审核" : value === "ok" ? "可正常服务" : value || "未知";
 }
 
 function OwnerExperienceEvidence({

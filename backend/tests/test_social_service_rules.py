@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 from services.agent_service_rules import (
     DEFAULT_SERVICE_RULES,
+    build_service_status,
     normalize_service_rules,
     normalize_service_mode,
     normalize_visibility,
@@ -137,3 +138,39 @@ def test_service_limit_state_blocks_per_user_questions_and_daily_fuel():
     assert service_limit_state(rules, questions_by_user_today=1, fuel_today=2999) == "ok"
     assert service_limit_state(rules, questions_by_user_today=2, fuel_today=100) == "user_limit"
     assert service_limit_state(rules, questions_by_user_today=0, fuel_today=3000) == "fuel_limit"
+
+
+def test_build_service_status_reports_remaining_capacity_and_reason():
+    rules = normalize_service_rules({
+        "max_questions_per_user_per_day": 3,
+        "max_fuel_per_day": 5000,
+    })
+
+    ok = build_service_status(
+        "online",
+        "direct_only",
+        rules,
+        questions_by_user_today=1,
+        fuel_today=1200,
+    )
+    assert ok == {
+        "available": True,
+        "state": "available",
+        "reason": "可定向提问",
+        "questions_by_user_today": 1,
+        "remaining_questions_for_user_today": 2,
+        "fuel_earned_today": 1200,
+        "remaining_fuel_today": 3800,
+    }
+
+    blocked = build_service_status(
+        "offline",
+        "auto_match",
+        rules,
+        questions_by_user_today=3,
+        fuel_today=5000,
+    )
+    assert blocked["available"] is False
+    assert blocked["state"] == "offline"
+    assert blocked["remaining_questions_for_user_today"] == 0
+    assert blocked["remaining_fuel_today"] == 0

@@ -84,9 +84,20 @@ export interface Agent {
   owner_supplement_summary?: OwnerSupplementSummary;
   health_summary?: AgentHealthSummary;
   readiness?: AgentReadiness;
+  service_status?: AgentServiceStatus | null;
   daily_quota_config?: { max: number; auto_threshold: number; emergency_reserve: number };
   review_rules?: { auto_trust_level: number; auto_tag_match: boolean };
   last_seen_at?: string | null;
+}
+
+export interface AgentServiceStatus {
+  available: boolean;
+  state: "available" | "offline" | "stopped" | "user_limit" | "fuel_limit";
+  reason: string;
+  questions_by_user_today: number;
+  remaining_questions_for_user_today: number;
+  fuel_earned_today: number;
+  remaining_fuel_today: number;
 }
 
 export interface AgentHealthSummary {
@@ -242,6 +253,7 @@ export interface MatchScoreBreakdown {
   repute_component: number;
   match_component: number;
   subscription_boost?: number;
+  quality_penalty?: number;
   overall_score: number;
 }
 
@@ -406,6 +418,24 @@ export interface FuelLedgerEntry {
   answer_id?: string | null;
   agent_id?: string | null;
   created_at?: string | null;
+}
+
+export interface FuelSummary {
+  totals: {
+    income: number;
+    spend: number;
+    refund: number;
+    reward_income: number;
+    base_income: number;
+    net: number;
+  };
+  by_event: Record<string, number>;
+  agent_income: Array<{
+    agent_id: string;
+    income: number;
+    base_income: number;
+    reward_income: number;
+  }>;
 }
 
 export interface SocialUserSummary {

@@ -42,6 +42,14 @@ class RowResult:
         return self.rows
 
 
+class CountResult(ScalarResult):
+    def scalars(self):
+        return self
+
+    def all(self):
+        return []
+
+
 class AgentListDB:
     def __init__(self, rows, scalar_values=None, relationship_results=None):
         self.rows = rows
@@ -57,7 +65,7 @@ class AgentListDB:
             return self.relationship_results.pop(0)
         if self.scalar_values:
             return ScalarResult(self.scalar_values.pop(0))
-        return RowResult(self.rows)
+        return CountResult(0)
 
 
 class RefreshableDB:
@@ -285,7 +293,19 @@ def test_agent_to_dict_includes_readiness():
         },
     )
 
-    out = agents._agent_to_dict(agent, "owner")
+    out = agents._agent_to_dict(
+        agent,
+        "owner",
+        service_status={
+            "available": True,
+            "state": "available",
+            "reason": "可定向提问",
+            "questions_by_user_today": 0,
+            "remaining_questions_for_user_today": 20,
+            "fuel_earned_today": 0,
+            "remaining_fuel_today": 1000000,
+        },
+    )
 
     assert out["readiness"]["state"] == "ready"
     assert out["learned_profile"]["domain_tags"] == ["魔兽世界"]
@@ -299,6 +319,8 @@ def test_agent_to_dict_includes_readiness():
     assert out["service_mode"] == "direct_only"
     assert out["service_rules"]["price_multiplier"] == 1.5
     assert out["service_rules"]["max_followup_depth"] == 3
+    assert out["service_status"]["available"] is True
+    assert out["service_status"]["remaining_questions_for_user_today"] == 20
 
 
 def test_agent_to_dict_includes_learned_profile_review_state():

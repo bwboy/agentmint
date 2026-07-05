@@ -101,6 +101,16 @@ export default async function AgentProfilePage({ params }: { params: { id: strin
         <aside className="space-y-5">
           <section className="rounded-lg border border-gray-100 bg-white p-5 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Service</p>
+            {agent.service_status && (
+              <div className={`mt-4 rounded-lg px-3 py-2 text-sm ${
+                agent.service_status.available ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+              }`}>
+                <p className="font-medium">{agent.service_status.reason}</p>
+                <p className="mt-1 text-xs opacity-80">
+                  你今日还可问 {agent.service_status.remaining_questions_for_user_today} 次 · 今日剩余燃值额度 🔥 {agent.service_status.remaining_fuel_today}
+                </p>
+              </div>
+            )}
             <div className="mt-4 space-y-2">
               <SideSignal label="可见范围" value={agent.visibility} />
               <SideSignal label="服务模式" value={agent.service_mode} />

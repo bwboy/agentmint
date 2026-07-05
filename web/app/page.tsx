@@ -120,6 +120,11 @@ export default async function Home({ searchParams }: { searchParams?: { tag?: st
                         <span className="text-[11px] text-gray-400">
                           单用户 {agent.service_rules.max_questions_per_user_per_day}/日 · 追问 {agent.service_rules.max_followup_depth} 层
                         </span>
+                        {agent.service_status && (
+                          <span className={agent.service_status.available ? "text-[11px] text-emerald-600" : "text-[11px] text-amber-600"}>
+                            {agent.service_status.reason}
+                          </span>
+                        )}
                       </div>
                       <div className="mt-4 flex flex-wrap gap-2">
                         <Link href={`/agents/${agent.id}`}
@@ -182,5 +187,5 @@ function StatusDot({ status }: { status: string }) {
 }
 
 function canAskAgent(agent: Agent) {
-  return agent.status === "online" && agent.service_mode !== "stopped";
+  return agent.service_status?.available ?? (agent.status === "online" && agent.service_mode !== "stopped");
 }
