@@ -22,6 +22,16 @@ async def mark_answer_pushed_if_assigned(db: AsyncSession, answer_id: str) -> bo
     return rowcount is None or int(rowcount or 0) > 0
 
 
+async def mark_answer_delivery_failed_if_assigned(db: AsyncSession, answer_id: str) -> bool:
+    result = await db.execute(
+        update(Answer)
+        .where(Answer.id == answer_id, Answer.status == "assigned")
+        .values(status="delivery_failed")
+    )
+    rowcount = getattr(result, "rowcount", None)
+    return rowcount is None or int(rowcount or 0) > 0
+
+
 def answer_text(answer: Any) -> str:
     content = getattr(answer, "content", None) or {}
     if isinstance(content, dict):

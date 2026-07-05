@@ -23,6 +23,7 @@ from services.followups import (
     build_followup_payload,
     build_root_payload,
     ensure_followup_targets,
+    mark_answer_delivery_failed_if_assigned,
     mark_answer_pushed_if_assigned,
     serialize_answer,
     serialize_followup_thread,
@@ -400,6 +401,8 @@ async def create_question(
                     f"{user.nickname} 提问：{q.title}",
                     ref_id=q.id,
                 )
+        else:
+            await mark_answer_delivery_failed_if_assigned(db, ans.id)
 
     fuel_cost = pushed_count * estimated_fuel_per_answer
     q.fuel_cost = fuel_cost
@@ -594,6 +597,9 @@ async def create_followup(
                     f"{user.nickname} 追问：{root.title}",
                     ref_id=root.id,
                 )
+        else:
+            await mark_answer_delivery_failed_if_assigned(db, answer.id)
+            status = "delivery_failed"
         requests.append({
             "agent_id": agent.id,
             "request_id": answer.request_id,

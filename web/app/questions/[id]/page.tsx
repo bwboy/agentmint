@@ -450,8 +450,13 @@ function AgentMatchInspection({ agent }: { agent: NonNullable<Question["match_ex
             {agent.review_method && <SignalPill label={`review: ${agent.review_method}`} />}
           </div>
           <p className="mt-1 text-xs text-gray-500">
-            {agent.request_id || "no request"} · answer {agent.answer_status || "unknown"} · quota {agent.quota_state}
+            {agent.request_id || "no request"} · {answerStatusLabel(agent.answer_status)} · quota {agent.quota_state}
           </p>
+          {agent.answer_status === "delivery_failed" && (
+            <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-700">
+              本次未成功投递，未投递预授权已退回。
+            </p>
+          )}
         </div>
         <div className="text-right">
           <p className="text-2xl font-semibold text-primary">{agent.overall_score}</p>
@@ -501,6 +506,20 @@ function AgentMatchInspection({ agent }: { agent: NonNullable<Question["match_ex
       </div>
     </div>
   );
+}
+
+function answerStatusLabel(status?: string | null) {
+  const labels: Record<string, string> = {
+    assigned: "等待投递",
+    pushed: "已投递",
+    processing: "处理中",
+    draft: "待审核",
+    approved: "已发布",
+    rejected: "已拒绝",
+    expired: "已过期",
+    delivery_failed: "投递失败",
+  };
+  return `answer ${labels[status || ""] || status || "unknown"}`;
 }
 
 function OwnerExperienceEvidence({

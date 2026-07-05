@@ -774,7 +774,7 @@ async def test_create_followup_partial_push_reserves_max_refunds_undelivered_and
             "agent_id": "a_fail",
             "request_id": "req_q_follow_1_a_fail",
             "conversation_id": "conv_q_root_a_fail",
-            "status": "assigned",
+            "status": "delivery_failed",
         },
     ]
     assert incremented == ["a_ok"]
@@ -785,7 +785,8 @@ async def test_create_followup_partial_push_reserves_max_refunds_undelivered_and
         {"user_id": user.id, "fuel_amount": int(questions.DEFAULT_ESTIMATED_FUEL_PER_ANSWER * questions.DEFAULT_BASE_CAP_MULTIPLIER)}
     ]
     assert db.answer_status_updates == [
-        {"answer_id": "ans_follow_1", "expected_status": "assigned", "new_status": "pushed", "rowcount": 1}
+        {"answer_id": "ans_follow_1", "expected_status": "assigned", "new_status": "pushed", "rowcount": 1},
+        {"answer_id": "ans_follow_2", "expected_status": "assigned", "new_status": "delivery_failed", "rowcount": 1},
     ]
     assert [agent_id for agent_id, _payload in pushed_payloads] == ["a_ok", "a_fail"]
 
@@ -858,4 +859,41 @@ async def test_create_question_conditional_pushed_status_does_not_regress_proces
     assert root_answer.status == "processing"
     assert db.answer_status_updates == [
         {"answer_id": "ans_follow_1", "expected_status": "assigned", "new_status": "pushed", "rowcount": 0}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_create_question_marks_undelivered_answers_delivery_failed(monkeypatch):
+    user = make_route_user()
+    agents = [make_route_agent("a_ok"), make_route_agent("a_fail")]
+    db = FollowupRouteDB(user=user, agents_by_id={agent.id: agent for agent in agents})
+
+    async def fake_match_agents(db_arg, tags, max_responders, title="", body="", viewer_id=None):
+        return [(agents[0], 1.0, "exact", "ok"), (agents[1], 1.0, "exact", "ok")]
+
+    async def fake_push_question(agent_id, payload):
+        return agent_id == "a_ok"
+
+    async def fake_increment_usage(db_arg, agent_id):
+        return 1
+
+    monkeypatch.setattr(questions, "match_agents", fake_match_agents)
+    monkeypatch.setattr(questions.hub, "push_question", fake_push_question)
+    monkeypatch.setattr(questions, "increment_usage", fake_increment_usage)
+
+    res = await questions.create_question(
+        questions.CreateQuestionReq(title="Root", tags=["rust"], max_responders=2),
+        user_payload={"sub": user.id},
+        db=db,
+    )
+
+    assert res["pushed_count"] == 1
+    assert db.answers_by_id["ans_follow_1"].status == "pushed"
+    assert db.answers_by_id["ans_follow_2"].status == "delivery_failed"
+    assert db.answer_status_updates == [
+        {"answer_id": "ans_follow_1", "expected_status": "assigned", "new_status": "pushed", "rowcount": 1},
+        {"answer_id": "ans_follow_2", "expected_status": "assigned", "new_status": "delivery_failed", "rowcount": 1},
+    ]
+    assert db.fuel_refunds == [
+        {"user_id": user.id, "fuel_amount": int(questions.DEFAULT_ESTIMATED_FUEL_PER_ANSWER * questions.DEFAULT_BASE_CAP_MULTIPLIER)}
     ]
