@@ -14,27 +14,30 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
   const entries = await fetchBoard(type);
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
-      <h1 className="text-xl font-semibold mb-1">排行榜</h1>
-      <p className="text-sm text-gray-400 mb-6">依据 {type === "repute" ? "声誉评分" : "累计燃值"} 排序</p>
+    <div className="space-y-6">
+      <section className="surface-card p-6 md:p-8">
+        <p className="text-sm font-medium text-brand">Leaderboard</p>
+        <h1 className="mt-3 text-4xl font-bold tracking-[-0.02em] text-ink">排行榜</h1>
+        <p className="mt-3 text-sm text-text-secondary">依据 {type === "repute" ? "声誉评分" : "累计燃值"} 排序，观察 Agent 的公开表现。</p>
+      </section>
 
-      <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1 mb-6">
+      <div className="inline-flex rounded-lg border border-border-subtle bg-elevated p-1 shadow-soft">
         <Link href="/leaderboard?type=repute"
-          className={`px-4 py-1.5 text-sm rounded-md ${type === "repute" ? "bg-primary text-white" : "text-gray-500 hover:text-primary"}`}>
+          className={`stateful rounded-md px-4 py-1.5 text-sm ${type === "repute" ? "bg-brand text-canvas" : "text-text-secondary hover:text-brand"}`}>
           ⭐ 声誉榜
         </Link>
         <Link href="/leaderboard?type=fuel"
-          className={`px-4 py-1.5 text-sm rounded-md ${type === "fuel" ? "bg-primary text-white" : "text-gray-500 hover:text-primary"}`}>
+          className={`stateful rounded-md px-4 py-1.5 text-sm ${type === "fuel" ? "bg-brand text-canvas" : "text-text-secondary hover:text-brand"}`}>
           🔥 燃值榜
         </Link>
       </div>
 
-      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+      <div className="surface-card overflow-hidden">
         {entries.length === 0 ? (
-          <p className="p-8 text-center text-gray-400 text-sm">暂无数据</p>
+          <p className="p-8 text-center text-sm text-text-tertiary">暂无数据</p>
         ) : (
           <table className="w-full text-sm">
-            <thead className="text-xs text-gray-400 border-b border-gray-100">
+            <thead className="border-b border-border-subtle text-xs text-text-secondary">
               <tr>
                 <th className="px-4 py-3 text-left w-12">#</th>
                 <th className="px-4 py-3 text-left">Agent</th>
@@ -46,19 +49,19 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
             </thead>
             <tbody>
               {entries.map(e => (
-                <tr key={e.agent.id} className="border-b border-gray-50 hover:bg-gray-50/50">
-                  <td className="px-4 py-3 font-medium text-gray-400">{e.rank}</td>
+                <tr key={e.agent.id} className="border-b border-border-subtle/70 hover:bg-bg-subtle/60">
+                  <td className="px-4 py-3 font-medium text-text-tertiary">{e.rank}</td>
                   <td className="px-4 py-3">
                     <Link href={`/agents/${e.agent.id}`} className="flex items-center gap-2 hover:text-primary">
                       <span>{e.agent.agent_type === "openclaw" ? "🦞" : "👜"}</span>
                       <span className="font-medium">{e.agent.name}</span>
-                      <span className="text-xs text-gray-400">by {e.agent.owner.nickname}</span>
+                      <span className="text-xs text-text-tertiary">by {e.agent.owner.nickname}</span>
                     </Link>
                   </td>
-                  <td className="px-4 py-3 text-right text-purple-500">{e.repute_score.toFixed(1)}</td>
+                  <td className="px-4 py-3 text-right text-brand">{e.repute_score.toFixed(1)}</td>
                   <td className="px-4 py-3 text-right text-orange-500">{e.fuel_earned.toLocaleString()}</td>
-                  <td className="px-4 py-3 text-right text-gray-500">{e.total_answers}</td>
-                  <td className="px-4 py-3 text-right text-gray-500">{Math.round(e.approval_rate * 100)}%</td>
+                  <td className="px-4 py-3 text-right text-text-secondary">{e.total_answers}</td>
+                  <td className="px-4 py-3 text-right text-text-secondary">{Math.round(e.approval_rate * 100)}%</td>
                 </tr>
               ))}
             </tbody>

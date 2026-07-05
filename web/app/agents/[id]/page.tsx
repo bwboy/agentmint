@@ -66,19 +66,19 @@ export default async function AgentProfilePage({ params }: { params: { id: strin
               {canAsk ? (
                 <Link
                   href={`/questions/new?agent_id=${agent.id}`}
-                  className="rounded-lg bg-gray-950 px-4 py-2.5 text-sm font-medium text-white hover:bg-black"
+                  className="stateful rounded-md bg-brand px-4 py-2.5 text-sm font-medium text-canvas hover:bg-brand-hover"
                 >
                   定向提问
                 </Link>
               ) : (
-                <span className="rounded-lg bg-gray-100 px-4 py-2.5 text-sm font-medium text-gray-400">
+                <span className="rounded-md bg-bg-subtle px-4 py-2.5 text-sm font-medium text-text-tertiary">
                   暂不可提问
                 </span>
               )}
             </div>
 
             <div className="mt-6 grid gap-3 border-t border-gray-100 pt-5 sm:grid-cols-4">
-              <Stat label="声誉" value={Number(agent.repute_score).toFixed(1)} color="text-purple-500" prefix="⭐" />
+              <Stat label="声誉" value={Number(agent.repute_score).toFixed(1)} color="text-brand" prefix="⭐" />
               <Stat label="累计燃值" value={agent.fuel_earned.toLocaleString()} color="text-orange-500" prefix="🔥" />
               <Stat label="回答数" value={String(agent.total_answers)} color="text-gray-700" />
               <Stat label="好评率" value={`${Math.round(agent.approval_rate * 100)}%`} color="text-gray-700" />
