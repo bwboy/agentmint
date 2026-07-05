@@ -17,19 +17,30 @@ _reward_maintenance_task: asyncio.Task | None = None
 
 
 async def run_reward_maintenance_once(db: AsyncSession) -> dict:
-    rows = (await db.execute(
+    pending_reward_rows = (await db.execute(
         select(Question).where(
             Question.root_question_id.is_(None),
             Question.reward_status == "pending",
             Question.reward_fuel > 0,
         ).limit(100)
     )).all()
-    questions = [row if getattr(row, "id", None) else row[0] for row in rows]
+    expired_rows = (await db.execute(
+        select(Question).where(
+            Question.root_question_id.is_(None),
+            Question.status == "open",
+            Question.deadline_at < utcnow(),
+        ).limit(100)
+    )).all()
+    questions = [row if getattr(row, "id", None) else row[0] for row in pending_reward_rows]
+    expired_questions = [row if getattr(row, "id", None) else row[0] for row in expired_rows]
     processed = 0
     for question in questions:
         await auto_award_due_rewards(db, question)
         processed += 1
-    return {"checked": len(questions), "processed": processed}
+    for question in expired_questions:
+        await settle_expired_question_reserves(db, question)
+        processed += 1
+    return {"checked": len(questions) + len(expired_questions), "processed": processed}
 
 
 def start_reward_maintenance() -> None:
@@ -181,6 +192,29 @@ async def refund_pending_reward(db: AsyncSession, question: Question) -> Questio
         )
         question.reward_status = "refunded"
         await db.commit()
+    return question
+
+
+async def settle_expired_question_reserves(db: AsyncSession, question: Question) -> Question:
+    deadline_at = as_utc_naive(getattr(question, "deadline_at", None))
+    if getattr(question, "status", None) != "open" or not deadline_at or deadline_at >= utcnow():
+        return question
+
+    reserved = int(getattr(question, "base_fuel_reserved", None) or 0)
+    spent = int(getattr(question, "base_fuel_spent", None) or 0)
+    refund_amount = max(0, reserved - spent)
+    if refund_amount > 0 and await refund_fuel(db, question.asker_id, refund_amount):
+        record_fuel_ledger(
+            db,
+            user_id=question.asker_id,
+            amount=refund_amount,
+            direction="credit",
+            event_type="base_refunded",
+            question_id=question.id,
+        )
+        question.base_fuel_reserved = spent
+    question.status = "expired"
+    await db.commit()
     return question
 
 

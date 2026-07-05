@@ -86,8 +86,12 @@ async def test_run_reward_maintenance_once_processes_due_pending_questions(monke
     processed = []
 
     class MaintenanceDB:
+        def __init__(self):
+            self.calls = 0
+
         async def execute(self, stmt):
-            return RowsResult([due, future])
+            self.calls += 1
+            return RowsResult([due, future] if self.calls == 1 else [])
 
     async def fake_auto_award(db, question):
         processed.append(question.id)
@@ -306,6 +310,39 @@ async def test_auto_award_due_rewards_refunds_expired_question_without_approved_
     assert ledger[0].direction == "credit"
     assert ledger[0].amount == 500
     assert db.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_settle_expired_question_reserves_refunds_unused_base_reserve():
+    question = make_question(
+        status="open",
+        deadline_at=datetime.utcnow() - timedelta(minutes=1),
+        base_fuel_reserved=3000,
+        base_fuel_spent=1200,
+        reward_fuel=0,
+        reward_status="none",
+    )
+    user = SimpleNamespace(id="u_asker", fuel_balance=100)
+
+    class ReserveDB(RewardDB):
+        def __init__(self):
+            super().__init__([user])
+
+        async def execute(self, stmt):
+            user.fuel_balance += 1800
+            return RowcountResult()
+
+    db = ReserveDB()
+
+    out = await rewards.settle_expired_question_reserves(db, question)
+
+    ledger = [item for item in db.added if item.__class__.__name__ == "FuelLedgerEntry"]
+    assert out is question
+    assert question.status == "expired"
+    assert question.base_fuel_reserved == 1200
+    assert user.fuel_balance == 1900
+    assert ledger[0].event_type == "base_refunded"
+    assert ledger[0].amount == 1800
 
 
 @pytest.mark.asyncio
