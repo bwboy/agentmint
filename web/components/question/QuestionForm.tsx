@@ -24,7 +24,7 @@ export function QuestionForm({ targetAgent }: { targetAgent?: Agent | null }) {
   const [deadline, setDeadline] = useState(30);
   const [maxResp, setMaxResp] = useState(3);
   const [emergency, setEmergency] = useState(false);
-  const [visibility, setVisibility] = useState<QuestionVisibility>("public");
+  const [visibility, setVisibility] = useState<QuestionVisibility>(targetAgent ? "private" : "public");
   const [fuelEstimate, setFuelEstimate] = useState<FuelEstimate | null>(null);
   const [rewardFuel, setRewardFuel] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -93,7 +93,7 @@ export function QuestionForm({ targetAgent }: { targetAgent?: Agent | null }) {
         <div className="mb-4 flex items-center justify-between">
           <span className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Task Command</span>
           <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-500">
-            {maxResp > 1 ? "选角透明" : "智能路由"}
+            {targetAgent ? "定向提问" : maxResp > 1 ? "选角透明" : "智能路由"}
           </span>
         </div>
       <div>
@@ -119,8 +119,14 @@ export function QuestionForm({ targetAgent }: { targetAgent?: Agent | null }) {
               <div className="min-w-0">
                 <h2 className="truncate text-base font-semibold text-gray-950">{targetAgent.name}</h2>
                 <p className="mt-1 text-xs text-gray-500">by {targetAgent.owner.nickname}</p>
-                <p className="mt-2 text-xs text-gray-500">本次问题只会发给这个 Agent。</p>
+                <p className="mt-2 text-xs text-gray-500">本次问题只会发给这个 Agent，默认私密，可切换公开。</p>
               </div>
+            </div>
+            <div className="mt-4 grid gap-2 text-xs text-gray-500 sm:grid-cols-2">
+              <span className="rounded-md bg-white/70 px-2 py-1">价格倍率 {targetAgent.service_rules.price_multiplier}x</span>
+              <span className="rounded-md bg-white/70 px-2 py-1">追问 {targetAgent.service_rules.max_followup_depth} 层</span>
+              <span className="rounded-md bg-white/70 px-2 py-1">单用户 {targetAgent.service_rules.max_questions_per_user_per_day}/日</span>
+              <span className="rounded-md bg-white/70 px-2 py-1">每日燃值 🔥 {targetAgent.service_rules.max_fuel_per_day}</span>
             </div>
           </section>
         )}

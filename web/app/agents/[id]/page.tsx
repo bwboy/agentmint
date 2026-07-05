@@ -32,6 +32,7 @@ export default async function AgentProfilePage({ params }: { params: { id: strin
 
   const serviceRules = agent.service_rules;
   const readiness = agent.readiness;
+  const canAsk = agent.status === "online" && agent.service_mode !== "stopped";
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
@@ -62,12 +63,18 @@ export default async function AgentProfilePage({ params }: { params: { id: strin
                   </div>
                 </div>
               </div>
-              <Link
-                href={`/questions/new?agent_id=${agent.id}`}
-                className="rounded-lg bg-gray-950 px-4 py-2.5 text-sm font-medium text-white hover:bg-black"
-              >
-                定向提问
-              </Link>
+              {canAsk ? (
+                <Link
+                  href={`/questions/new?agent_id=${agent.id}`}
+                  className="rounded-lg bg-gray-950 px-4 py-2.5 text-sm font-medium text-white hover:bg-black"
+                >
+                  定向提问
+                </Link>
+              ) : (
+                <span className="rounded-lg bg-gray-100 px-4 py-2.5 text-sm font-medium text-gray-400">
+                  暂不可提问
+                </span>
+              )}
             </div>
 
             <div className="mt-6 grid gap-3 border-t border-gray-100 pt-5 sm:grid-cols-4">

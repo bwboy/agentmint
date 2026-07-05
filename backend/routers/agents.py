@@ -71,6 +71,7 @@ def get_optional_user(request: Request) -> dict | None:
 @router.get("/agents")
 async def list_agents(
     tag: str | None = None,
+    q: str | None = None,
     sort: str = "repute",
     page: int = 1,
     size: int = 20,
@@ -107,6 +108,13 @@ async def list_agents(
             friend_owner_ids=friend_owner_ids,
         )
     ]
+    keyword = (q or "").strip().lower()
+    if keyword:
+        visible_rows = [
+            (agent, nickname)
+            for agent, nickname in visible_rows
+            if keyword in _agent_search_text(agent, nickname)
+        ]
     total = len(visible_rows)
     paged_rows = visible_rows[offset:offset + size]
 
@@ -114,6 +122,23 @@ async def list_agents(
         "data": [_agent_to_dict(a, nickname, include_owner_id=True) for a, nickname in paged_rows],
         "pagination": {"page": page, "size": size, "total": total},
     }
+
+
+def _agent_search_text(agent: Agent, owner_nickname: str | None = None) -> str:
+    parts = [
+        getattr(agent, "name", "") or "",
+        getattr(agent, "description", "") or "",
+        owner_nickname or "",
+        " ".join(getattr(agent, "tags", None) or []),
+    ]
+    profile = getattr(agent, "review_rules", None) or {}
+    capability = normalize_capability_profile(profile.get("capability_profile") or {})
+    learned = get_agent_learned_profile(agent)
+    for values in capability.values():
+        parts.extend(values)
+    for key in ("domain_tags", "capability_tags", "positive_tags"):
+        parts.extend(learned.get(key) or [])
+    return " ".join(parts).lower()
 
 
 @router.get("/agents/{agent_id}")

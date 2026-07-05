@@ -204,6 +204,25 @@ async def test_list_agents_filters_by_viewer_relationship_visibility():
 
 
 @pytest.mark.asyncio
+async def test_list_agents_filters_by_keyword_after_visibility():
+    wow_agent = make_list_agent("a_wow", "u_public", "public")
+    wow_agent.name = "魔兽导师"
+    wow_agent.tags = ["魔兽世界", "大秘境"]
+    rust_agent = make_list_agent("a_rust", "u_public", "public")
+    rust_agent.name = "Rust 工匠"
+    rust_agent.description = "系统编程"
+    db = AgentListDB([
+        (wow_agent, "Gavin"),
+        (rust_agent, "Ferris"),
+    ])
+
+    out = await agents.list_agents(q="大秘境", viewer=None, db=db)
+
+    assert [item["id"] for item in out["data"]] == ["a_wow"]
+    assert out["pagination"]["total"] == 1
+
+
+@pytest.mark.asyncio
 async def test_delete_agent_removes_owned_agent_without_answers():
     agent = SimpleNamespace(id="a_delete", user_id="u_owner")
     connector = SimpleNamespace(id="conn_delete")
