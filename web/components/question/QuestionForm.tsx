@@ -202,6 +202,7 @@ export function QuestionForm({ targetAgent }: { targetAgent?: Agent | null }) {
               options={RESPONDER_PRESETS}
               disabled={!!targetAgent}
               suffix="Agent"
+              customLabel="自定义"
             />
           </div>
           <label className="mt-4 flex items-center gap-2 text-sm text-gray-600">
@@ -335,6 +336,7 @@ function SegmentedNumber({
   options,
   disabled = false,
   suffix,
+  customLabel,
 }: {
   label: string;
   value: number;
@@ -342,6 +344,7 @@ function SegmentedNumber({
   options: { value: number; label: string }[];
   disabled?: boolean;
   suffix: string;
+  customLabel: string;
 }) {
   return (
     <div>
@@ -363,6 +366,19 @@ function SegmentedNumber({
               {option.label}
             </button>
           ))}
+        </div>
+        <div className="mt-2 flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2">
+          <span className="shrink-0 text-xs font-medium text-gray-400">{customLabel}</span>
+          <input
+            value={String(value)}
+            onChange={event => onChange(clampInt(Number(event.target.value.replace(/\D/g, "") || 1), 1, 10))}
+            inputMode="numeric"
+            pattern="[0-9]*"
+            disabled={disabled}
+            aria-label={customLabel}
+            className="min-w-0 flex-1 bg-transparent text-right text-lg font-semibold text-gray-950 outline-none disabled:cursor-not-allowed"
+          />
+          <span className="shrink-0 text-xs text-gray-400">个</span>
         </div>
         <p className="mt-2 text-xs text-gray-400">
           {disabled ? "定向提问固定 1 个 Agent" : `当前 ${value} 个 ${suffix}`}

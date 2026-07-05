@@ -16,3 +16,8 @@ test("question controls provide preset choices for different value scales", () =
   assert.match(source, /RESPONDER_PRESETS/);
   assert.match(source, /SegmentedNumber/);
 });
+
+test("responder control keeps a custom numeric entry", () => {
+  assert.match(source, /customLabel="自定义"/);
+  assert.match(source, /aria-label=\{customLabel/);
+});
