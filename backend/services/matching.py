@@ -17,7 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models import Agent, AgentSubscription, Friendship, UserFollow
 from services.agent_readiness import get_agent_readiness
 from services.agent_service_rules import can_auto_match_agent
-from services.learned_profile import build_owner_experience_context, get_agent_learned_profile, get_owner_supplement_summary
+from services.learned_profile import (
+    build_owner_experience_context,
+    get_agent_health_summary,
+    get_agent_learned_profile,
+    get_owner_supplement_summary,
+)
 from services.quota import check_quota
 
 TAG_GROUPS: dict[str, set[str]] = {
@@ -105,6 +110,27 @@ def rank_with_relationship_boost(repute: float, match_score: float, *, subscribe
     return min(1.0, base)
 
 
+def quality_penalty(agent: Agent) -> float:
+    health = get_agent_health_summary(agent)
+    penalty = 0.0
+    if health.get("risk_level") == "high":
+        penalty += 0.12
+    elif health.get("risk_level") == "watch":
+        penalty += 0.04
+    penalty += min(0.04, 0.01 * int(health.get("negative_feedback") or 0))
+    penalty += min(0.04, 0.01 * int(health.get("avoid_next_time_count") or 0))
+    return min(0.2, penalty)
+
+
+def rank_with_quality_adjustment(agent: Agent, match_score: float, *, subscribed: bool = False) -> float:
+    score = rank_with_relationship_boost(
+        float(getattr(agent, "repute_score", 0) or 0),
+        match_score,
+        subscribed=subscribed,
+    )
+    return max(0.0, score - quality_penalty(agent))
+
+
 def infer_capability_tags(title: str, body: str, tags: list[str]) -> list[str]:
     text = " ".join([title or "", body or "", " ".join(tags or [])]).lower()
     inferred = [
@@ -161,6 +187,7 @@ def build_match_explanation(
     capability_profile = get_agent_capability_profile(agent)
     learned_profile = get_agent_learned_profile(agent)
     owner_supplement_summary = get_owner_supplement_summary(agent)
+    health_summary = get_agent_health_summary(agent)
     owner_experience_context = build_owner_experience_context(agent)
     profile_domain_tags = normalize_tags(capability_profile.get("domain_tags", []))
     profile_capability_tags = set(capability_profile.get("capability_tags", []))
@@ -196,7 +223,8 @@ def build_match_explanation(
     style_hits = sorted(profile_style_tags)
     repute = float(getattr(agent, "repute_score", 0) or 0)
     subscribed = match_type.startswith("subscribed_")
-    boosted_overall = round(rank_with_relationship_boost(repute, match_score, subscribed=subscribed) * 100)
+    penalty = quality_penalty(agent)
+    boosted_overall = round(rank_with_quality_adjustment(agent, match_score, subscribed=subscribed) * 100)
     readiness = get_agent_readiness(agent)
     repute_component = round(ALPHA * (repute / 5.0) * 100)
     match_component = round(BETA * match_score * 100)
@@ -218,6 +246,8 @@ def build_match_explanation(
         reasons.append(f"主人经验信号：{owner_supplement_summary['total']} 次补充/纠错")
     if subscribed:
         reasons.append("订阅优先：你订阅过这个 Agent")
+    if penalty > 0:
+        reasons.append(f"质量风险：匹配排序扣减 {round(penalty * 100)} 分")
 
     return {
         "id": agent.id,
@@ -235,6 +265,7 @@ def build_match_explanation(
         "learned_profile": learned_profile,
         "learned_hits": learned_hits,
         "owner_supplement_summary": owner_supplement_summary,
+        "health_summary": health_summary,
         "owner_experience_context": owner_experience_context,
         "quota_state": quota_state,
         "repute_score": repute,
@@ -250,6 +281,7 @@ def build_match_explanation(
             "repute_component": repute_component,
             "match_component": match_component,
             "subscription_boost": round(SUBSCRIPTION_BOOST * 100) if subscribed else 0,
+            "quality_penalty": round(penalty * 100),
             "overall_score": boosted_overall,
         },
         "reasons": reasons,
@@ -390,8 +422,8 @@ async def match_agents(
 
     # Sort by combined rank
     ranked.sort(
-        key=lambda x: rank_with_relationship_boost(
-            float(x[0].repute_score or 0),
+        key=lambda x: rank_with_quality_adjustment(
+            x[0],
             x[1],
             subscribed=x[0].id in subscribed_agent_ids,
         ),

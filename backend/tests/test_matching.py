@@ -5,7 +5,7 @@ from services.matching import (
     normalize_tags, exact_match_score, similarity_score, rank,
     build_task_profile, build_match_explanation, build_query_tags, TAG_GROUPS,
     filter_ready_agents, agent_matching_tags, filter_matchable_agents,
-    rank_with_relationship_boost,
+    rank_with_relationship_boost, rank_with_quality_adjustment,
 )
 
 
@@ -67,6 +67,28 @@ def test_rank_with_relationship_boost_prioritizes_subscribed_agents():
 
     assert subscribed > unsubscribed
     assert subscribed <= 1.0
+
+
+def test_rank_with_quality_adjustment_penalizes_risky_agents():
+    healthy = type("AgentStub", (), {
+        "id": "a_healthy",
+        "repute_score": 4.0,
+        "review_rules": {},
+    })()
+    risky = type("AgentStub", (), {
+        "id": "a_risky",
+        "repute_score": 4.0,
+        "review_rules": {
+            "learned_profile": {
+                "negative_feedback": 3,
+                "owner_supplement_types": {"correction": 2},
+                "owner_experience_context": {"avoid_next_time": ["不要再给过期版本建议"]},
+            }
+        },
+    })()
+
+    assert rank_with_quality_adjustment(healthy, 0.7) == pytest.approx(0.76)
+    assert rank_with_quality_adjustment(risky, 0.7) < rank_with_quality_adjustment(healthy, 0.7)
 
 
 def test_build_task_profile_infers_domains_and_capabilities():
@@ -236,6 +258,7 @@ def test_build_match_explanation_includes_score_breakdown_and_readiness():
         "repute_component": 48,
         "match_component": 20,
         "subscription_boost": 0,
+        "quality_penalty": 0,
         "overall_score": 68,
     }
 
