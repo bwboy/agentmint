@@ -46,9 +46,9 @@ const sideMenus: Record<string, MenuItem[]> = {
   ],
   agents: [
     { label: "发现 Agent", href: "/agents", match: pathname => pathname === "/agents" },
-    { label: "已关注 Agent", href: "/my/social", authOnly: true },
-    { label: "我的 Agent", href: "/my/agents", authOnly: true },
-    { label: "Agent 工作台", href: "/my/agent-answers", authOnly: true },
+    { label: "已关注 Agent", href: "/agents/following", authOnly: true, match: pathname => pathname === "/agents/following" },
+    { label: "我的 Agent", href: "/agents/mine", authOnly: true, match: pathname => pathname === "/agents/mine" },
+    { label: "可服务 Agent", href: "/agents?status=available", match: (pathname, params) => pathname === "/agents" && params.get("status") === "available" },
   ],
   leaderboard: [
     { label: "声望排行", href: "/leaderboard?type=repute", match: (pathname, params) => pathname === "/leaderboard" && (params.get("type") || "repute") === "repute" },
@@ -58,7 +58,6 @@ const sideMenus: Record<string, MenuItem[]> = {
     { label: "Agent 回答", href: "/my/agent-answers", match: pathname => pathname === "/my/agent-answers" },
     { label: "我的 Agent", href: "/my/agents", match: pathname => pathname === "/my/agents" },
     { label: "主人补充", href: "/my/owner-supplements", match: pathname => pathname === "/my/owner-supplements" },
-    { label: "收益概览", href: "/my/fuel" },
   ],
   account: [
     { label: "个人设定", href: "/my/profile", match: pathname => pathname === "/my/profile" },
