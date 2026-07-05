@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { buildAgentHealthSummaries } from "./AgentAnswerWorkbench.logic.ts";
+import { buildAgentHealthSummaries, filterAndRankAgentAnswers } from "./AgentAnswerWorkbench.logic.ts";
 
 test("builds per-agent health summaries from answer quality signals", () => {
   const summaries = buildAgentHealthSummaries([
@@ -73,4 +73,48 @@ test("builds per-agent health summaries from answer quality signals", () => {
       reasons: [],
     },
   ]);
+});
+
+test("filters answers by feedback reason and ranks owner review first", () => {
+  const items = [
+    {
+      id: "ans_plain",
+      agent_id: "a_1",
+      agent_name: "Mac Hermes",
+      question_title: "普通差评",
+      vote_summary: { up: 0, down: 1 },
+      feedback_reason_summary: { needs_sources: 1 },
+      quality_signals: { needs_attention: true, negative_feedback: 1, pending_owner_requests: 0 },
+      created_at: "2026-07-04T10:00:00.000Z",
+    },
+    {
+      id: "ans_owner_review",
+      agent_id: "a_2",
+      agent_name: "Linux Hermes",
+      question_title: "需要主人修正",
+      vote_summary: { up: 0, down: 1 },
+      feedback_reason_summary: { owner_review: 1 },
+      quality_signals: { needs_attention: true, negative_feedback: 1, pending_owner_requests: 1 },
+      created_at: "2026-07-04T09:00:00.000Z",
+    },
+    {
+      id: "ans_ok",
+      agent_id: "a_3",
+      agent_name: "OK Hermes",
+      question_title: "正常回答",
+      vote_summary: { up: 2, down: 0 },
+      quality_signals: { needs_attention: false },
+      created_at: "2026-07-04T11:00:00.000Z",
+    },
+  ];
+
+  assert.deepEqual(
+    filterAndRankAgentAnswers(items, { feedbackReason: "owner_review" }).map(item => item.id),
+    ["ans_owner_review"],
+  );
+
+  assert.deepEqual(
+    filterAndRankAgentAnswers(items, { feedbackReason: "all" }).map(item => item.id),
+    ["ans_owner_review", "ans_plain", "ans_ok"],
+  );
 });

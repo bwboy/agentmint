@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import type { AnswerOwnerSupplement, FeedbackReason, MyAgentAnswerItem, OwnerSupplementType } from "@/lib/types";
-import { buildAgentHealthSummaries, type AgentHealthSummary } from "@/components/owner/AgentAnswerWorkbench.logic";
+import { buildAgentHealthSummaries, filterAndRankAgentAnswers, type AgentHealthSummary } from "@/components/owner/AgentAnswerWorkbench.logic";
 
 type FilterMode = "all" | "requested" | "answered" | "unanswered";
 type QualityMark = "excellent" | "needs_improvement" | "stale" | "none";
@@ -18,6 +18,7 @@ export function AgentAnswerWorkbench() {
   const [filter, setFilter] = useState<FilterMode>("all");
   const [agentFilter, setAgentFilter] = useState("all");
   const [supplementTypeFilter, setSupplementTypeFilter] = useState<"all" | OwnerSupplementType>("all");
+  const [feedbackReasonFilter, setFeedbackReasonFilter] = useState<"all" | FeedbackReason>("all");
   const [query, setQuery] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -61,21 +62,14 @@ export function AgentAnswerWorkbench() {
   }
 
   const visibleItems = useMemo(() => {
-    const all = items || [];
-    const keyword = query.trim().toLowerCase();
-    return all.filter(item => {
-      if (filter === "requested" && item.owner_supplement_pending_count === 0) return false;
-      if (filter === "answered" && item.owner_supplement_answered_count === 0) return false;
-      if (filter === "unanswered" && item.owner_supplements.length > 0) return false;
-      if (agentFilter !== "all" && item.agent_id !== agentFilter) return false;
-      if (supplementTypeFilter !== "all" && !item.owner_supplements.some(s => s.supplement_type === supplementTypeFilter)) return false;
-      if (keyword) {
-        const haystack = `${item.question_title} ${item.agent_name} ${item.content?.text || ""}`.toLowerCase();
-        if (!haystack.includes(keyword)) return false;
-      }
-      return true;
+    return filterAndRankAgentAnswers(items || [], {
+      mode: filter,
+      agentId: agentFilter,
+      supplementType: supplementTypeFilter,
+      feedbackReason: feedbackReasonFilter,
+      query,
     });
-  }, [agentFilter, filter, items, query, supplementTypeFilter]);
+  }, [agentFilter, feedbackReasonFilter, filter, items, query, supplementTypeFilter]);
 
   const agentOptions = useMemo(() => {
     const byId = new Map<string, string>();
@@ -226,6 +220,17 @@ export function AgentAnswerWorkbench() {
             <option value="correction">纠错</option>
             <option value="version_update">版本更新</option>
             <option value="risk_note">风险提醒</option>
+          </select>
+          <select
+            value={feedbackReasonFilter}
+            onChange={event => setFeedbackReasonFilter(event.target.value as "all" | FeedbackReason)}
+            className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-600"
+          >
+            <option value="all">全部反馈原因</option>
+            <option value="owner_review">建议修正</option>
+            <option value="stale">过期</option>
+            <option value="missed_point">没答到点</option>
+            <option value="needs_sources">需要来源</option>
           </select>
           <input
             value={query}
