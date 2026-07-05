@@ -35,6 +35,7 @@ def serialize_answer(
     agent_type: str,
     repute_score: float,
     vote_summary: dict | None = None,
+    service_rules: dict | None = None,
 ) -> dict:
     fuel_earned = max(0, int(getattr(answer, "fuel_earned", None) or 0))
     return {
@@ -45,6 +46,7 @@ def serialize_answer(
             "name": agent_name,
             "agent_type": agent_type,
             "repute_score": float(repute_score or 0),
+            "service_rules": service_rules,
         },
         "request_id": answer.request_id,
         "conversation_id": answer.conversation_id,
@@ -76,16 +78,23 @@ def serialize_followup_thread(followup: Any, answer_rows: list[tuple], vote_rows
         "deadline_at": followup.deadline_at.isoformat(),
         "created_at": followup.created_at.isoformat(),
         "answers": [
-            serialize_answer(
-                answer,
-                agent_name,
-                agent_type,
-                repute_score,
-                vote_rows.get(answer.id, {"up": 0, "down": 0}),
-            )
-            for answer, agent_name, agent_type, repute_score in answer_rows
+            serialize_answer_row(row, vote_rows)
+            for row in answer_rows
         ],
     }
+
+
+def serialize_answer_row(row: tuple, vote_rows: dict[str, dict[str, int]]) -> dict:
+    answer, agent_name, agent_type, repute_score, *service_rules_values = row
+    service_rules = service_rules_values[0] if service_rules_values else None
+    return serialize_answer(
+        answer,
+        agent_name,
+        agent_type,
+        repute_score,
+        vote_rows.get(answer.id, {"up": 0, "down": 0}),
+        service_rules,
+    )
 
 
 def ensure_followup_targets(agent_ids: list[str], approved_root_answers: list[Any]) -> list[str]:

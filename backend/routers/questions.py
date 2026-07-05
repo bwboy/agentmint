@@ -204,7 +204,7 @@ async def get_question(
 
     # Approved answers, with agent info
     ans_rows = (await db.execute(
-        select(Answer, Agent.name, Agent.agent_type, Agent.repute_score)
+        select(Answer, Agent.name, Agent.agent_type, Agent.repute_score, Agent.service_rules)
         .join(Agent, Answer.agent_id == Agent.id)
         .where(Answer.question_id == q.id, Answer.status == "approved")
         .order_by(Answer.created_at.asc())
@@ -219,7 +219,7 @@ async def get_question(
     followup_answer_rows = []
     if followup_ids:
         followup_answer_rows = (await db.execute(
-            select(Answer, Agent.name, Agent.agent_type, Agent.repute_score)
+            select(Answer, Agent.name, Agent.agent_type, Agent.repute_score, Agent.service_rules)
             .join(Agent, Answer.agent_id == Agent.id)
             .where(Answer.question_id.in_(followup_ids), Answer.status == "approved")
             .order_by(Answer.created_at.asc())
@@ -262,10 +262,10 @@ async def get_question(
         "match_explanations": await build_question_match_explanations(db, q),
         "answers": [
             {
-                **serialize_answer(ans, a_name, a_type, a_repute, vote_rows.get(ans.id, {"up": 0, "down": 0})),
+                **serialize_answer(ans, a_name, a_type, a_repute, vote_rows.get(ans.id, {"up": 0, "down": 0}), service_rules),
                 "owner_supplements": supplements_by_answer.get(ans.id, []),
             }
-            for ans, a_name, a_type, a_repute in ans_rows
+            for ans, a_name, a_type, a_repute, service_rules in ans_rows
         ],
         "followups": attach_owner_supplements_to_followups(followup_threads, supplements_by_answer),
     }

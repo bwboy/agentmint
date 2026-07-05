@@ -171,6 +171,7 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
                       questionId={question.id}
                       quotedAnswer={ans}
                       approvedAnswers={answers}
+                      nextDepth={1}
                     />
                     <OwnerSupplementRequestButton
                       questionId={question.id}
@@ -334,6 +335,7 @@ function FollowUpThreads({
                     questionId={questionId}
                     quotedAnswer={followupAnswer}
                     approvedAnswers={approvedAnswers}
+                    nextDepth={depth + 2}
                   />
                   <OwnerSupplementRequestButton
                     questionId={questionId}

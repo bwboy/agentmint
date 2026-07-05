@@ -5,15 +5,18 @@ import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import type { Answer } from "@/lib/types";
+import { followUpDepthState } from "@/components/question/FollowUpComposer.logic";
 
 export function FollowUpComposer({
   questionId,
   quotedAnswer,
   approvedAnswers,
+  nextDepth = 1,
 }: {
   questionId: string;
   quotedAnswer: Answer;
   approvedAnswers: Answer[];
+  nextDepth?: number;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -32,6 +35,8 @@ export function FollowUpComposer({
   }, [approvedAnswers, quotedAnswer.agent]);
 
   function toggleAgent(agentId: string) {
+    const agent = agents.find(item => item.id === agentId);
+    if (agent && !followUpDepthState(nextDepth, agent.service_rules).allowed) return;
     setSelectedAgentIds(current => (
       current.includes(agentId)
         ? current.filter(id => id !== agentId)
@@ -52,7 +57,11 @@ export function FollowUpComposer({
       setErr("请输入追问内容");
       return;
     }
-    if (selectedAgentIds.length === 0) {
+    const allowedAgentIds = selectedAgentIds.filter(agentId => {
+      const agent = agents.find(item => item.id === agentId);
+      return agent && followUpDepthState(nextDepth, agent.service_rules).allowed;
+    });
+    if (allowedAgentIds.length === 0) {
       setErr("请选择至少一个 Agent");
       return;
     }
@@ -65,7 +74,7 @@ export function FollowUpComposer({
         token,
         json: {
           quoted_answer_id: quotedAnswer.id,
-          agent_ids: selectedAgentIds,
+          agent_ids: allowedAgentIds,
           text: body,
           deadline_minutes: 30,
         },
@@ -105,18 +114,22 @@ export function FollowUpComposer({
       <div className="flex flex-wrap gap-2">
         {agents.map(agent => {
           const selected = selectedAgentIds.includes(agent.id);
+          const depthState = followUpDepthState(nextDepth, agent.service_rules);
           return (
             <button
               key={agent.id}
               type="button"
               onClick={() => toggleAgent(agent.id)}
+              disabled={!depthState.allowed}
               className={`rounded-full border px-3 py-1 text-xs transition ${
                 selected
                   ? "border-primary/30 bg-primary/10 text-primary"
+                  : !depthState.allowed
+                    ? "cursor-not-allowed border-gray-100 bg-gray-100 text-gray-300"
                   : "border-gray-200 bg-white text-gray-500 hover:border-gray-300 hover:text-gray-700"
               }`}
             >
-              {agent.name}
+              {agent.name} · {depthState.label}
             </button>
           );
         })}

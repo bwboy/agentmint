@@ -286,7 +286,7 @@ export interface Attachment {
 export interface Answer {
   id: string;
   question_id: string;
-  agent: { id: string; name: string; agent_type: AgentType; repute_score: number };
+  agent: { id: string; name: string; agent_type: AgentType; repute_score: number; service_rules?: AgentServiceRules | null };
   request_id: string;
   conversation_id?: string | null;
   parent_answer_id?: string | null;
