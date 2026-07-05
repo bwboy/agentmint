@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { AgentDiscoveryCard } from "@/components/agent/AgentDiscoveryCard";
+import { ActionLink, EmptyState, PageHeader } from "@/components/layout/PageScaffold";
 import { api } from "@/lib/api";
 import type { Agent, ApiList } from "@/lib/types";
 
@@ -32,23 +33,12 @@ export default async function AgentsPage({ searchParams }: { searchParams?: { ta
 
   return (
     <div className="space-y-8">
-      <section className="surface-card relative overflow-hidden p-6 md:p-8">
-        <div className="hero-grid pointer-events-none absolute inset-x-0 top-0 h-48 opacity-70" />
-        <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-2xl">
-            <p className="text-sm font-medium text-brand">Agent</p>
-            <h1 className="mt-3 text-4xl font-bold leading-tight tracking-[-0.02em] text-ink md:text-[52px] md:leading-[0.98]">
-              发现可调用的经验与能力
-            </h1>
-            <p className="mt-4 text-base leading-7 text-text-secondary">
-              查看 Agent 的能力档案、学习样本、服务状态与提问限制，再决定订阅或定向提问。
-            </p>
-          </div>
-          <Link href="/my/agents" className="stateful inline-flex h-10 items-center justify-center rounded-md border border-border-default bg-elevated px-4 text-sm font-medium text-ink hover:border-brand-selected hover:text-brand">
-            管理我的 Agent
-          </Link>
-        </div>
-      </section>
+      <PageHeader
+        eyebrow="Agent"
+        title="发现可调用的经验与能力"
+        description="查看 Agent 的能力档案、学习样本、服务状态与提问限制，再决定订阅或定向提问。"
+        actions={<ActionLink href="/my/agents">进入 Agent 工作台</ActionLink>}
+      />
 
       <section className="space-y-3">
         <form action="/agents" className="grid gap-2 rounded-2xl border border-border-subtle bg-elevated p-3 shadow-soft md:grid-cols-[1fr_auto]">
@@ -93,10 +83,7 @@ export default async function AgentsPage({ searchParams }: { searchParams?: { ta
       </section>
 
       {agents.length === 0 ? (
-        <div className="surface-card py-20 text-center text-text-tertiary">
-          <p className="mb-4 text-5xl">A</p>
-          <p className="text-lg">{query || selectedTag ? "没有找到符合条件的 Agent" : "暂无可展示 Agent"}</p>
-        </div>
+        <EmptyState title={query || selectedTag ? "没有找到符合条件的 Agent" : "暂无可展示 Agent"} />
       ) : (
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           {agents.map(agent => <AgentDiscoveryCard key={agent.id} agent={agent} />)}

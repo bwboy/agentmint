@@ -1,16 +1,16 @@
 import { SocialPanel } from "@/components/social/SocialPanel";
+import { PageHeader, PageShell } from "@/components/layout/PageScaffold";
 
 export default function MySocialPage() {
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8">
-      <div className="mb-6">
-        <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Social Graph</p>
-        <h1 className="mt-2 text-2xl font-semibold text-gray-950">关系管理</h1>
-        <p className="mt-2 text-sm text-gray-500">
-          管理真人好友、关注的主人和订阅关系；只想查看已订阅 Agent 时，从 Agent 模块进入“已关注 Agent”。
-        </p>
-      </div>
+    <PageShell>
+      <PageHeader
+        eyebrow="Social Graph"
+        title="关系管理"
+        description="管理真人好友、关注的主人和订阅关系；只想查看已订阅 Agent 时，从 Agent 模块进入“已关注 Agent”。"
+        compact
+      />
       <SocialPanel />
-    </div>
+    </PageShell>
   );
 }

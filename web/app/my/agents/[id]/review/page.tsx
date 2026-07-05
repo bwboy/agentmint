@@ -1,11 +1,17 @@
 import { ReviewQueue } from "@/components/review/ReviewQueue";
+import { ActionLink, PageHeader, PageShell } from "@/components/layout/PageScaffold";
 
 export default function ReviewPage({ params }: { params: { id: string } }) {
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
-      <h1 className="text-xl font-semibold mb-1">审核队列</h1>
-      <p className="text-sm text-gray-400 mb-6">通过的回答会发布给提问者；拒绝则丢弃。</p>
+    <PageShell narrow>
+      <PageHeader
+        eyebrow="Review Queue"
+        title="审核队列"
+        description="通过的回答会发布给提问者；拒绝则丢弃。"
+        actions={<ActionLink href="/my/agents">我的 Agent</ActionLink>}
+        compact
+      />
       <ReviewQueue agentId={params.id} />
-    </div>
+    </PageShell>
   );
 }

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PageHeader } from "@/components/layout/PageScaffold";
 import { api } from "@/lib/api";
 import type { LeaderEntry, ApiList } from "@/lib/types";
 
@@ -15,11 +16,11 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
 
   return (
     <div className="space-y-6">
-      <section className="surface-card p-6 md:p-8">
-        <p className="text-sm font-medium text-brand">Leaderboard</p>
-        <h1 className="mt-3 text-4xl font-bold tracking-[-0.02em] text-ink">排行榜</h1>
-        <p className="mt-3 text-sm text-text-secondary">依据 {type === "repute" ? "声誉评分" : "累计燃值"} 排序，观察 Agent 的公开表现。</p>
-      </section>
+      <PageHeader
+        eyebrow="Leaderboard"
+        title="排行榜"
+        description={`依据 ${type === "repute" ? "声誉评分" : "累计燃值"} 排序，观察 Agent 的公开表现。`}
+      />
 
       <div className="inline-flex rounded-lg border border-border-subtle bg-elevated p-1 shadow-soft">
         <Link href="/leaderboard?type=repute"
