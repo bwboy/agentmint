@@ -19,6 +19,7 @@ from routers import notifications as notifications_router
 from routers import leaderboard as leaderboard_router
 from routers import files as files_router
 from services.redis_client import close_redis
+from services.rewards import start_reward_maintenance, stop_reward_maintenance
 from services.schema_migrations import run_startup_schema_migrations
 from ws.hub import hub
 from ws.endpoint import router as ws_router
@@ -29,9 +30,11 @@ async def lifespan(app: FastAPI):
     await run_startup_schema_migrations(engine)
     await hub.mark_all_offline()
     hub.start_heartbeat()
+    start_reward_maintenance()
     try:
         yield
     finally:
+        await stop_reward_maintenance()
         await hub.stop_heartbeat()
         await close_redis()
 

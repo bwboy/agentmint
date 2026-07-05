@@ -80,6 +80,28 @@ class RowsResult:
 
 
 @pytest.mark.asyncio
+async def test_run_reward_maintenance_once_processes_due_pending_questions(monkeypatch):
+    due = make_question(id="q_due", reward_auto_award_after=datetime.utcnow() - timedelta(minutes=1))
+    future = make_question(id="q_future", reward_auto_award_after=datetime.utcnow() + timedelta(minutes=10))
+    processed = []
+
+    class MaintenanceDB:
+        async def execute(self, stmt):
+            return RowsResult([due, future])
+
+    async def fake_auto_award(db, question):
+        processed.append(question.id)
+        return question
+
+    monkeypatch.setattr(rewards, "auto_award_due_rewards", fake_auto_award)
+
+    out = await rewards.run_reward_maintenance_once(MaintenanceDB())
+
+    assert out == {"checked": 2, "processed": 2}
+    assert processed == ["q_due", "q_future"]
+
+
+@pytest.mark.asyncio
 async def test_award_reward_credits_owner_and_records_ledger():
     question = make_question()
     answer = make_answer()

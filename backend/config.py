@@ -45,5 +45,9 @@ class Settings(BaseSettings):
     ws_heartbeat_interval_ms: int = 30000
     ws_heartbeat_timeout_seconds: int = 90
 
+    # ─── Reward maintenance ───
+    reward_maintenance_enabled: bool = True
+    reward_maintenance_interval_seconds: int = 300
+
 
 settings = Settings()

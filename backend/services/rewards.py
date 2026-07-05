@@ -1,13 +1,72 @@
+import asyncio
+import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import settings
+from database import AsyncSessionLocal
 from models import Agent, Answer, Feedback, Question
 from services.billing import credit_answer_owner, record_fuel_ledger, refund_fuel
 
 AUTO_AWARD_DELAY_HOURS = 24
+log = logging.getLogger(__name__)
+_reward_maintenance_task: asyncio.Task | None = None
+
+
+async def run_reward_maintenance_once(db: AsyncSession) -> dict:
+    rows = (await db.execute(
+        select(Question).where(
+            Question.root_question_id.is_(None),
+            Question.reward_status == "pending",
+            Question.reward_fuel > 0,
+        ).limit(100)
+    )).all()
+    questions = [row if getattr(row, "id", None) else row[0] for row in rows]
+    processed = 0
+    for question in questions:
+        await auto_award_due_rewards(db, question)
+        processed += 1
+    return {"checked": len(questions), "processed": processed}
+
+
+def start_reward_maintenance() -> None:
+    global _reward_maintenance_task
+    if not settings.reward_maintenance_enabled:
+        return
+    if _reward_maintenance_task and not _reward_maintenance_task.done():
+        return
+    _reward_maintenance_task = asyncio.create_task(_reward_maintenance_loop())
+
+
+async def stop_reward_maintenance() -> None:
+    global _reward_maintenance_task
+    task = _reward_maintenance_task
+    _reward_maintenance_task = None
+    if not task:
+        return
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
+async def _reward_maintenance_loop() -> None:
+    interval = max(30, int(settings.reward_maintenance_interval_seconds or 300))
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                summary = await run_reward_maintenance_once(db)
+                if summary["processed"]:
+                    log.info("reward maintenance processed %s pending question(s)", summary["processed"])
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("reward maintenance failed")
+        await asyncio.sleep(interval)
 
 
 async def award_reward_to_answer(
