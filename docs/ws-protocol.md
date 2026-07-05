@@ -114,6 +114,7 @@ Connector                                  Platform
 - `turn_type ∈ {root, followup}`；根问题为 `root`，追问为 `followup`
 - `auto_release=true` 表示通过审核策略后自动放行；`false` 表示进人工审核
 - 推送成功后服务端将 `answers.status` 由 `assigned` 改为 `pushed`，同时 `agent_daily_usage += 1`
+- 如果 WS 推送失败，服务端将 `answers.status` 由 `assigned` 改为 `delivery_failed`，并退回该未投递请求对应的基础预授权燃值
 
 追问下发时，同一个用户追问会按目标 Agent 拆成多个独立 request；每个 request 复用该 Agent 与根问题对应的 `conversation_id`：
 

@@ -7,7 +7,7 @@ export type QuestionVisibility = "public" | "private";
 export type QuestionRewardStatus = "none" | "pending" | "awarded" | "auto_awarded" | "refunded";
 export type AgentServiceMode = "auto_match" | "direct_only" | "stopped";
 export type AgentReadinessState = "unverified" | "checking" | "pairing_required" | "ready" | "error";
-export type AnswerStatus = "assigned" | "pushed" | "processing" | "draft" | "approved" | "rejected" | "expired";
+export type AnswerStatus = "assigned" | "pushed" | "processing" | "draft" | "approved" | "rejected" | "expired" | "delivery_failed";
 export type FeedbackReason = "stale" | "missed_point" | "needs_sources" | "owner_review";
 
 export interface User {

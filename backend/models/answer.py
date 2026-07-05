@@ -21,6 +21,7 @@ class Answer(Base):
     usage: Mapped[dict] = mapped_column(JSONB, default=dict)
     capability: Mapped[dict] = mapped_column(JSONB, default=dict)
     # State: assigned → pushed → processing → draft → approved/rejected/expired
+    # Failed WS delivery is marked delivery_failed after refunding the unused reserve.
     status: Mapped[str] = mapped_column(String, default="assigned")
     owner_quality_mark: Mapped[str | None] = mapped_column(String, nullable=True)
     review_method: Mapped[str] = mapped_column(String, default="auto")
