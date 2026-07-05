@@ -136,7 +136,10 @@ async def auto_award_due_rewards(db: AsyncSession, question: Question) -> Questi
         answer, repute = row
         created_at = as_utc_naive(getattr(answer, "created_at", None)) or now
         return (
-            float(votes_by_answer.get(answer.id, 0) * 5) + float(repute or 0) * 2,
+            float(votes_by_answer.get(answer.id, 0) * 5)
+            + float(getattr(answer, "view_count", None) or 0)
+            + (3.0 if getattr(answer, "asker_viewed_at", None) else 0.0)
+            + float(repute or 0) * 2,
             created_at,
         )
 

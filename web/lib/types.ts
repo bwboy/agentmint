@@ -300,6 +300,8 @@ export interface Answer {
     estimated?: boolean;
     source?: string;
   };
+  view_count?: number;
+  asker_viewed_at?: string | null;
   fuel_earned?: number;
   settlement?: {
     base_fuel_charged?: number;
@@ -362,6 +364,8 @@ export interface MyAgentAnswerItem {
     estimated?: boolean;
     source?: string;
   };
+  view_count?: number;
+  asker_viewed_at?: string | null;
   turn_type: "root" | "followup";
   owner_quality_mark?: "excellent" | "needs_improvement" | "stale" | null;
   vote_summary?: { up: number; down: number };

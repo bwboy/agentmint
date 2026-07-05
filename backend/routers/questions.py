@@ -225,6 +225,8 @@ async def get_question(
             .order_by(Answer.created_at.asc())
         )).all()
 
+    await mark_answer_views_for_question(db, q, [row[0] for row in ans_rows], viewer)
+
     # Vote summary per root and follow-up answer
     ans_ids = [a.id for a, *_ in ans_rows] + [a.id for a, *_ in followup_answer_rows]
     vote_rows: dict[str, dict[str, int]] = {}
@@ -1198,6 +1200,8 @@ def serialize_my_agent_answer(
         "content": getattr(answer, "content", None) or {},
         "model": getattr(answer, "model", None) or "",
         "usage": getattr(answer, "usage", None) or {},
+        "view_count": int(getattr(answer, "view_count", None) or 0),
+        "asker_viewed_at": answer.asker_viewed_at.isoformat() if getattr(answer, "asker_viewed_at", None) else None,
         "turn_type": getattr(answer, "turn_type", None) or "root",
         "owner_quality_mark": getattr(answer, "owner_quality_mark", None),
         "vote_summary": votes,
@@ -1270,6 +1274,23 @@ def attach_owner_supplements_to_followups(
         for answer in thread.get("answers") or []:
             answer["owner_supplements"] = supplements_by_answer.get(answer.get("id"), [])
     return followup_threads
+
+
+async def mark_answer_views_for_question(
+    db: AsyncSession,
+    question: Question,
+    answers: list[Answer],
+    viewer: dict | None,
+) -> None:
+    if not answers:
+        return
+    viewer_id = viewer.get("sub") if viewer else None
+    now = datetime.utcnow()
+    for answer in answers:
+        answer.view_count = int(getattr(answer, "view_count", None) or 0) + 1
+        if viewer_id and viewer_id == getattr(question, "asker_id", None) and not getattr(answer, "asker_viewed_at", None):
+            answer.asker_viewed_at = now
+    await db.commit()
 
 
 def normalize_question_visibility(value: str | None) -> str:

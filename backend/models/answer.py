@@ -25,6 +25,8 @@ class Answer(Base):
     owner_quality_mark: Mapped[str | None] = mapped_column(String, nullable=True)
     review_method: Mapped[str] = mapped_column(String, default="auto")
     fuel_earned: Mapped[int] = mapped_column(BigInteger, default=0)
+    view_count: Mapped[int] = mapped_column(Integer, default=0)
+    asker_viewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     reviewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
 

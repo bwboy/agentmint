@@ -53,6 +53,8 @@ def serialize_answer(
         "content": answer.content or {},
         "model": answer.model,
         "usage": answer.usage or {},
+        "view_count": int(getattr(answer, "view_count", None) or 0),
+        "asker_viewed_at": answer.asker_viewed_at.isoformat() if getattr(answer, "asker_viewed_at", None) else None,
         "fuel_earned": fuel_earned,
         "settlement": {
             "base_fuel_charged": fuel_earned,

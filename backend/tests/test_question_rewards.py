@@ -227,6 +227,43 @@ async def test_auto_award_due_rewards_chooses_earliest_on_tie():
 
 
 @pytest.mark.asyncio
+async def test_auto_award_due_rewards_uses_answer_view_signals():
+    question = make_question(
+        reward_auto_award_after=datetime.utcnow() - timedelta(minutes=1),
+    )
+    ignored = make_answer(id="ans_ignored", agent_id="a_ignored", view_count=0, asker_viewed_at=None)
+    viewed = make_answer(
+        id="ans_viewed",
+        agent_id="a_viewed",
+        view_count=1,
+        asker_viewed_at=datetime(2026, 1, 1, 13, 0, 0),
+        created_at=datetime(2026, 1, 1, 12, 10, 0),
+    )
+    agent_viewed = make_agent(id="a_viewed", user_id="u_viewed", fuel_earned=0)
+    owner = SimpleNamespace(id="u_viewed", fuel_balance=100)
+
+    class ViewSignalDB(RewardDB):
+        def __init__(self):
+            super().__init__([viewed, agent_viewed, owner])
+            self.calls = 0
+
+        async def execute(self, stmt):
+            self.calls += 1
+            if self.calls == 1:
+                return RowsResult([(ignored, 1.0), (viewed, 1.0)])
+            if self.calls == 2:
+                return RowsResult([])
+            return Result(self.values.pop(0))
+
+    db = ViewSignalDB()
+
+    await rewards.auto_award_due_rewards(db, question)
+
+    assert question.reward_status == "auto_awarded"
+    assert question.reward_answer_id == "ans_viewed"
+
+
+@pytest.mark.asyncio
 async def test_mark_reward_auto_award_after_sets_deadline_from_first_approved_answer():
     question = make_question(reward_auto_award_after=None)
     db = RewardDB([question])
