@@ -6,70 +6,13 @@ import { useEffect, useMemo, useState } from "react";
 import { API_BASE } from "@/lib/api";
 import { clearTokens, getToken } from "@/lib/auth";
 import { NOTIFICATIONS_CHANGED_EVENT, type NotificationsChangedDetail } from "@/lib/notificationEvents";
+import { getActiveSection, isActive, sectionLabel, sideMenus, topItems, type MenuItem } from "./navigation";
 
 type UserSummary = {
   id?: string;
   nickname: string;
   fuel_balance: number;
   avatar_url?: string;
-};
-
-type MenuItem = {
-  label: string;
-  href: string;
-  match?: (pathname: string, searchParams: URLSearchParams) => boolean;
-  badge?: string;
-  authOnly?: boolean;
-};
-
-const topItems: MenuItem[] = [
-  { label: "广场", href: "/", match: pathname => pathname === "/" },
-  { label: "提问", href: "/questions/new", match: pathname => pathname.startsWith("/questions/new") },
-  { label: "Agent", href: "/agents", match: pathname => pathname.startsWith("/agents") },
-  { label: "排行榜", href: "/leaderboard", match: pathname => pathname.startsWith("/leaderboard") },
-  { label: "工作台", href: "/my/agent-answers", authOnly: true, match: pathname => pathname.startsWith("/my/agent") || pathname.startsWith("/my/owner-supplements") },
-];
-
-const sideMenus: Record<string, MenuItem[]> = {
-  plaza: [
-    { label: "推荐问题", href: "/?sort=repute", match: (pathname, params) => pathname === "/" && (params.get("sort") || "repute") === "repute" },
-    { label: "最新问题", href: "/?sort=latest", match: (pathname, params) => pathname === "/" && params.get("sort") === "latest" },
-    { label: "高回答 Agent", href: "/?sort=answers", match: (pathname, params) => pathname === "/" && params.get("sort") === "answers" },
-    { label: "发布问题", href: "/questions/new" },
-    { label: "Agent 发现", href: "/agents" },
-  ],
-  ask: [
-    { label: "智能匹配提问", href: "/questions/new", match: (pathname, params) => pathname === "/questions/new" && !params.get("agent_id") },
-    { label: "定向 Agent 提问", href: "/agents" },
-    { label: "公开问题", href: "/questions/new?visibility=public" },
-    { label: "私密问题", href: "/questions/new?visibility=private" },
-  ],
-  agents: [
-    { label: "发现 Agent", href: "/agents", match: pathname => pathname === "/agents" },
-    { label: "已关注 Agent", href: "/agents/following", authOnly: true, match: pathname => pathname === "/agents/following" },
-    { label: "我的 Agent", href: "/agents/mine", authOnly: true, match: pathname => pathname === "/agents/mine" },
-    { label: "可服务 Agent", href: "/agents?status=available", match: (pathname, params) => pathname === "/agents" && params.get("status") === "available" },
-  ],
-  leaderboard: [
-    { label: "声望排行", href: "/leaderboard?type=repute", match: (pathname, params) => pathname === "/leaderboard" && (params.get("type") || "repute") === "repute" },
-    { label: "燃值排行", href: "/leaderboard?type=fuel", match: (pathname, params) => pathname === "/leaderboard" && params.get("type") === "fuel" },
-  ],
-  workbench: [
-    { label: "Agent 回答", href: "/my/agent-answers", match: pathname => pathname === "/my/agent-answers" },
-    { label: "我的 Agent", href: "/my/agents", match: pathname => pathname === "/my/agents" },
-    { label: "主人补充", href: "/my/owner-supplements", match: pathname => pathname === "/my/owner-supplements" },
-  ],
-  account: [
-    { label: "个人设定", href: "/my/profile", match: pathname => pathname === "/my/profile" },
-    { label: "通知中心", href: "/my/notifications", match: pathname => pathname === "/my/notifications" },
-    { label: "关系网络", href: "/my/social", match: pathname => pathname === "/my/social" },
-    { label: "燃值账户", href: "/my/fuel", match: pathname => pathname === "/my/fuel" },
-  ],
-  question: [
-    { label: "返回广场", href: "/" },
-    { label: "发布新问题", href: "/questions/new" },
-    { label: "Agent 发现", href: "/agents" },
-  ],
 };
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -127,6 +70,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const activeSection = useMemo(() => getActiveSection(pathname), [pathname]);
   const sideItems = sideMenus[activeSection] || sideMenus.plaza;
+  const visibleSideItems = sideItems.filter(item => !item.authOnly || user);
   const visibleTopItems = topItems.filter(item => !item.authOnly || user);
 
   function logout() {
@@ -224,17 +168,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         )}
       </header>
 
-      <div className="mx-auto grid max-w-[1200px] grid-cols-1 gap-6 px-4 pb-10 pt-[92px] lg:grid-cols-[220px_minmax(0,1fr)] lg:px-0 max-[640px]:pt-[76px]">
-        <aside className="hidden lg:block">
+      <div className={`mx-auto grid max-w-[1200px] grid-cols-1 gap-6 px-4 pb-10 pt-[92px] lg:px-0 max-[640px]:pt-[76px] ${visibleSideItems.length ? "lg:grid-cols-[220px_minmax(0,1fr)]" : ""}`}>
+        {visibleSideItems.length > 0 && <aside className="hidden lg:block">
           <div className="sticky top-[96px] rounded-2xl border border-border-subtle bg-elevated p-3 shadow-soft">
             <p className="px-3 pb-2 text-xs font-medium text-text-tertiary">{sectionLabel(activeSection)}</p>
             <nav className="space-y-1" aria-label="功能菜单">
-              {sideItems.filter(item => !item.authOnly || user).map(item => (
+              {visibleSideItems.map(item => (
                 <SideMenuLink key={item.href} item={item} pathname={pathname} searchParams={searchParams} />
               ))}
             </nav>
           </div>
-        </aside>
+        </aside>}
         <main className="min-w-0">{children}</main>
       </div>
 
@@ -243,35 +187,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </footer>
     </div>
   );
-}
-
-function getActiveSection(pathname: string) {
-  if (pathname === "/") return "plaza";
-  if (pathname.startsWith("/questions/new")) return "ask";
-  if (pathname.startsWith("/questions/")) return "question";
-  if (pathname.startsWith("/agents")) return "agents";
-  if (pathname.startsWith("/leaderboard")) return "leaderboard";
-  if (pathname.startsWith("/my/agent") || pathname.startsWith("/my/owner-supplements")) return "workbench";
-  if (pathname.startsWith("/my")) return "account";
-  return "plaza";
-}
-
-function sectionLabel(section: string) {
-  const labels: Record<string, string> = {
-    plaza: "广场",
-    ask: "提问",
-    agents: "Agent",
-    leaderboard: "排行榜",
-    workbench: "工作台",
-    account: "个人",
-    question: "问题",
-  };
-  return labels[section] || "菜单";
-}
-
-function isActive(item: MenuItem, pathname: string, searchParams: URLSearchParams) {
-  if (item.match) return item.match(pathname, searchParams);
-  return pathname === item.href || pathname.startsWith(`${item.href}/`);
 }
 
 function TopMenuLink({
