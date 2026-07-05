@@ -7,6 +7,28 @@ import type { Agent, QuestionVisibility } from "@/lib/types";
 
 const DEFAULT_ESTIMATED_FUEL_PER_ANSWER = 900;
 const DEFAULT_BASE_CAP_MULTIPLIER = 1.5;
+const DEADLINE_PRESETS = [
+  { value: 15, label: "15m" },
+  { value: 30, label: "30m" },
+  { value: 60, label: "1h" },
+  { value: 240, label: "4h" },
+  { value: 1440, label: "24h" },
+];
+const RESPONDER_PRESETS = [
+  { value: 1, label: "1" },
+  { value: 2, label: "2" },
+  { value: 3, label: "3" },
+  { value: 5, label: "5" },
+  { value: 8, label: "8" },
+  { value: 10, label: "10" },
+];
+const REWARD_PRESETS = [
+  { value: 0, label: "无" },
+  { value: 500, label: "500" },
+  { value: 1000, label: "1k" },
+  { value: 3000, label: "3k" },
+  { value: 10000, label: "10k" },
+];
 
 type FuelEstimate = {
   estimated_fuel_per_answer: number;
@@ -31,8 +53,9 @@ export function QuestionForm({ targetAgent }: { targetAgent?: Agent | null }) {
   const [err, setErr] = useState<string | null>(null);
 
   const targetAgentIds = targetAgent ? [targetAgent.id] : [];
-  const responderCount = targetAgent ? 1 : maxResp;
-  const safeReward = Math.max(0, Number(rewardFuel || 0));
+  const safeDeadline = clampInt(deadline, 1, 1440);
+  const responderCount = targetAgent ? 1 : clampInt(maxResp, 1, 10);
+  const safeReward = clampInt(rewardFuel, 0, 1000000);
   const basePlatformEstimate = Math.max(100, Number(fuelEstimate?.estimated_fuel_per_answer || DEFAULT_ESTIMATED_FUEL_PER_ANSWER));
   const baseMultiplier = Number(fuelEstimate?.base_cap_multiplier || DEFAULT_BASE_CAP_MULTIPLIER);
   const platformEstimate = basePlatformEstimate * (emergency ? 3 : 1);
@@ -71,7 +94,7 @@ export function QuestionForm({ targetAgent }: { targetAgent?: Agent | null }) {
           title,
           body,
           tags,
-          deadline_minutes: deadline,
+          deadline_minutes: safeDeadline,
           max_responders: responderCount,
           is_emergency: emergency,
           agent_ids: targetAgentIds,
@@ -162,20 +185,24 @@ export function QuestionForm({ targetAgent }: { targetAgent?: Agent | null }) {
 
         <section className="rounded-lg border border-gray-100 bg-white p-5 shadow-sm">
           <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Controls</p>
-          <div className="mt-4 grid grid-cols-2 gap-4">
-            <div>
-              <label className="mb-1 block text-xs text-gray-500">截止时间（分钟）</label>
-              <input type="number" value={deadline} onChange={e => setDeadline(Number(e.target.value))}
-                min={1} max={1440}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-gray-500">回答阵容</label>
-              <input type="number" value={maxResp} onChange={e => setMaxResp(Number(e.target.value))}
-                min={1} max={10}
-                disabled={!!targetAgent}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
-            </div>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <NumericField
+              label="截止时间"
+              value={safeDeadline}
+              onChange={setDeadline}
+              min={1}
+              max={1440}
+              suffix="分钟"
+              presets={DEADLINE_PRESETS}
+            />
+            <SegmentedNumber
+              label="回答阵容"
+              value={responderCount}
+              onChange={setMaxResp}
+              options={RESPONDER_PRESETS}
+              disabled={!!targetAgent}
+              suffix="Agent"
+            />
           </div>
           <label className="mt-4 flex items-center gap-2 text-sm text-gray-600">
             <input type="checkbox" checked={emergency} onChange={e => setEmergency(e.target.checked)} />
@@ -197,23 +224,22 @@ export function QuestionForm({ targetAgent }: { targetAgent?: Agent | null }) {
               </button>
             ))}
           </div>
-          <div className="mt-4 grid grid-cols-2 gap-4">
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
               <p className="text-xs text-gray-500">平台单答基准</p>
               <p className="mt-1 text-sm font-semibold text-gray-950">🔥 {platformEstimate}</p>
               <p className="mt-1 text-[11px] text-gray-400">近 {fuelEstimate?.sample_window_days || 2} 天均值 · 预授权 {baseMultiplier}x：🔥 {preauthPerAnswer}</p>
             </div>
-            <div>
-              <label className="mb-1 block text-xs text-gray-500">最佳回答奖励</label>
-              <input
-                type="number"
-                value={rewardFuel}
-                onChange={e => setRewardFuel(Number(e.target.value))}
-                min={0}
-                max={1000000}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-              />
-            </div>
+            <NumericField
+              label="最佳回答奖励"
+              value={safeReward}
+              onChange={setRewardFuel}
+              min={0}
+              max={1000000}
+              prefix="🔥"
+              suffix="燃值"
+              presets={REWARD_PRESETS}
+            />
           </div>
           <div className="mt-4 border-t border-gray-100 pt-4">
             <div className="mb-3 space-y-2 text-sm">
@@ -244,6 +270,111 @@ export function QuestionForm({ targetAgent }: { targetAgent?: Agent | null }) {
       </div>
     </div>
   );
+}
+
+function NumericField({
+  label,
+  value,
+  onChange,
+  min,
+  max,
+  prefix,
+  suffix,
+  presets,
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+  min: number;
+  max: number;
+  prefix?: string;
+  suffix: string;
+  presets: { value: number; label: string }[];
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-xs text-gray-500">{label}</label>
+      <div className="rounded-xl border border-gray-200 bg-white px-3 py-2 transition focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
+        <div className="flex items-center gap-2">
+          {prefix && <span className="text-base text-gray-400">{prefix}</span>}
+          <input
+            value={String(value)}
+            onChange={event => onChange(clampInt(Number(event.target.value.replace(/\D/g, "") || 0), min, max))}
+            inputMode="numeric"
+            pattern="[0-9]*"
+            className="min-w-0 flex-1 bg-transparent text-2xl font-semibold text-gray-950 outline-none"
+            aria-label={label}
+          />
+          <span className="shrink-0 text-xs font-medium text-gray-400">{suffix}</span>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {presets.map(preset => (
+            <button
+              key={preset.value}
+              type="button"
+              onClick={() => onChange(preset.value)}
+              className={`rounded-md px-2.5 py-1 text-xs transition ${
+                value === preset.value
+                  ? "bg-gray-950 text-white"
+                  : "bg-gray-100 text-gray-500 hover:bg-primary/10 hover:text-primary"
+              }`}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SegmentedNumber({
+  label,
+  value,
+  onChange,
+  options,
+  disabled = false,
+  suffix,
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+  options: { value: number; label: string }[];
+  disabled?: boolean;
+  suffix: string;
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-xs text-gray-500">{label}</label>
+      <div className={`rounded-xl border border-gray-200 bg-white p-2 ${disabled ? "opacity-60" : ""}`}>
+        <div className="grid grid-cols-3 gap-1.5">
+          {options.map(option => (
+            <button
+              key={option.value}
+              type="button"
+              disabled={disabled}
+              onClick={() => onChange(option.value)}
+              className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                value === option.value
+                  ? "bg-gray-950 text-white shadow-sm"
+                  : "bg-gray-50 text-gray-500 hover:bg-primary/10 hover:text-primary"
+              } disabled:cursor-not-allowed disabled:hover:bg-gray-50 disabled:hover:text-gray-500`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-xs text-gray-400">
+          {disabled ? "定向提问固定 1 个 Agent" : `当前 ${value} 个 ${suffix}`}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function clampInt(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, Math.round(value)));
 }
 
 function inferCapabilityPreview(text: string) {
