@@ -631,7 +631,7 @@ async def test_build_question_match_explanations_includes_answer_routing_metadat
 @pytest.mark.asyncio
 async def test_submit_feedback_updates_agent_learned_profile():
     answer = SimpleNamespace(id="ans_test", question_id="q_test", agent_id="a_test", status="approved")
-    existing = SimpleNamespace(id="fb_test", vote="up", comment="", created_at=datetime.utcnow())
+    existing = SimpleNamespace(id="fb_test", vote="up", comment="", feedback_reasons=[], created_at=datetime.utcnow())
     agent = SimpleNamespace(id="a_test", repute_score=4.0, review_rules={
         "learned_profile": {"positive_feedback": 1, "positive_tags": ["魔兽世界"]}
     })
@@ -666,3 +666,51 @@ async def test_submit_feedback_updates_agent_learned_profile():
     assert learned["negative_feedback"] == 1
     assert learned["negative_tags"] == ["魔兽世界", "硬核模式"]
     assert db.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_submit_feedback_stores_structured_reasons_and_learning_signals():
+    answer = SimpleNamespace(id="ans_test", question_id="q_test", agent_id="a_test", status="approved")
+    agent = SimpleNamespace(id="a_test", user_id="u_test", repute_score=4.0, review_rules={})
+    question = SimpleNamespace(id="q_test", title="真实问题", tags=["魔兽世界", "硬核模式"])
+
+    class FeedbackDB:
+        def __init__(self):
+            self.calls = 0
+            self.added = []
+            self.commits = 0
+
+        async def execute(self, stmt):
+            self.calls += 1
+            values = [answer, None, agent, question]
+            return FeedbackResult(values[self.calls - 1])
+
+        def add(self, obj):
+            self.added.append(obj)
+            obj.id = "fb_new"
+            obj.created_at = datetime.utcnow()
+
+        async def commit(self):
+            self.commits += 1
+
+    db = FeedbackDB()
+
+    out = await questions.submit_feedback(
+        "q_test",
+        "ans_test",
+        questions.FeedbackReq(
+            vote="down",
+            comment="版本过期且没有来源",
+            reasons=["stale", "needs_sources", "owner_review"],
+        ),
+        user_payload={"sub": "u_test"},
+        db=db,
+    )
+
+    feedback = db.added[0]
+    learned = agent.review_rules["learned_profile"]
+    assert out["reasons"] == ["stale", "needs_sources", "owner_review"]
+    assert feedback.feedback_reasons == ["stale", "needs_sources", "owner_review"]
+    assert "反馈:过期" in learned["negative_tags"]
+    assert "反馈:需要来源" in learned["negative_tags"]
+    assert "反馈:建议主人修正" in learned["negative_tags"]

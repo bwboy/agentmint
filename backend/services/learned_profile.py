@@ -137,6 +137,7 @@ def update_learned_profile_from_feedback(
     vote: str,
     *,
     previous_vote: str | None = None,
+    reasons: list[str] | None = None,
 ) -> dict[str, Any]:
     rules = dict(getattr(agent, "review_rules", None) or {})
     profile = normalize_learned_profile(rules.get(LEARNED_PROFILE_KEY))
@@ -153,11 +154,29 @@ def update_learned_profile_from_feedback(
     elif vote == "down":
         profile["negative_feedback"] = int(profile["negative_feedback"]) + 1
         _merge(profile, "negative_tags", tags)
+        _merge(profile, "negative_tags", feedback_reason_tags(reasons))
 
     profile["updated_at"] = datetime.utcnow().isoformat()
     rules[LEARNED_PROFILE_KEY] = profile
     agent.review_rules = rules
     return profile
+
+
+FEEDBACK_REASON_TAGS = {
+    "stale": "反馈:过期",
+    "missed_point": "反馈:没答到点",
+    "needs_sources": "反馈:需要来源",
+    "owner_review": "反馈:建议主人修正",
+}
+
+
+def feedback_reason_tags(values: list[str] | None) -> list[str]:
+    tags: list[str] = []
+    for value in values or []:
+        tag = FEEDBACK_REASON_TAGS.get(str(value or "").strip())
+        if tag:
+            tags.append(tag)
+    return tags
 
 
 def update_learned_profile_from_owner_supplement(agent: Any, question: Any, supplement: Any) -> dict[str, Any]:

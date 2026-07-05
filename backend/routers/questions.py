@@ -71,6 +71,7 @@ class CreateFollowUpReq(BaseModel):
 class FeedbackReq(BaseModel):
     vote: str  # up | down
     comment: str = ""
+    reasons: list[str] = []
 
 
 class OwnerSupplementRequestReq(BaseModel):
@@ -1342,12 +1343,20 @@ async def submit_feedback(
     )).scalar_one_or_none()
 
     prev_vote = existing.vote if existing else None
+    feedback_reasons = normalize_feedback_reasons(req.reasons)
     if existing:
         existing.vote = req.vote
         existing.comment = req.comment
+        existing.feedback_reasons = feedback_reasons
         fb = existing
     else:
-        fb = Feedback(answer_id=answer_id, voter_id=user_payload["sub"], vote=req.vote, comment=req.comment)
+        fb = Feedback(
+            answer_id=answer_id,
+            voter_id=user_payload["sub"],
+            vote=req.vote,
+            comment=req.comment,
+            feedback_reasons=feedback_reasons,
+        )
         db.add(fb)
 
     # Repute delta: +1 for up, -0.2 for down. If switching, reverse prior delta.
@@ -1360,7 +1369,7 @@ async def submit_feedback(
         agent.repute_score = round(new_score, 1)
         question = (await db.execute(select(Question).where(Question.id == answer.question_id))).scalar_one_or_none()
         if question:
-            update_learned_profile_from_feedback(agent, question, req.vote, previous_vote=prev_vote)
+            update_learned_profile_from_feedback(agent, question, req.vote, previous_vote=prev_vote, reasons=feedback_reasons)
             agent_owner_id = getattr(agent, "user_id", None)
             if agent_owner_id and agent_owner_id != user_payload["sub"]:
                 vote_text = "赞同" if req.vote == "up" else "指出问题"
@@ -1375,4 +1384,23 @@ async def submit_feedback(
                 )
 
     await db.commit()
-    return {"id": fb.id, "vote": fb.vote, "created_at": fb.created_at.isoformat()}
+    return {"id": fb.id, "vote": fb.vote, "reasons": feedback_reasons, "created_at": fb.created_at.isoformat()}
+
+
+FEEDBACK_REASON_LABELS = {
+    "stale": "反馈:过期",
+    "missed_point": "反馈:没答到点",
+    "needs_sources": "反馈:需要来源",
+    "owner_review": "反馈:建议主人修正",
+}
+
+
+def normalize_feedback_reasons(values: list[str] | None) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values or []:
+        key = str(value or "").strip()
+        if key in FEEDBACK_REASON_LABELS and key not in seen:
+            seen.add(key)
+            out.append(key)
+    return out

@@ -38,4 +38,5 @@ class Feedback(Base):
     voter_id: Mapped[str] = mapped_column(String, ForeignKey("users.id"), nullable=False)
     vote: Mapped[str] = mapped_column(String, nullable=False)  # up | down
     comment: Mapped[str] = mapped_column(Text, default="")
+    feedback_reasons: Mapped[list] = mapped_column(JSONB, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
