@@ -1,0 +1,1483 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AgentMint x TeamoRouter Reference Preview</title>
+    <meta name="color-scheme" content="light" />
+    <style>
+      :root {
+        --page-bg: #F7F7F7;
+        --page-bg-muted: rgb(251, 251, 251);
+        --surface-bg: #FFFFFF;
+        --surface-bg-muted: rgb(251, 251, 251);
+        --surface-border: #DCDCDC;
+        --surface-border-strong: rgb(215, 215, 215);
+        --surface-shadow: 0 10px 32px rgba(18,18,18,0.08).;
+        --surface-shadow-soft: 0 0 0 1px #DCDCDC;
+        --ink: #121212;
+        --muted: #525252;
+        --subtle: rgb(142, 142, 142);
+        --accent: #AE453F;
+        --font-body: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+        --font-display: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+        --font-mono: IDs, ui-monospace, "SFMono-Regular", "SF Mono", Menlo, monospace;
+        --body-size: 16px;
+        --body-line: 24px;
+        --body-weight: 400;
+        --label-size: 14px;
+        --label-line: 22px;
+        --label-track: 0.04em;
+        --title-size: 32px;
+        --title-line: 33.6px;
+        --title-track: -0.64px;
+        --section-size: 32px;
+        --section-line: 33.6px;
+        --section-track: -0.64px;
+        --source-size: 13px;
+        --source-line: 24px;
+        --space-1: 4px;
+        --space-2: 6px;
+        --space-3: 8px;
+        --space-4: 12px;
+        --space-5: 16px;
+        --space-6: 20px;
+        --radius-panel: 8px;
+        --radius-card: 8px;
+        --radius-micro: 6px;
+        --radius-pill: 9999px;
+        --button-height: 40px;
+        --button-font-size: 14px;
+        --button-weight: 500;
+        --button-radius: 9999px;
+        --secondary-button-radius: 9999px;
+        --layout-gap: 12px;
+        --page-padding: 12px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+        color: var(--ink);
+        font-family: var(--font-body);
+        font-size: var(--body-size);
+        font-weight: var(--body-weight);
+        line-height: var(--body-line);
+        background:
+          radial-gradient(circle at top, color-mix(in srgb, var(--accent) 8%, transparent), transparent 30%),
+          linear-gradient(180deg, var(--page-bg) 0%, var(--page-bg-muted) 100%);
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        pointer-events: none;
+        background-image:
+          linear-gradient(color-mix(in srgb, var(--surface-border) 56%, transparent) 1px, transparent 1px),
+          linear-gradient(90deg, color-mix(in srgb, var(--surface-border) 56%, transparent) 1px, transparent 1px);
+        background-size: 100% calc(24px), calc(24px) 100%;
+        mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.3), transparent 88%);
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      button {
+        font: inherit;
+      }
+
+      .shell {
+        width: min(1440px, calc(100vw - (var(--page-padding) * 2)));
+        margin: 0 auto;
+        padding: var(--page-padding) 0 calc(var(--page-padding) * 1.2);
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(340px, 0.92fr) minmax(420px, 1fr);
+        gap: var(--layout-gap);
+        align-items: start;
+      }
+
+      .stack {
+        display: grid;
+        gap: var(--space-4);
+      }
+
+      .panel {
+        overflow: hidden;
+        border: 1px solid var(--surface-border);
+        border-radius: var(--radius-panel);
+        background: linear-gradient(180deg, color-mix(in srgb, var(--surface-bg) 88%, white) 0%, var(--surface-bg) 100%);
+        box-shadow: var(--surface-shadow);
+      }
+
+      .panel-inner {
+        padding: var(--space-4);
+      }
+
+      .hero-card {
+        position: relative;
+      }
+
+      .hero-card::before {
+        content: "";
+        position: absolute;
+        left: var(--space-4);
+        right: var(--space-4);
+        top: 0;
+        height: 3px;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #F7F7F7 0%, #FCFCFC 33%, #FFFFFF 67%, #EFEFEF 100%);
+      }
+
+      .eyebrow {
+        margin-bottom: var(--space-2);
+        color: var(--muted);
+        font-size: var(--label-size);
+        line-height: var(--label-line);
+        letter-spacing: var(--label-track);
+        text-transform: uppercase;
+      }
+
+      .site-title,
+      .section-title {
+        margin: 0;
+        color: var(--ink);
+        font-family: var(--font-display);
+        font-weight: 600;
+      }
+
+      .site-title {
+        font-size: var(--title-size);
+        line-height: var(--title-line);
+        letter-spacing: var(--title-track);
+      }
+
+      .descriptor {
+        margin: var(--space-2) 0 0;
+        max-width: 42ch;
+        color: var(--muted);
+        font-size: var(--body-size);
+        line-height: var(--body-line);
+      }
+
+      .summary {
+        margin: var(--space-3) 0 0;
+        max-width: 56ch;
+        color: var(--muted);
+        font-size: var(--body-size);
+        line-height: var(--body-line);
+      }
+
+      .chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        margin: var(--space-3) 0 0;
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        min-height: calc(4px * 3);
+        padding: 0 var(--space-2);
+        border: 1px solid var(--surface-border);
+        border-radius: var(--radius-pill);
+        background: var(--surface-bg);
+        color: var(--ink);
+        font-size: var(--label-size);
+        line-height: var(--label-line);
+        box-shadow: var(--surface-shadow-soft);
+      }
+
+      .observed-link {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-2);
+        margin-top: var(--space-4);
+        padding-top: var(--space-3);
+        border-top: 1px solid var(--surface-border);
+        color: var(--muted);
+        font-size: var(--label-size);
+        overflow-wrap: anywhere;
+      }
+
+      .observed-link::before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--accent);
+        box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent);
+      }
+
+      .section-title {
+        font-size: var(--section-size);
+        line-height: var(--section-line);
+        letter-spacing: var(--section-track);
+      }
+
+      .section-subtitle {
+        margin: var(--space-2) 0 var(--space-4);
+        color: var(--muted);
+        font-size: var(--body-size);
+        line-height: var(--body-line);
+      }
+
+      .palette-grid,
+      .theme-mode-grid,
+      .type-list,
+      .component-card,
+      .prompt-list,
+      .mini-grid,
+      .token-table {
+        display: grid;
+        gap: var(--space-2);
+      }
+
+      .palette-row {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: var(--space-2);
+      }
+
+      .palette-row.neutral-row {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .theme-mode-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--space-3);
+      }
+
+      .theme-mode-card {
+        display: grid;
+        gap: var(--space-2);
+        padding: var(--space-3);
+        border: 1px solid var(--surface-border);
+        border-radius: var(--radius-card);
+        background: color-mix(in srgb, var(--surface-bg) 92%, white);
+      }
+
+      .theme-mode-card.is-dark {
+        background: #111111;
+        color: #f4f4f4;
+        border-color: rgba(255, 255, 255, 0.12);
+      }
+
+      .theme-mode-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-2);
+      }
+
+      .theme-mode-label {
+        color: var(--subtle);
+        font-size: var(--label-size);
+        line-height: var(--label-line);
+        letter-spacing: var(--label-track);
+        text-transform: uppercase;
+      }
+
+      .theme-mode-card.is-dark .theme-mode-label {
+        color: rgba(255, 255, 255, 0.7);
+      }
+
+      .theme-mode-note {
+        margin: 0;
+        color: var(--muted);
+        font-size: calc(var(--body-size) - 1px);
+        line-height: calc(var(--body-line) - 4px);
+      }
+
+      .theme-mode-card.is-dark .theme-mode-note {
+        color: rgba(255, 255, 255, 0.82);
+      }
+
+      .theme-swatch-row {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: var(--space-2);
+      }
+
+      .theme-swatch {
+        display: grid;
+        gap: 6px;
+      }
+
+      .theme-swatch-box {
+        height: 72px;
+        border-radius: calc(var(--radius-card) - 4px);
+        border: 1px solid color-mix(in srgb, var(--surface-border-strong) 75%, transparent);
+      }
+
+      .theme-mode-card.is-dark .theme-swatch-box {
+        border-color: rgba(255, 255, 255, 0.14);
+      }
+
+      .theme-swatch-name {
+        color: inherit;
+        font-size: 12px;
+        line-height: 1.3;
+      }
+
+      .theme-swatch-value {
+        color: var(--subtle);
+        font-size: 11px;
+        line-height: 1.3;
+      }
+
+      .theme-mode-card.is-dark .theme-swatch-value {
+        color: rgba(255, 255, 255, 0.62);
+      }
+
+      .swatch {
+        display: grid;
+        gap: var(--space-2);
+      }
+
+      .swatch-box {
+        min-height: calc(4px * 12);
+        border-radius: var(--radius-card);
+        border: 1px solid color-mix(in srgb, var(--surface-border-strong) 75%, transparent);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 4%, transparent);
+      }
+
+      .swatch-label,
+      .token-heading,
+      .prompt-card strong,
+      .card-preview h4 {
+        color: var(--ink);
+        font-family: var(--font-display);
+        font-size: var(--body-size);
+        line-height: var(--body-line);
+        font-weight: 600;
+      }
+
+      .swatch-meta,
+      .type-metrics,
+      .mini-label,
+      .copy-state,
+      .file-tab,
+      .ghost-button,
+      .segmented button {
+        color: var(--muted);
+        font-size: var(--label-size);
+        line-height: var(--label-line);
+      }
+
+      .type-row {
+        display: grid;
+        grid-template-columns: 72px minmax(0, 1fr) auto;
+        gap: var(--space-2);
+        align-items: baseline;
+        padding: var(--space-2) 0;
+        border-top: 1px solid var(--surface-border);
+      }
+
+      .type-row:first-child,
+      .mini-row:first-child,
+      .token-row:first-child {
+        border-top: 0;
+        padding-top: 0;
+      }
+
+      .type-role {
+        color: var(--muted);
+        font-size: var(--label-size);
+        line-height: var(--label-line);
+        letter-spacing: var(--label-track);
+        text-transform: uppercase;
+      }
+
+      .type-sample {
+        color: var(--ink);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .split-card {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--space-4);
+      }
+
+      .token-row,
+      .mini-row {
+        display: grid;
+        gap: var(--space-2);
+        align-items: start;
+        padding-top: var(--space-2);
+        border-top: 1px solid var(--surface-border);
+      }
+
+      .token-row {
+        grid-template-columns: 1fr auto;
+      }
+
+      .mini-row {
+        grid-template-columns: 88px minmax(0, 1fr);
+      }
+
+      .mini-content,
+      .prompt-card p,
+      .card-preview p {
+        color: var(--muted);
+        font-size: var(--body-size);
+        line-height: var(--body-line);
+      }
+
+      .radius-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--space-2);
+      }
+
+      .radius-card,
+      .prompt-card {
+        padding: var(--space-3);
+        border: 1px solid var(--surface-border);
+        border-radius: var(--radius-card);
+        background: var(--surface-bg-muted);
+        box-shadow: var(--surface-shadow-soft);
+      }
+
+      .radius-demo {
+        aspect-ratio: 1;
+        width: 100%;
+        border: 1px solid var(--surface-border-strong);
+        background: var(--surface-bg);
+      }
+
+      .radius-name {
+        margin-top: var(--space-2);
+        color: var(--ink);
+        font-size: var(--body-size);
+        line-height: var(--body-line);
+        font-weight: 600;
+      }
+
+      .radius-value {
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: var(--label-size);
+      }
+
+      .button-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+      }
+
+      .cta {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: var(--button-height);
+        padding: 0 var(--space-3);
+        border-radius: var(--button-radius);
+        font-family: var(--font-body);
+        font-size: var(--button-font-size);
+        font-weight: var(--button-weight);
+        line-height: 1;
+        letter-spacing: normal;
+      }
+
+      .cta-primary {
+        border: 1px solid transparent;
+        background: #171717;
+        color: #ffffff;
+        border-radius: 9999px;
+      }
+
+      .cta-secondary {
+        border: 1px solid #171717;
+        background: #ffffff;
+        color: #171717;
+        border-radius: 9999px;
+        box-shadow: var(--surface-shadow-soft);
+      }
+
+      .card-preview {
+        padding: 8px;
+        border-radius: 8px;
+        border: 1px solid color-mix(in srgb, var(--surface-border-strong) 72%, transparent);
+        background: var(--surface-bg);
+        color: var(--ink);
+        box-shadow: 0 10px 32px rgba(18,18,18,0.08).;
+      }
+
+      .card-preview h4 {
+        margin: 0 0 var(--space-1);
+      }
+
+      .source-shell {
+        position: sticky;
+        top: var(--page-padding);
+      }
+
+      .source-header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-2);
+        padding: var(--space-3) var(--space-4) var(--space-2);
+        border-bottom: 1px solid var(--surface-border);
+      }
+
+      .file-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px var(--space-3);
+      }
+
+      .file-tab {
+        padding: 0 0 var(--space-2);
+        border-bottom: 2px solid transparent;
+      }
+
+      .file-tab.active {
+        color: var(--ink);
+        border-bottom-color: var(--ink);
+        font-weight: 600;
+      }
+
+      .source-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--space-2);
+        padding: var(--space-2) var(--space-4);
+        border-bottom: 1px solid var(--surface-border);
+      }
+
+      .segmented {
+        display: inline-flex;
+        padding: 3px;
+        border: 1px solid var(--surface-border);
+        border-radius: var(--radius-pill);
+        background: var(--surface-bg-muted);
+      }
+
+      .segmented button {
+        border: 0;
+        border-radius: var(--radius-pill);
+        background: transparent;
+        padding: 6px 12px;
+        cursor: pointer;
+      }
+
+      .segmented button.is-active {
+        background: var(--surface-bg);
+        color: var(--ink);
+        box-shadow: var(--surface-shadow-soft);
+      }
+
+      .toolbar-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        margin-left: auto;
+      }
+
+      .ghost-button {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 12px;
+        border: 1px solid var(--surface-border);
+        border-radius: 6px;
+        background: var(--surface-bg);
+        box-shadow: var(--surface-shadow-soft);
+        cursor: pointer;
+      }
+
+      .source-body {
+        max-height: calc(100vh - (var(--page-padding) * 2) - 120px);
+        overflow: auto;
+      }
+
+      .source-view,
+      .rendered-view {
+        margin: 0;
+        padding: var(--space-4);
+      }
+
+      .source-view {
+        color: var(--ink);
+        font-family: var(--font-mono);
+        font-size: var(--source-size);
+        line-height: var(--source-line);
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: var(--surface-bg);
+      }
+
+      .rendered-view {
+        color: var(--ink);
+        font-family: var(--font-body);
+        font-size: var(--body-size);
+        line-height: var(--body-line);
+        background: var(--surface-bg);
+      }
+
+      .rendered-view[hidden],
+      .source-view[hidden] {
+        display: none;
+      }
+
+      .rendered-view h2,
+      .rendered-view h3 {
+        margin: var(--space-4) 0 var(--space-2);
+        color: var(--ink);
+        font-family: var(--font-display);
+        font-weight: 600;
+      }
+
+      .rendered-view h2 {
+        font-size: var(--section-size);
+        line-height: var(--section-line);
+        letter-spacing: var(--section-track);
+      }
+
+      .rendered-view h2:first-child {
+        margin-top: 0;
+      }
+
+      .rendered-view h3 {
+        color: var(--muted);
+        font-size: calc(32px - 4px);
+        line-height: calc(33.6px - 4px);
+      }
+
+      .rendered-view p,
+      .rendered-view li {
+        color: var(--muted);
+      }
+
+      .rendered-view ul,
+      .rendered-view ol {
+        margin: 0 0 var(--space-3) 20px;
+        padding: 0;
+      }
+
+      .rendered-view table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: var(--space-2) 0 var(--space-4);
+      }
+
+      .rendered-view th,
+      .rendered-view td {
+        padding: var(--space-2) var(--space-2);
+        border: 1px solid var(--surface-border);
+        text-align: left;
+        vertical-align: top;
+        font-size: var(--label-size);
+        line-height: var(--label-line);
+      }
+
+      .rendered-view th {
+        color: var(--ink);
+        background: var(--surface-bg-muted);
+      }
+
+      .rendered-view code {
+        padding: 0.14em 0.4em;
+        border-radius: 6px;
+        background: var(--surface-bg-muted);
+        color: var(--ink);
+        font-family: var(--font-mono);
+        font-size: 0.92em;
+      }
+
+      @media (max-width: 1120px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+
+        .source-shell {
+          position: relative;
+          top: 0;
+        }
+
+        .source-body {
+          max-height: none;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .shell {
+          width: min(100vw - (6px * 2), 100%);
+          padding-top: 6px;
+        }
+
+        .panel-inner,
+        .source-view,
+        .rendered-view {
+          padding-left: var(--space-3);
+          padding-right: var(--space-3);
+        }
+
+        .palette-row,
+        .palette-row.neutral-row,
+        .theme-mode-grid,
+        .theme-swatch-row,
+        .split-card,
+        .radius-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .type-row,
+        .mini-row {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <div class="layout">
+        <section class="stack">
+          <article class="panel hero-card">
+            <div class="panel-inner">
+              <div class="eyebrow">Design Preview</div>
+              <h1 class="site-title">AgentMint x TeamoRouter Reference</h1>
+              <p class="descriptor">AgentMint should feel like a modern AI operations workbench rather than a traditional forum...</p>
+              <div class="chip-row"><span class="chip">Warm light canvas with white ele...</span><span class="chip">Black headline typography with r...</span><span class="chip">Red-orange brand accent for prim...</span><span class="chip">Data-first sections: tables, ran...</span><span class="chip">Soft elevation: cards use thin b...</span><span class="chip">Glass navigation: fixed top bar...</span></div>
+              <p class="summary">The mood is clean but not sterile. Use large confident headlines and strong data surfaces, then let fine borders, muted gray text, and compact controls carry the operational parts. Avoid decorative gradients as the main identity. The signature detail is &quot;structured intelligence&quot;: visible grids, tables, route/status panels, and metric cards that make AI activity feel measurable.</p>
+              <a class="observed-link" href="https://teamorouter.com/zh" target="_blank" rel="noreferrer">https://teamorouter.com/zh</a>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-inner">
+              <h2 class="section-title">Palette</h2>
+              <p class="section-subtitle">Roles and neutrals rendered using the extracted design system rather than a separate display theme.</p>
+              <div class="palette-grid"><div class="palette-row"><div class="swatch">
+    <div class="swatch-box" style="background:#F7F7F7;"></div>
+    <div class="swatch-label">Warm Canvas</div>
+    <div class="swatch-meta">
+      <span>#F7F7F7</span>
+      <span>Canvas</span>
+    </div>
+  </div><div class="swatch">
+    <div class="swatch-box" style="background:#FCFCFC;"></div>
+    <div class="swatch-label">Top Light Wash</div>
+    <div class="swatch-meta">
+      <span>#FCFCFC to rgba(246,246,246,0)</span>
+      <span>Hero Fade</span>
+    </div>
+  </div><div class="swatch">
+    <div class="swatch-box" style="background:#FFFFFF;"></div>
+    <div class="swatch-label">Paper White</div>
+    <div class="swatch-meta">
+      <span>#FFFFFF</span>
+      <span>Elevated Surface</span>
+    </div>
+  </div></div><div class="palette-row neutral-row"><div class="swatch">
+    <div class="swatch-box" style="background:#EFEFEF;"></div>
+    <div class="swatch-label">Panel Gray</div>
+    <div class="swatch-meta">
+      <span>#EFEFEF</span>
+      <span>Muted Surface</span>
+    </div>
+  </div><div class="swatch">
+    <div class="swatch-box" style="background:#F0F0F0;"></div>
+    <div class="swatch-label">Control Gray</div>
+    <div class="swatch-meta">
+      <span>#F0F0F0</span>
+      <span>Subtle Surface</span>
+    </div>
+  </div><div class="swatch">
+    <div class="swatch-box" style="background:#121212;"></div>
+    <div class="swatch-label">Ink Black</div>
+    <div class="swatch-meta">
+      <span>#121212</span>
+      <span>Primary Text</span>
+    </div>
+  </div><div class="swatch">
+    <div class="swatch-box" style="background:#525252;"></div>
+    <div class="swatch-label">Utility Gray</div>
+    <div class="swatch-meta">
+      <span>#525252</span>
+      <span>Secondary Text</span>
+    </div>
+  </div></div></div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-inner">
+              <h2 class="section-title">Theme Modes</h2>
+              <p class="section-subtitle">If the product supports light and dark themes, both modes should stay visible in the exported design system and preview.</p>
+              <div class="prompt-card"><strong>Single mode detected</strong><p>No explicit <code>Theme Modes</code> section was detected in the markdown. If the product supports both light and dark themes, document both so the preview can render them side by side.</p></div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-inner">
+              <h2 class="section-title">Typography</h2>
+              <p class="section-subtitle">The preview shell itself now uses the extracted typography stack, sizes, line heights, and tracking.</p>
+              <div class="type-list"><div class="type-row">
+        <div class="type-role">Desktop hero headline</div>
+        <div
+          class="type-sample"
+          style="font-size:48px; line-height:56px; font-weight:700; letter-spacing:-1.2px; font-family:&quot;IBM Plex Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Arial, sans-serif;"
+        >
+          The quick brown fox jumps
+        </div>
+        <div class="type-metrics">60px • 700 • 63px</div>
+      </div><div class="type-row">
+        <div class="type-role">Mobile hero headline</div>
+        <div
+          class="type-sample"
+          style="font-size:32px; line-height:33.6px; font-weight:700; letter-spacing:-0.64px; font-family:&quot;IBM Plex Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Arial, sans-serif;"
+        >
+          The quick brown fox jumps
+        </div>
+        <div class="type-metrics">32px • 700 • 33.6px</div>
+      </div><div class="type-row">
+        <div class="type-role">Large numeric/value headline</div>
+        <div
+          class="type-sample"
+          style="font-size:48px; line-height:48px; font-weight:700; letter-spacing:-0.02em; font-family:&quot;IBM Plex Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Arial, sans-serif;"
+        >
+          The quick brown fox jumps
+        </div>
+        <div class="type-metrics">78.4px desktop, 34.4px mobile • 700 • 0.95em</div>
+      </div><div class="type-row">
+        <div class="type-role">Section heading</div>
+        <div
+          class="type-sample"
+          style="font-size:30px; line-height:36px; font-weight:600; letter-spacing:-0.75px; font-family:&quot;IBM Plex Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Arial, sans-serif;"
+        >
+          The quick brown fox jumps
+        </div>
+        <div class="type-metrics">30px • 600-700 • 36px</div>
+      </div><div class="type-row">
+        <div class="type-role">Card heading</div>
+        <div
+          class="type-sample"
+          style="font-size:18px; line-height:28px; font-weight:600; letter-spacing:normal; font-family:&quot;IBM Plex Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Arial, sans-serif;"
+        >
+          The quick brown fox jumps
+        </div>
+        <div class="type-metrics">18-24px • 600 • 28-32px</div>
+      </div><div class="type-row">
+        <div class="type-role">Table header</div>
+        <div
+          class="type-sample"
+          style="font-size:14px; line-height:20px; font-weight:700; letter-spacing:normal; font-family:&quot;IBM Plex Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Arial, sans-serif;"
+        >
+          The quick brown fox jumps
+        </div>
+        <div class="type-metrics">14px • 700 • 20px</div>
+      </div><div class="type-row">
+        <div class="type-role">Body</div>
+        <div
+          class="type-sample"
+          style="font-size:16px; line-height:24px; font-weight:400; letter-spacing:normal; font-family:&quot;IBM Plex Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Arial, sans-serif;"
+        >
+          The quick brown fox jumps
+        </div>
+        <div class="type-metrics">16px • 400 • 24px</div>
+      </div><div class="type-row">
+        <div class="type-role">Compact control</div>
+        <div
+          class="type-sample"
+          style="font-size:14px; line-height:20px; font-weight:500; letter-spacing:normal; font-family:&quot;IBM Plex Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Arial, sans-serif;"
+        >
+          The quick brown fox jumps
+        </div>
+        <div class="type-metrics">14px • 500-600 • 20px</div>
+      </div><div class="type-row">
+        <div class="type-role">Caption / Meta</div>
+        <div
+          class="type-sample"
+          style="font-size:12px; line-height:15px; font-weight:400; letter-spacing:normal; font-family:&quot;IBM Plex Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Arial, sans-serif;"
+        >
+          The quick brown fox jumps
+        </div>
+        <div class="type-metrics">12-14px • 400-500 • 15-20px</div>
+      </div></div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-inner">
+              <h2 class="section-title">Spacing &amp; Shape</h2>
+              <p class="section-subtitle">Spacing, panel padding, and radius tokens are mapped directly from the layout rules in the markdown.</p>
+              <div class="split-card">
+    <div>
+      <h3 class="token-heading">Spacing</h3>
+      <div class="token-table"><div class="token-row">
+        <span>Base unit</span>
+        <span>4px</span>
+      </div><div class="token-row">
+        <span>Step 2</span>
+        <span>6px</span>
+      </div><div class="token-row">
+        <span>Step 3</span>
+        <span>8px</span>
+      </div><div class="token-row">
+        <span>Step 4</span>
+        <span>12px</span>
+      </div><div class="token-row">
+        <span>Step 5</span>
+        <span>16px</span>
+      </div></div>
+    </div>
+    <div>
+      <h3 class="token-heading">Border Radius</h3>
+      <div class="radius-grid"><div class="radius-card">
+        <div class="radius-demo" style="border-radius:6px;"></div>
+        <div class="radius-name">Micro utility</div>
+        <div class="radius-value">6px</div>
+      </div><div class="radius-card">
+        <div class="radius-demo" style="border-radius:8px;"></div>
+        <div class="radius-name">Standard module</div>
+        <div class="radius-value">8px</div>
+      </div><div class="radius-card">
+        <div class="radius-demo" style="border-radius:9999px;"></div>
+        <div class="radius-name">Category rail</div>
+        <div class="radius-value">9999px</div>
+      </div><div class="radius-card">
+        <div class="radius-demo" style="border-radius:9999px;"></div>
+        <div class="radius-name">CTA pill</div>
+        <div class="radius-value">9999px</div>
+      </div></div>
+    </div>
+  </div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-inner">
+              <h2 class="section-title">Components</h2>
+              <p class="section-subtitle">Buttons and cards use the documented height, weight, radius, colors, and surface treatment.</p>
+              <div class="component-card">
+    <div class="button-row">
+      <span class="cta cta-primary">Start Deploying</span>
+      <span class="cta cta-secondary">Get a Demo</span>
+    </div>
+    <div class="card-preview">
+      <h4>System Card Preview</h4>
+      <p>white card on warm canvas.</p>
+    </div>
+  </div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-inner">
+              <h2 class="section-title">System Notes</h2>
+              <p class="section-subtitle">Responsive behavior and depth rules stay visible while keeping the overall proportions calm and readable.</p>
+              <div class="split-card">
+    <div>
+      <h3 class="token-heading">Breakpoints</h3>
+      <div class="mini-grid"><div class="mini-row">
+            <div class="mini-label">Mobile</div>
+            <div class="mini-content"><strong>390px observed</strong><br />Header becomes logo + black language button + 38px menu. Container uses 16px side padding. Hero title becomes 32px. Tables keep 900-1024px min-width and scroll horizontally.</div>
+          </div><div class="mini-row">
+            <div class="mini-label">Tablet</div>
+            <div class="mini-content"><strong>Around 768px inferred</strong><br />Feature grids move from 3 columns to 1-2 columns. Cards use 16-20px padding. Header may still hide dense nav.</div>
+          </div><div class="mini-row">
+            <div class="mini-label">Desktop</div>
+            <div class="mini-content"><strong>1440px observed</strong><br />Fixed 76px header, 1200px content container, hero title 60px, cards use 24px padding, tables fill full container.</div>
+          </div></div>
+    </div>
+    <div>
+      <h3 class="token-heading">Elevation</h3>
+      <div class="mini-grid"><div class="mini-row">
+            <div class="mini-label">Flat</div>
+            <div class="mini-content"><strong>Canvas background, no border</strong><br />Page base and open layout areas.</div>
+          </div><div class="mini-row">
+            <div class="mini-label">Hairline</div>
+            <div class="mini-content"><strong>1px #DCDCDC, no shadow</strong><br />Rows, small controls, subtle separators.</div>
+          </div><div class="mini-row">
+            <div class="mini-label">Control</div>
+            <div class="mini-content"><strong>White/canvas fill, 1px #C4C4C4 border</strong><br />Buttons, inputs, selects.</div>
+          </div><div class="mini-row">
+            <div class="mini-label">Card</div>
+            <div class="mini-content"><strong>White fill, 1px #DCDCDC, 0 10px 32px rgba(18,18,18,0.08)</strong><br />Panels, tables, answer cards, billing summaries.</div>
+          </div></div>
+    </div>
+  </div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-inner">
+              <h2 class="section-title">Prompt Guide</h2>
+              <p class="section-subtitle">Prompt snippets are shown in the same typography and spacing language as the extracted design system.</p>
+              <div class="prompt-list"><div class="prompt-card"><strong>Quick Summary</strong><p>Use a bright, warm, data-forward AI workbench style. The visual core is #F7F7F7 canvas, white soft-shadow cards, black IBM Plex/Noto typography, red-orange primary actions, muted gray operational text, and dense table-like panels. Treat AgentMint as a measurable agent routing and settlement product: every answer, token, owner action, service limit, and fuel movement should feel visible and trustworthy.</p></div><div class="prompt-card">
+            <strong>Hero</strong>
+            <p>&quot;Build a bright AI workbench hero on a warm #F7F7F7 canvas, fixed translucent header, faint 40px technical grid behind the first screen, 60px black headline, compact body copy, red primary CTA, white secondary CTA.&quot;</p>
+          </div><div class="prompt-card">
+            <strong>Data card</strong>
+            <p>&quot;Create a white 16px radius card with 1px #DCDCDC border, 0 10px 32px rgba(18,18,18,0.08) shadow, 24px padding, compact heading, and dense table rows.&quot;</p>
+          </div><div class="prompt-card">
+            <strong>Question routing panel</strong>
+            <p>&quot;Use a table-like card where selected or best-value columns have a warm red wash #FFF7F2; show agent, estimated token cost, preauth, status, and owner capacity as scannable rows.&quot;</p>
+          </div><div class="prompt-card">
+            <strong>Button set</strong>
+            <p>&quot;Use #D0240F primary buttons with 6px radius and 40px height, white secondary buttons with #C4C4C4 border, and pill filters using 34px height and selected red or #FFE8DD state.&quot;</p>
+          </div></div>
+              <div class="split-card" style="margin-top:var(--space-4);">
+    <div>
+      <h3 class="token-heading">Do</h3>
+      <div class="mini-grid"><div class="mini-row"><div class="mini-label">Do</div><div class="mini-content">Use the warm canvas + white card + red accent system consistently.</div></div><div class="mini-row"><div class="mini-label">Do</div><div class="mini-content">Make token/fuel/agent routing data visually prominent and easy to scan.</div></div><div class="mini-row"><div class="mini-label">Do</div><div class="mini-content">Use dense tables for operational data, with horizontal scroll on mobile.</div></div><div class="mini-row"><div class="mini-label">Do</div><div class="mini-content">Keep navigation compact and fixed.</div></div></div>
+    </div>
+    <div>
+      <h3 class="token-heading">Don't</h3>
+      <div class="mini-grid"><div class="mini-row"><div class="mini-label">Don't</div><div class="mini-content">Do not make the UI dominated by purple/blue gradients, dark slate dashboards, or decorative orb backgrounds.</div></div><div class="mini-row"><div class="mini-label">Don't</div><div class="mini-content">Do not use oversized marketing cards for ordinary app workflows.</div></div><div class="mini-row"><div class="mini-label">Don't</div><div class="mini-content">Do not make every panel a card inside another card.</div></div><div class="mini-row"><div class="mini-label">Don't</div><div class="mini-content">Do not over-round everything; keep cards at 16px and controls at 6-8px.</div></div></div>
+    </div>
+  </div>
+            </div>
+          </article>
+        </section>
+
+        <section class="source-shell">
+          <article class="panel">
+            <div class="source-header">
+              <div class="file-tabs">
+                <span class="file-tab">design-system.md</span>
+                <span class="file-tab active">DESIGN.md</span>
+                <span class="file-tab">Design JSON</span>
+                <span class="file-tab">CSS Variables</span>
+                <span class="file-tab">Design Tokens</span>
+              </div>
+            </div>
+            <div class="source-toolbar">
+              <div class="segmented" role="tablist" aria-label="View Switcher">
+                <button class="is-active" data-view="source" type="button">Source</button>
+                <button data-view="preview" type="button">Preview</button>
+              </div>
+              <div class="toolbar-actions">
+                <button class="ghost-button" id="copyButton" type="button">Copy</button>
+                <a class="ghost-button" href="DESIGN.md" download>Open .md</a>
+                <span class="copy-state" id="copyState"></span>
+              </div>
+            </div>
+            <div class="source-body">
+              <pre class="source-view" id="sourceView"># Design System: AgentMint x TeamoRouter Reference
+
+Source reference: https://teamorouter.com/zh
+
+This document adapts the observed TeamoRouter visual language into a reusable design system for AgentMint. It should guide future page redesigns, component styling, copy density, data panels, and responsive behavior.
+
+## 1. Visual Theme &amp; Atmosphere
+
+AgentMint should feel like a modern AI operations workbench rather than a traditional forum or SaaS admin. The reference design is bright, precise, and data-forward: a warm off-white canvas, crisp black typography, red-orange action accents, dense tables, soft white cards, subtle glass navigation, and technical product copy. The page combines marketing confidence with dashboard utility, which fits AgentMint&#39;s agent marketplace, question routing, fuel settlement, and owner control panels.
+
+The mood is clean but not sterile. Use large confident headlines and strong data surfaces, then let fine borders, muted gray text, and compact controls carry the operational parts. Avoid decorative gradients as the main identity. The signature detail is &quot;structured intelligence&quot;: visible grids, tables, route/status panels, and metric cards that make AI activity feel measurable.
+
+### Key Characteristics
+
+- Warm light canvas with white elevated surfaces and precise neutral borders.
+- Black headline typography with restrained negative tracking only for hero-scale titles.
+- Red-orange brand accent for primary action, selected tabs, important deltas, and value highlights.
+- Data-first sections: tables, rankings, route panels, comparison rows, and token/fuel numbers should look native, not bolted on.
+- Soft elevation: cards use thin borders plus low-opacity long shadows, not heavy floating shadows.
+- Glass navigation: fixed top bar with translucent canvas and a subtle bottom border.
+- Compact, high-trust controls: small pills, segmented tabs, dense inputs, and button groups.
+- Background motif may use a faint 40px technical grid near hero areas, fading out quickly.
+
+## 2. Color Palette &amp; Roles
+
+| Role | Semantic Name | Value | Usage |
+| --- | --- | --- | --- |
+| Canvas | Warm Canvas | `#F7F7F7` | Page background, app shell, neutral sections. |
+| Hero Fade | Top Light Wash | `#FCFCFC` to `rgba(246,246,246,0)` | Subtle hero background fade, not full-page gradient branding. |
+| Elevated Surface | Paper White | `#FFFFFF` | Cards, tables, popovers, form panels, billing surfaces. |
+| Muted Surface | Panel Gray | `#EFEFEF` | Footer, secondary bands, inactive panel areas. |
+| Subtle Surface | Control Gray | `#F0F0F0` | Hover fills and compact control backgrounds. |
+| Primary Text | Ink Black | `#121212` | Headings, primary labels, key numbers. |
+| Secondary Text | Utility Gray | `#525252` | Body copy, nav links, table metadata. |
+| Tertiary Text | Quiet Gray | `#737373` | Captions, timestamps, disabled-ish supporting text. |
+| Disabled Text | Disabled Gray | `#9E9E9E` | Disabled controls, unavailable states. |
+| Border Subtle | Hairline Gray | `#DCDCDC` | Card borders, table row dividers, inputs. |
+| Border Default | Control Border | `#C4C4C4` | Secondary buttons, stronger inputs, card emphasis. |
+| Border Strong | Ink Border | `#525252` | Rare strong separators or critical outlines. |
+| Brand Primary | Router Red | `#D0240F` | Primary CTA, active tabs, selected filters, important highlights. |
+| Brand Hover | Router Red Hover | `#BB2009` | Primary button hover. |
+| Brand Active | Router Red Active | `#A01B08` | Pressed primary button, active destructive/critical affordances. |
+| Brand Muted | Rust Link | `#AE453F` | Text links, focus ring, subtle brand text. |
+| Brand Soft | Red Tint | `rgba(208,36,15,0.08)` | Brand hover surfaces and soft selected backgrounds. |
+| Brand Selected | Warm Selected | `#FFE8DD` | Active filter chip, selected category background. |
+| Data Highlight | Price Cell Wash | `#FFF7F2` / `rgba(255,247,242,0.6)` | Highlighted answer value columns, settlement deltas, owner earnings columns. |
+| Success | Green | `#16A34A` | Positive status, available capacity, approved answer signals. |
+| Warning | Amber | `#D97706` | Pending pairing, limit warnings, needs-owner-review states. |
+| Danger | Red | `#DC2626` | Failed delivery, unavailable service, destructive operations. |
+
+### Primary
+
+- Use `#D0240F` sparingly but decisively. It should identify the next best action or selected state.
+- Use `#AE453F` for lower-intensity links and focus rings so primary red does not dominate every interactive element.
+
+### Interactive
+
+- Primary button default: `#D0240F`, text `#F7F7F7`, border same as fill.
+- Primary hover: `#BB2009`, optional subtle upward movement of `translateY(-1px)` only on marketing-scale buttons.
+- Active or pressed: `#A01B08`.
+- Secondary controls: white or canvas background, `#C4C4C4` border, `#121212` text.
+- Selected pills can use either filled red with white text or warm selected `#FFE8DD` with red border, depending on emphasis.
+- Focus rings use `#AE453F`, 2px ring, 2px offset against canvas.
+
+### Neutral Scale
+
+- `#121212`: main content and high-confidence data.
+- `#3D3D3D`: chart secondary stroke or dense table text.
+- `#525252`: normal body copy and utility labels.
+- `#737373`: captions and quiet metadata.
+- `#9E9E9E`: disabled or de-emphasized data.
+- `#C4C4C4`: stronger borders.
+- `#DCDCDC`: subtle borders and table rules.
+- `#EFEFEF` / `#F0F0F0`: secondary surfaces.
+- `#F7F7F7`: page canvas.
+- `#FFFFFF`: elevated panels.
+
+### Surface &amp; Overlay
+
+- Page canvas: `#F7F7F7`.
+- Elevated cards: `#FFFFFF`, often with `border: 1px solid #DCDCDC`.
+- Popovers: `#FFFFFF`, `8px` radius, `12px` padding, `0 10px 32px rgba(18,18,18,0.08)`.
+- Sticky header: `rgba(247,247,247,0.76)` with backdrop blur and a bottom border.
+- Overlay: `rgba(18,18,18,0.72)` for modal backdrops.
+
+### Theme Modes
+
+The inspected page primarily renders in light mode. CSS class names suggest dark-mode support, but the live `/zh` page presented the light system. For AgentMint V1 redesign, prioritize this light mode and treat dark mode as a later derivative.
+
+#### Light Mode
+
+- Background: warm gray canvas `#F7F7F7`.
+- Surface: white `#FFFFFF`.
+- Text: ink `#121212`.
+- Accent: router red `#D0240F`.
+- Notes: product feels premium because surfaces are restrained and typography is confident, not because of visual decoration.
+
+#### Dark Mode
+
+- Background: not directly observed as the active page mode.
+- Surface: inferred class hints include dark neutral panels around `#1A1A1A`.
+- Text: inferred inverse `#F7F7F7`.
+- Accent: red/orange accents should remain stable.
+- Notes: do not implement dark mode by simply inverting everything; preserve the red accent and fine border discipline.
+
+### Shadows &amp; Depth
+
+- Card shadow: `0 10px 32px rgba(18,18,18,0.08)`.
+- Header shadow: `0 10px 34px -28px rgba(18,18,18,0.46)`.
+- Tiny active chips: `0 1px 2px rgba(0,0,0,0.05)`.
+- Most depth comes from border plus subtle shadow. Do not use large blurred blobs or heavy shadow stacks.
+
+## 3. Typography Rules
+
+### Font Family
+
+- Primary: `&quot;IBM Plex Sans&quot;, &quot;Noto Sans SC&quot;, system-ui, sans-serif`.
+- Monospace: use system mono only for code, IDs, request IDs, token traces, and compact technical logs.
+- OpenType Features: keep default features; avoid decorative tracking except hero-scale negative tracking.
+
+### Hierarchy
+
+| Role | Font | Size | Weight | Line Height | Letter Spacing | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| Desktop hero headline | IBM Plex Sans / Noto Sans SC | `60px` | `700` | `63px` | `-1.2px` | Use for first-screen product promise only. |
+| Mobile hero headline | IBM Plex Sans / Noto Sans SC | `32px` | `700` | `33.6px` | `-0.64px` | Two-line layout is expected. |
+| Large numeric/value headline | IBM Plex Sans / Noto Sans SC | `78.4px` desktop, `34.4px` mobile | `700` | `0.95em` | `-0.02em` | Use for token/fuel/value statements, not ordinary cards. |
+| Section heading | IBM Plex Sans / Noto Sans SC | `30px` | `600-700` | `36px` | `0` or `-0.75px` | Top of major sections and dashboards. |
+| Card heading | IBM Plex Sans / Noto Sans SC | `18-24px` | `600` | `28-32px` | `0` | Keep compact inside cards. |
+| Table header | IBM Plex Sans / Noto Sans SC | `14px` | `700` | `20px` | `0` | Muted gray or red for highlighted columns. |
+| Body | IBM Plex Sans / Noto Sans SC | `16px` | `400` | `24px` | `0` | Primary explanatory copy. |
+| Compact control | IBM Plex Sans / Noto Sans SC | `14px` | `500-600` | `20px` | `0` | Buttons, filters, nav links. |
+| Caption / Meta | IBM Plex Sans / Noto Sans SC | `12-14px` | `400-500` | `15-20px` | `0` | Time, status details, help text. |
+
+### Principles
+
+- Use big type only where the content is a true product promise or major metric.
+- Keep dashboard/cards tighter: `18-24px` headings and `14px` controls.
+- Avoid negative letter spacing outside hero or oversized numeric display.
+- Chinese copy should be direct, compact, and product-like. Prefer short declarative sentences.
+- Numbers, rankings, and token/fuel amounts should be easy to scan; use tabular alignment where possible.
+
+## 4. Component Stylings
+
+### Buttons and Links
+
+- Primary CTA: `#D0240F` fill, `#F7F7F7` text, `6px` radius for standard buttons, `8px` for larger download/action buttons. Height `40px` standard, `48px` hero.
+- Secondary CTA: white fill, `1px #C4C4C4` border, ink text, same height/radius as primary.
+- Brand pill: transparent or soft red surface, `1px rgba(208,36,15,0.22)` border, `9999px` radius, `#D0240F` text.
+- Filter chip: `34px` height, `6px 12px` padding, pill radius. Selected can be red fill or `#FFE8DD` with red border.
+- Text links: `#AE453F`; hover to `#D0240F`.
+- Nav links: `14px`, `8px 10px`, `8px` radius. Active is ink; inactive is `#525252`; hover background `#F0F0F0`.
+- Motion: `background-color`, `color`, `border-color`, `opacity` around `150-160ms`; optional transform around `120ms`.
+
+### Cards and Containers
+
+- Surface style: white card on warm canvas.
+- Radius: `16px` for main cards; `12px` for nested inset panels; `8px` for popovers and compact panels; `6px` for small controls.
+- Border: `1px solid #DCDCDC`; use `#C4C4C4` when a card needs stronger enclosure.
+- Shadow or elevation: `0 10px 32px rgba(18,18,18,0.08)`.
+- Internal spacing: `24px` on desktop cards, `16px` on mobile or tight panels.
+- Avoid cards inside cards unless the inner element is a real inset data panel.
+
+### Inputs and Interactive Controls
+
+- Inputs use canvas or white fill, `1px #C4C4C4` border, `6-8px` radius, `8px 12px` padding, `14px` text.
+- Search fields should sit inline with filter chips when space allows; on mobile, search spans full width and chips wrap below.
+- Focus behavior: 2px rust-red focus ring with 2px offset; never use glowing blue browser-default focus.
+- Disabled controls use `#9E9E9E` text, muted surface, and preserve layout dimensions.
+
+### Navigation
+
+- Structure: fixed top nav, `76px` desktop height, `60px` mobile height.
+- Background treatment: translucent warm canvas around 76% opacity, backdrop blur, bottom hairline border.
+- Desktop: logo left, compact nav items center/right, language selector and login/action controls on far right.
+- Mobile: logo left, black compact language button, 38px square menu icon button. Hide full nav.
+- Header shadow should be barely visible, used to separate content while scrolling.
+
+### Tables and Data Panels
+
+- Tables are first-class surfaces. Use `14px` text, dense rows, and horizontal scroll on mobile.
+- Table wrapper should be a white card with `16px` radius and subtle border/shadow.
+- Header cells: `12px 16px` padding, muted gray text, `700` weight.
+- Body cells: `12px 16px`, primary data in ink, secondary metadata in gray.
+- Highlight important columns with warm red wash `#FFF7F2` or `rgba(255,247,242,0.6)`, and red/rust header text.
+- Row dividers: `1px solid rgba(220,220,220,0.7)`.
+- Rankings and route/status tables may use tighter horizontal padding when many columns are present.
+
+### Image Treatment
+
+- Product imagery is minimal. The reference relies more on tables, charts, and UI surfaces than large screenshots.
+- When screenshots are used, frame them as real product surfaces: white card, subtle border, `16px` radius.
+- Icons are simple line icons or small inline glyphs. Use lucide-style icons where possible.
+
+### Distinctive Components
+
+- Technical hero grid: a faint full-width grid of 40px cells behind the hero, each cell using `0.5-1px` gray border and very low opacity. Fade it vertically so it never competes with content.
+- Segmented tabs: outer pale container or simple tab group; selected tab filled red with white text, unselected muted text.
+- Client tabs: text-only horizontal tabs with red active text and muted inactive text; keep them compact.
+- Comparison matrix: two-column product comparison with red-tinted selected side and plain competitor side.
+- Metric chart cards: white card, compact title, muted explanatory copy, SVG/chart in neutral gray with red emphasis.
+- Tooltip/popover: white, `8px` radius, subtle border, soft shadow, `12px` padding, `12px` text.
+
+## 5. Layout Principles
+
+### Spacing System
+
+- Base unit: `4px`.
+- Repeated spacing values: `6px`, `8px`, `10px`, `12px`, `16px`, `20px`, `24px`, `32px`, `40px`, `48px`, `64px`, `76px`, `120px`.
+- Desktop container: `1200px` max content width, centered, with `120px` side padding at 1440px viewport.
+- Mobile container: `16px` side padding, content width around `358px` on a 390px viewport.
+- Section gap: `64px` between major sections; hero and large value sections may use `48-76px` internal padding.
+
+### Grid &amp; Container
+
+- Hero starts under fixed nav, using negative top offset to align with nav height.
+- Main container should feel like one continuous workbench, not isolated page cards.
+- Use grid for feature cards: 3 columns desktop, 1 column mobile.
+- Use horizontal overflow for dense tables rather than shrinking text until illegible.
+- Full-width bands may break out of the container for value/pricing sections; keep inner content constrained.
+
+### Whitespace Philosophy
+
+- Whitespace is generous around major sections but compact inside operational panels.
+- Align content to the left for most AgentMint workflows. Centered hero copy is acceptable only for landing/introduction pages.
+- Avoid marketing split hero layouts with decorative cards unless the card contains real product or data.
+
+### Border Radius Scale
+
+- Micro: `6px` for standard buttons, selects, compact inputs.
+- Standard: `8px` for nav pills, popovers, medium buttons.
+- Large: `12px` for nested panels and inset callouts.
+- Card: `16px` for main data cards and dashboard panels.
+- Pill: `9999px` for filter chips, badges, and invitation/referral pills.
+
+## 6. Depth &amp; Elevation
+
+| Level | Treatment | Use |
+| --- | --- | --- |
+| Flat | Canvas background, no border | Page base and open layout areas. |
+| Hairline | `1px #DCDCDC`, no shadow | Rows, small controls, subtle separators. |
+| Control | White/canvas fill, `1px #C4C4C4` border | Buttons, inputs, selects. |
+| Card | White fill, `1px #DCDCDC`, `0 10px 32px rgba(18,18,18,0.08)` | Panels, tables, answer cards, billing summaries. |
+| Popover | White fill, `8px` radius, same soft shadow | Tooltips, menus, owner notes, pairing help. |
+| Header | Translucent canvas, bottom border, `0 10px 34px -28px rgba(18,18,18,0.46)` | Fixed global nav. |
+| Focus | `2px #AE453F` ring, 2px offset | Keyboard focus and form active states. |
+
+### Depth Principles
+
+- Use elevation to clarify hierarchy, not as decoration.
+- Prefer border plus soft shadow over blurred glass cards.
+- Keep nested surfaces rare and purposeful.
+- Charts and tables can live inside the same card, but do not wrap every small metric in a separate floating tile.
+
+## 7. Do&#39;s and Don&#39;ts
+
+### Do
+
+- Use the warm canvas + white card + red accent system consistently.
+- Make token/fuel/agent routing data visually prominent and easy to scan.
+- Use dense tables for operational data, with horizontal scroll on mobile.
+- Keep navigation compact and fixed.
+- Use selected states that are immediately visible: red fill, warm red wash, or red text.
+- Let owner/agent/service states read like a serious control panel.
+- Preserve stable dimensions for buttons, filters, cards, and table rows.
+- Write copy in short, direct claims and measurable benefits.
+
+### Don&#39;t
+
+- Do not make the UI dominated by purple/blue gradients, dark slate dashboards, or decorative orb backgrounds.
+- Do not use oversized marketing cards for ordinary app workflows.
+- Do not make every panel a card inside another card.
+- Do not over-round everything; keep cards at `16px` and controls at `6-8px`.
+- Do not hide important economics behind vague labels; fuel, token estimate, preauth, settlement, and owner income should be explicit.
+- Do not use tiny mobile tables by shrinking columns; preserve min-width and allow horizontal scroll.
+- Do not rely on color alone for failure or pairing states; pair red/amber color with clear status text.
+
+## 8. Responsive Behavior
+
+### Breakpoints
+
+| Name | Width | Key Changes |
+| --- | --- | --- |
+| Mobile | `390px` observed | Header becomes logo + black language button + 38px menu. Container uses 16px side padding. Hero title becomes `32px`. Tables keep `900-1024px` min-width and scroll horizontally. |
+| Tablet | Around `768px` inferred | Feature grids move from 3 columns to 1-2 columns. Cards use `16-20px` padding. Header may still hide dense nav. |
+| Desktop | `1440px` observed | Fixed 76px header, 1200px content container, hero title `60px`, cards use `24px` padding, tables fill full container. |
+
+### Touch Targets
+
+- Mobile icon buttons: `38px` square minimum.
+- Mobile primary buttons: `40-48px` height.
+- Pills and filter chips: `34px` height minimum.
+- Keep tap targets separated by at least `8px` where controls wrap.
+
+### Collapsing Strategy
+
+- Desktop behavior: full nav, inline filters, wide cards, dense tables.
+- Tablet behavior: reduce grids, keep top nav compact, preserve table scroll.
+- Mobile behavior: hide full nav, stack content, keep action groups wrapping, maintain table min-width.
+- Breakpoint-driven component changes: hero typography compresses sharply; large value text drops from `78.4px` to `34.4px`.
+- Touch target and spacing adjustments: side padding becomes `16px`; major section gap remains around `64px` to keep rhythm.
+
+## 9. Interaction Patterns
+
+- Scroll: sticky header remains visible with translucent background and subtle shadow.
+- Hover: nav/control hover changes background to `#F0F0F0`; primary hover deepens red.
+- Click: selected tabs and chips switch to red or warm selected state.
+- Menus: mobile nav opens from menu button; language selector becomes a compact black button on mobile.
+- Tooltips: appear as small white cards with border and soft shadow; useful for explaining token economics or service-limit rules.
+- Motion: subtle, fast, practical. Use `150-160ms` for color and `120ms` for transform. Avoid slow cinematic effects in app workflows.
+
+## 10. Content &amp; Messaging Patterns
+
+- Headline style: direct product promise with specific technical nouns.
+- CTA phrasing: short action verbs such as &quot;获取&quot;, &quot;查看&quot;, &quot;购买&quot;, &quot;发布&quot;, &quot;追问&quot;, &quot;请求补充&quot;.
+- Sentence density: compact paragraphs, usually one or two sentences.
+- Product framing: emphasize measurable capability, cost, reliability, routing quality, and saved operational effort.
+- Trust signals: SLA-like status, token counts, answer delivery state, owner capacity, daily limits, pairing status, settlement history.
+- AgentMint copy should say what the platform does, not describe the UI itself.
+
+## 11. Observed Pages
+
+- `https://teamorouter.com/zh`
+- Desktop viewport observed at `1440 x 1200`.
+- Mobile viewport observed at `390 x 900`.
+- Primary evidence came from rendered DOM structure, computed styles, CSS variables, accessibility snapshot, and responsive viewport inspection through `agent-browser`.
+
+## 12. Agent Prompt Guide
+
+### Quick Color Reference
+
+- Primary CTA: `#D0240F`
+- Primary hover: `#BB2009`
+- Background: `#F7F7F7`
+- Surface: `#FFFFFF`
+- Heading text: `#121212`
+- Body text: `#525252`
+- Border or ring: `#DCDCDC` / `#C4C4C4`
+- Focus: `#AE453F`
+- Highlight cell: `#FFF7F2`
+- Selected chip: `#FFE8DD`
+
+### Example Component Prompts
+
+- Hero: &quot;Build a bright AI workbench hero on a warm `#F7F7F7` canvas, fixed translucent header, faint 40px technical grid behind the first screen, 60px black headline, compact body copy, red primary CTA, white secondary CTA.&quot;
+- Data card: &quot;Create a white `16px` radius card with `1px #DCDCDC` border, `0 10px 32px rgba(18,18,18,0.08)` shadow, 24px padding, compact heading, and dense table rows.&quot;
+- Question routing panel: &quot;Use a table-like card where selected or best-value columns have a warm red wash `#FFF7F2`; show agent, estimated token cost, preauth, status, and owner capacity as scannable rows.&quot;
+- Button set: &quot;Use `#D0240F` primary buttons with 6px radius and 40px height, white secondary buttons with `#C4C4C4` border, and pill filters using 34px height and selected red or `#FFE8DD` state.&quot;
+- Mobile layout: &quot;Collapse nav to logo, compact language pill, and 38px menu button; keep tables horizontally scrollable with 900px+ min-width instead of shrinking data.&quot;
+
+### Iteration Guide
+
+- When a page feels too traditional, add data structure first: route status, fuel numbers, answer states, owner limits, ranking, or settlement columns.
+- When a page feels too decorative, remove gradients/cards and return to canvas, white surfaces, borders, and red selected states.
+- When a page feels too sparse, increase information density inside cards rather than adding more page sections.
+- When a page feels too heavy, reduce shadows and rely on hairline borders.
+
+### Quick Summary
+
+Use a bright, warm, data-forward AI workbench style. The visual core is `#F7F7F7` canvas, white soft-shadow cards, black IBM Plex/Noto typography, red-orange primary actions, muted gray operational text, and dense table-like panels. Treat AgentMint as a measurable agent routing and settlement product: every answer, token, owner action, service limit, and fuel movement should feel visible and trustworthy.
+</pre>
+              <article class="rendered-view" id="previewView" hidden><section><h2>1. Visual Theme &amp; Atmosphere</h2><p>AgentMint should feel like a modern AI operations workbench rather than a traditional forum or SaaS admin. The reference design is bright, precise, and data-forward: a warm off-white canvas, crisp black typography, red-orange action accents, dense tables, soft white cards, subtle glass navigation, and technical product copy. The page combines marketing confidence with dashboard utility, which fits AgentMint&#39;s agent marketplace, question routing, fuel settlement, and owner control panels.</p><p>The mood is clean but not sterile. Use large confident headlines and strong data surfaces, then let fine borders, muted gray text, and compact controls carry the operational parts. Avoid decorative gradients as the main identity. The signature detail is &quot;structured intelligence&quot;: visible grids, tables, route/status panels, and metric cards that make AI activity feel measurable.</p><h3>Key Characteristics</h3><ul><li>Warm light canvas with white elevated surfaces and precise neutral borders.</li><li>Black headline typography with restrained negative tracking only for hero-scale titles.</li><li>Red-orange brand accent for primary action, selected tabs, important deltas, and value highlights.</li><li>Data-first sections: tables, rankings, route panels, comparison rows, and token/fuel numbers should look native, not bolted on.</li><li>Soft elevation: cards use thin borders plus low-opacity long shadows, not heavy floating shadows.</li><li>Glass navigation: fixed top bar with translucent canvas and a subtle bottom border.</li><li>Compact, high-trust controls: small pills, segmented tabs, dense inputs, and button groups.</li><li>Background motif may use a faint 40px technical grid near hero areas, fading out quickly.</li></ul></section><section><h2>2. Color Palette &amp; Roles</h2><table><thead><tr><th>Role</th><th>Semantic Name</th><th>Value</th><th>Usage</th></tr></thead><tbody><tr><td>Canvas</td><td>Warm Canvas</td><td><code>#F7F7F7</code></td><td>Page background, app shell, neutral sections.</td></tr><tr><td>Hero Fade</td><td>Top Light Wash</td><td><code>#FCFCFC</code> to <code>rgba(246,246,246,0)</code></td><td>Subtle hero background fade, not full-page gradient branding.</td></tr><tr><td>Elevated Surface</td><td>Paper White</td><td><code>#FFFFFF</code></td><td>Cards, tables, popovers, form panels, billing surfaces.</td></tr><tr><td>Muted Surface</td><td>Panel Gray</td><td><code>#EFEFEF</code></td><td>Footer, secondary bands, inactive panel areas.</td></tr><tr><td>Subtle Surface</td><td>Control Gray</td><td><code>#F0F0F0</code></td><td>Hover fills and compact control backgrounds.</td></tr><tr><td>Primary Text</td><td>Ink Black</td><td><code>#121212</code></td><td>Headings, primary labels, key numbers.</td></tr><tr><td>Secondary Text</td><td>Utility Gray</td><td><code>#525252</code></td><td>Body copy, nav links, table metadata.</td></tr><tr><td>Tertiary Text</td><td>Quiet Gray</td><td><code>#737373</code></td><td>Captions, timestamps, disabled-ish supporting text.</td></tr><tr><td>Disabled Text</td><td>Disabled Gray</td><td><code>#9E9E9E</code></td><td>Disabled controls, unavailable states.</td></tr><tr><td>Border Subtle</td><td>Hairline Gray</td><td><code>#DCDCDC</code></td><td>Card borders, table row dividers, inputs.</td></tr><tr><td>Border Default</td><td>Control Border</td><td><code>#C4C4C4</code></td><td>Secondary buttons, stronger inputs, card emphasis.</td></tr><tr><td>Border Strong</td><td>Ink Border</td><td><code>#525252</code></td><td>Rare strong separators or critical outlines.</td></tr><tr><td>Brand Primary</td><td>Router Red</td><td><code>#D0240F</code></td><td>Primary CTA, active tabs, selected filters, important highlights.</td></tr><tr><td>Brand Hover</td><td>Router Red Hover</td><td><code>#BB2009</code></td><td>Primary button hover.</td></tr><tr><td>Brand Active</td><td>Router Red Active</td><td><code>#A01B08</code></td><td>Pressed primary button, active destructive/critical affordances.</td></tr><tr><td>Brand Muted</td><td>Rust Link</td><td><code>#AE453F</code></td><td>Text links, focus ring, subtle brand text.</td></tr><tr><td>Brand Soft</td><td>Red Tint</td><td><code>rgba(208,36,15,0.08)</code></td><td>Brand hover surfaces and soft selected backgrounds.</td></tr><tr><td>Brand Selected</td><td>Warm Selected</td><td><code>#FFE8DD</code></td><td>Active filter chip, selected category background.</td></tr><tr><td>Data Highlight</td><td>Price Cell Wash</td><td><code>#FFF7F2</code> / <code>rgba(255,247,242,0.6)</code></td><td>Highlighted answer value columns, settlement deltas, owner earnings columns.</td></tr><tr><td>Success</td><td>Green</td><td><code>#16A34A</code></td><td>Positive status, available capacity, approved answer signals.</td></tr><tr><td>Warning</td><td>Amber</td><td><code>#D97706</code></td><td>Pending pairing, limit warnings, needs-owner-review states.</td></tr><tr><td>Danger</td><td>Red</td><td><code>#DC2626</code></td><td>Failed delivery, unavailable service, destructive operations.</td></tr></tbody></table><h3>Primary</h3><ul><li>Use <code>#D0240F</code> sparingly but decisively. It should identify the next best action or selected state.</li><li>Use <code>#AE453F</code> for lower-intensity links and focus rings so primary red does not dominate every interactive element.</li></ul><h3>Interactive</h3><ul><li>Primary button default: <code>#D0240F</code>, text <code>#F7F7F7</code>, border same as fill.</li><li>Primary hover: <code>#BB2009</code>, optional subtle upward movement of <code>translateY(-1px)</code> only on marketing-scale buttons.</li><li>Active or pressed: <code>#A01B08</code>.</li><li>Secondary controls: white or canvas background, <code>#C4C4C4</code> border, <code>#121212</code> text.</li><li>Selected pills can use either filled red with white text or warm selected <code>#FFE8DD</code> with red border, depending on emphasis.</li><li>Focus rings use <code>#AE453F</code>, 2px ring, 2px offset against canvas.</li></ul><h3>Neutral Scale</h3><ul><li><code>#121212</code>: main content and high-confidence data.</li><li><code>#3D3D3D</code>: chart secondary stroke or dense table text.</li><li><code>#525252</code>: normal body copy and utility labels.</li><li><code>#737373</code>: captions and quiet metadata.</li><li><code>#9E9E9E</code>: disabled or de-emphasized data.</li><li><code>#C4C4C4</code>: stronger borders.</li><li><code>#DCDCDC</code>: subtle borders and table rules.</li><li><code>#EFEFEF</code> / <code>#F0F0F0</code>: secondary surfaces.</li><li><code>#F7F7F7</code>: page canvas.</li><li><code>#FFFFFF</code>: elevated panels.</li></ul><h3>Surface &amp; Overlay</h3><ul><li>Page canvas: <code>#F7F7F7</code>.</li><li>Elevated cards: <code>#FFFFFF</code>, often with <code>border: 1px solid #DCDCDC</code>.</li><li>Popovers: <code>#FFFFFF</code>, <code>8px</code> radius, <code>12px</code> padding, <code>0 10px 32px rgba(18,18,18,0.08)</code>.</li><li>Sticky header: <code>rgba(247,247,247,0.76)</code> with backdrop blur and a bottom border.</li><li>Overlay: <code>rgba(18,18,18,0.72)</code> for modal backdrops.</li></ul><h3>Theme Modes</h3><p>The inspected page primarily renders in light mode. CSS class names suggest dark-mode support, but the live <code>/zh</code> page presented the light system. For AgentMint V1 redesign, prioritize this light mode and treat dark mode as a later derivative.</p><p>#### Light Mode</p><ul><li>Background: warm gray canvas <code>#F7F7F7</code>.</li><li>Surface: white <code>#FFFFFF</code>.</li><li>Text: ink <code>#121212</code>.</li><li>Accent: router red <code>#D0240F</code>.</li><li>Notes: product feels premium because surfaces are restrained and typography is confident, not because of visual decoration.</li></ul><p>#### Dark Mode</p><ul><li>Background: not directly observed as the active page mode.</li><li>Surface: inferred class hints include dark neutral panels around <code>#1A1A1A</code>.</li><li>Text: inferred inverse <code>#F7F7F7</code>.</li><li>Accent: red/orange accents should remain stable.</li><li>Notes: do not implement dark mode by simply inverting everything; preserve the red accent and fine border discipline.</li></ul><h3>Shadows &amp; Depth</h3><ul><li>Card shadow: <code>0 10px 32px rgba(18,18,18,0.08)</code>.</li><li>Header shadow: <code>0 10px 34px -28px rgba(18,18,18,0.46)</code>.</li><li>Tiny active chips: <code>0 1px 2px rgba(0,0,0,0.05)</code>.</li><li>Most depth comes from border plus subtle shadow. Do not use large blurred blobs or heavy shadow stacks.</li></ul></section><section><h2>3. Typography Rules</h2><h3>Font Family</h3><ul><li>Primary: <code>&quot;IBM Plex Sans&quot;, &quot;Noto Sans SC&quot;, system-ui, sans-serif</code>.</li><li>Monospace: use system mono only for code, IDs, request IDs, token traces, and compact technical logs.</li><li>OpenType Features: keep default features; avoid decorative tracking except hero-scale negative tracking.</li></ul><h3>Hierarchy</h3><table><thead><tr><th>Role</th><th>Font</th><th>Size</th><th>Weight</th><th>Line Height</th><th>Letter Spacing</th><th>Notes</th></tr></thead><tbody><tr><td>Desktop hero headline</td><td>IBM Plex Sans / Noto Sans SC</td><td><code>60px</code></td><td><code>700</code></td><td><code>63px</code></td><td><code>-1.2px</code></td><td>Use for first-screen product promise only.</td></tr><tr><td>Mobile hero headline</td><td>IBM Plex Sans / Noto Sans SC</td><td><code>32px</code></td><td><code>700</code></td><td><code>33.6px</code></td><td><code>-0.64px</code></td><td>Two-line layout is expected.</td></tr><tr><td>Large numeric/value headline</td><td>IBM Plex Sans / Noto Sans SC</td><td><code>78.4px</code> desktop, <code>34.4px</code> mobile</td><td><code>700</code></td><td><code>0.95em</code></td><td><code>-0.02em</code></td><td>Use for token/fuel/value statements, not ordinary cards.</td></tr><tr><td>Section heading</td><td>IBM Plex Sans / Noto Sans SC</td><td><code>30px</code></td><td><code>600-700</code></td><td><code>36px</code></td><td><code>0</code> or <code>-0.75px</code></td><td>Top of major sections and dashboards.</td></tr><tr><td>Card heading</td><td>IBM Plex Sans / Noto Sans SC</td><td><code>18-24px</code></td><td><code>600</code></td><td><code>28-32px</code></td><td><code>0</code></td><td>Keep compact inside cards.</td></tr><tr><td>Table header</td><td>IBM Plex Sans / Noto Sans SC</td><td><code>14px</code></td><td><code>700</code></td><td><code>20px</code></td><td><code>0</code></td><td>Muted gray or red for highlighted columns.</td></tr><tr><td>Body</td><td>IBM Plex Sans / Noto Sans SC</td><td><code>16px</code></td><td><code>400</code></td><td><code>24px</code></td><td><code>0</code></td><td>Primary explanatory copy.</td></tr><tr><td>Compact control</td><td>IBM Plex Sans / Noto Sans SC</td><td><code>14px</code></td><td><code>500-600</code></td><td><code>20px</code></td><td><code>0</code></td><td>Buttons, filters, nav links.</td></tr><tr><td>Caption / Meta</td><td>IBM Plex Sans / Noto Sans SC</td><td><code>12-14px</code></td><td><code>400-500</code></td><td><code>15-20px</code></td><td><code>0</code></td><td>Time, status details, help text.</td></tr></tbody></table><h3>Principles</h3><ul><li>Use big type only where the content is a true product promise or major metric.</li><li>Keep dashboard/cards tighter: <code>18-24px</code> headings and <code>14px</code> controls.</li><li>Avoid negative letter spacing outside hero or oversized numeric display.</li><li>Chinese copy should be direct, compact, and product-like. Prefer short declarative sentences.</li><li>Numbers, rankings, and token/fuel amounts should be easy to scan; use tabular alignment where possible.</li></ul></section><section><h2>4. Component Stylings</h2><h3>Buttons and Links</h3><ul><li>Primary CTA: <code>#D0240F</code> fill, <code>#F7F7F7</code> text, <code>6px</code> radius for standard buttons, <code>8px</code> for larger download/action buttons. Height <code>40px</code> standard, <code>48px</code> hero.</li><li>Secondary CTA: white fill, <code>1px #C4C4C4</code> border, ink text, same height/radius as primary.</li><li>Brand pill: transparent or soft red surface, <code>1px rgba(208,36,15,0.22)</code> border, <code>9999px</code> radius, <code>#D0240F</code> text.</li><li>Filter chip: <code>34px</code> height, <code>6px 12px</code> padding, pill radius. Selected can be red fill or <code>#FFE8DD</code> with red border.</li><li>Text links: <code>#AE453F</code>; hover to <code>#D0240F</code>.</li><li>Nav links: <code>14px</code>, <code>8px 10px</code>, <code>8px</code> radius. Active is ink; inactive is <code>#525252</code>; hover background <code>#F0F0F0</code>.</li><li>Motion: <code>background-color</code>, <code>color</code>, <code>border-color</code>, <code>opacity</code> around <code>150-160ms</code>; optional transform around <code>120ms</code>.</li></ul><h3>Cards and Containers</h3><ul><li>Surface style: white card on warm canvas.</li><li>Radius: <code>16px</code> for main cards; <code>12px</code> for nested inset panels; <code>8px</code> for popovers and compact panels; <code>6px</code> for small controls.</li><li>Border: <code>1px solid #DCDCDC</code>; use <code>#C4C4C4</code> when a card needs stronger enclosure.</li><li>Shadow or elevation: <code>0 10px 32px rgba(18,18,18,0.08)</code>.</li><li>Internal spacing: <code>24px</code> on desktop cards, <code>16px</code> on mobile or tight panels.</li><li>Avoid cards inside cards unless the inner element is a real inset data panel.</li></ul><h3>Inputs and Interactive Controls</h3><ul><li>Inputs use canvas or white fill, <code>1px #C4C4C4</code> border, <code>6-8px</code> radius, <code>8px 12px</code> padding, <code>14px</code> text.</li><li>Search fields should sit inline with filter chips when space allows; on mobile, search spans full width and chips wrap below.</li><li>Focus behavior: 2px rust-red focus ring with 2px offset; never use glowing blue browser-default focus.</li><li>Disabled controls use <code>#9E9E9E</code> text, muted surface, and preserve layout dimensions.</li></ul><h3>Navigation</h3><ul><li>Structure: fixed top nav, <code>76px</code> desktop height, <code>60px</code> mobile height.</li><li>Background treatment: translucent warm canvas around 76% opacity, backdrop blur, bottom hairline border.</li><li>Desktop: logo left, compact nav items center/right, language selector and login/action controls on far right.</li><li>Mobile: logo left, black compact language button, 38px square menu icon button. Hide full nav.</li><li>Header shadow should be barely visible, used to separate content while scrolling.</li></ul><h3>Tables and Data Panels</h3><ul><li>Tables are first-class surfaces. Use <code>14px</code> text, dense rows, and horizontal scroll on mobile.</li><li>Table wrapper should be a white card with <code>16px</code> radius and subtle border/shadow.</li><li>Header cells: <code>12px 16px</code> padding, muted gray text, <code>700</code> weight.</li><li>Body cells: <code>12px 16px</code>, primary data in ink, secondary metadata in gray.</li><li>Highlight important columns with warm red wash <code>#FFF7F2</code> or <code>rgba(255,247,242,0.6)</code>, and red/rust header text.</li><li>Row dividers: <code>1px solid rgba(220,220,220,0.7)</code>.</li><li>Rankings and route/status tables may use tighter horizontal padding when many columns are present.</li></ul><h3>Image Treatment</h3><ul><li>Product imagery is minimal. The reference relies more on tables, charts, and UI surfaces than large screenshots.</li><li>When screenshots are used, frame them as real product surfaces: white card, subtle border, <code>16px</code> radius.</li><li>Icons are simple line icons or small inline glyphs. Use lucide-style icons where possible.</li></ul><h3>Distinctive Components</h3><ul><li>Technical hero grid: a faint full-width grid of 40px cells behind the hero, each cell using <code>0.5-1px</code> gray border and very low opacity. Fade it vertically so it never competes with content.</li><li>Segmented tabs: outer pale container or simple tab group; selected tab filled red with white text, unselected muted text.</li><li>Client tabs: text-only horizontal tabs with red active text and muted inactive text; keep them compact.</li><li>Comparison matrix: two-column product comparison with red-tinted selected side and plain competitor side.</li><li>Metric chart cards: white card, compact title, muted explanatory copy, SVG/chart in neutral gray with red emphasis.</li><li>Tooltip/popover: white, <code>8px</code> radius, subtle border, soft shadow, <code>12px</code> padding, <code>12px</code> text.</li></ul></section><section><h2>5. Layout Principles</h2><h3>Spacing System</h3><ul><li>Base unit: <code>4px</code>.</li><li>Repeated spacing values: <code>6px</code>, <code>8px</code>, <code>10px</code>, <code>12px</code>, <code>16px</code>, <code>20px</code>, <code>24px</code>, <code>32px</code>, <code>40px</code>, <code>48px</code>, <code>64px</code>, <code>76px</code>, <code>120px</code>.</li><li>Desktop container: <code>1200px</code> max content width, centered, with <code>120px</code> side padding at 1440px viewport.</li><li>Mobile container: <code>16px</code> side padding, content width around <code>358px</code> on a 390px viewport.</li><li>Section gap: <code>64px</code> between major sections; hero and large value sections may use <code>48-76px</code> internal padding.</li></ul><h3>Grid &amp; Container</h3><ul><li>Hero starts under fixed nav, using negative top offset to align with nav height.</li><li>Main container should feel like one continuous workbench, not isolated page cards.</li><li>Use grid for feature cards: 3 columns desktop, 1 column mobile.</li><li>Use horizontal overflow for dense tables rather than shrinking text until illegible.</li><li>Full-width bands may break out of the container for value/pricing sections; keep inner content constrained.</li></ul><h3>Whitespace Philosophy</h3><ul><li>Whitespace is generous around major sections but compact inside operational panels.</li><li>Align content to the left for most AgentMint workflows. Centered hero copy is acceptable only for landing/introduction pages.</li><li>Avoid marketing split hero layouts with decorative cards unless the card contains real product or data.</li></ul><h3>Border Radius Scale</h3><ul><li>Micro: <code>6px</code> for standard buttons, selects, compact inputs.</li><li>Standard: <code>8px</code> for nav pills, popovers, medium buttons.</li><li>Large: <code>12px</code> for nested panels and inset callouts.</li><li>Card: <code>16px</code> for main data cards and dashboard panels.</li><li>Pill: <code>9999px</code> for filter chips, badges, and invitation/referral pills.</li></ul></section><section><h2>6. Depth &amp; Elevation</h2><table><thead><tr><th>Level</th><th>Treatment</th><th>Use</th></tr></thead><tbody><tr><td>Flat</td><td>Canvas background, no border</td><td>Page base and open layout areas.</td></tr><tr><td>Hairline</td><td><code>1px #DCDCDC</code>, no shadow</td><td>Rows, small controls, subtle separators.</td></tr><tr><td>Control</td><td>White/canvas fill, <code>1px #C4C4C4</code> border</td><td>Buttons, inputs, selects.</td></tr><tr><td>Card</td><td>White fill, <code>1px #DCDCDC</code>, <code>0 10px 32px rgba(18,18,18,0.08)</code></td><td>Panels, tables, answer cards, billing summaries.</td></tr><tr><td>Popover</td><td>White fill, <code>8px</code> radius, same soft shadow</td><td>Tooltips, menus, owner notes, pairing help.</td></tr><tr><td>Header</td><td>Translucent canvas, bottom border, <code>0 10px 34px -28px rgba(18,18,18,0.46)</code></td><td>Fixed global nav.</td></tr><tr><td>Focus</td><td><code>2px #AE453F</code> ring, 2px offset</td><td>Keyboard focus and form active states.</td></tr></tbody></table><h3>Depth Principles</h3><ul><li>Use elevation to clarify hierarchy, not as decoration.</li><li>Prefer border plus soft shadow over blurred glass cards.</li><li>Keep nested surfaces rare and purposeful.</li><li>Charts and tables can live inside the same card, but do not wrap every small metric in a separate floating tile.</li></ul></section><section><h2>7. Do&#39;s and Don&#39;ts</h2><h3>Do</h3><ul><li>Use the warm canvas + white card + red accent system consistently.</li><li>Make token/fuel/agent routing data visually prominent and easy to scan.</li><li>Use dense tables for operational data, with horizontal scroll on mobile.</li><li>Keep navigation compact and fixed.</li><li>Use selected states that are immediately visible: red fill, warm red wash, or red text.</li><li>Let owner/agent/service states read like a serious control panel.</li><li>Preserve stable dimensions for buttons, filters, cards, and table rows.</li><li>Write copy in short, direct claims and measurable benefits.</li></ul><h3>Don&#39;t</h3><ul><li>Do not make the UI dominated by purple/blue gradients, dark slate dashboards, or decorative orb backgrounds.</li><li>Do not use oversized marketing cards for ordinary app workflows.</li><li>Do not make every panel a card inside another card.</li><li>Do not over-round everything; keep cards at <code>16px</code> and controls at <code>6-8px</code>.</li><li>Do not hide important economics behind vague labels; fuel, token estimate, preauth, settlement, and owner income should be explicit.</li><li>Do not use tiny mobile tables by shrinking columns; preserve min-width and allow horizontal scroll.</li><li>Do not rely on color alone for failure or pairing states; pair red/amber color with clear status text.</li></ul></section><section><h2>8. Responsive Behavior</h2><h3>Breakpoints</h3><table><thead><tr><th>Name</th><th>Width</th><th>Key Changes</th></tr></thead><tbody><tr><td>Mobile</td><td><code>390px</code> observed</td><td>Header becomes logo + black language button + 38px menu. Container uses 16px side padding. Hero title becomes <code>32px</code>. Tables keep <code>900-1024px</code> min-width and scroll horizontally.</td></tr><tr><td>Tablet</td><td>Around <code>768px</code> inferred</td><td>Feature grids move from 3 columns to 1-2 columns. Cards use <code>16-20px</code> padding. Header may still hide dense nav.</td></tr><tr><td>Desktop</td><td><code>1440px</code> observed</td><td>Fixed 76px header, 1200px content container, hero title <code>60px</code>, cards use <code>24px</code> padding, tables fill full container.</td></tr></tbody></table><h3>Touch Targets</h3><ul><li>Mobile icon buttons: <code>38px</code> square minimum.</li><li>Mobile primary buttons: <code>40-48px</code> height.</li><li>Pills and filter chips: <code>34px</code> height minimum.</li><li>Keep tap targets separated by at least <code>8px</code> where controls wrap.</li></ul><h3>Collapsing Strategy</h3><ul><li>Desktop behavior: full nav, inline filters, wide cards, dense tables.</li><li>Tablet behavior: reduce grids, keep top nav compact, preserve table scroll.</li><li>Mobile behavior: hide full nav, stack content, keep action groups wrapping, maintain table min-width.</li><li>Breakpoint-driven component changes: hero typography compresses sharply; large value text drops from <code>78.4px</code> to <code>34.4px</code>.</li><li>Touch target and spacing adjustments: side padding becomes <code>16px</code>; major section gap remains around <code>64px</code> to keep rhythm.</li></ul></section><section><h2>9. Interaction Patterns</h2><ul><li>Scroll: sticky header remains visible with translucent background and subtle shadow.</li><li>Hover: nav/control hover changes background to <code>#F0F0F0</code>; primary hover deepens red.</li><li>Click: selected tabs and chips switch to red or warm selected state.</li><li>Menus: mobile nav opens from menu button; language selector becomes a compact black button on mobile.</li><li>Tooltips: appear as small white cards with border and soft shadow; useful for explaining token economics or service-limit rules.</li><li>Motion: subtle, fast, practical. Use <code>150-160ms</code> for color and <code>120ms</code> for transform. Avoid slow cinematic effects in app workflows.</li></ul></section><section><h2>10. Content &amp; Messaging Patterns</h2><ul><li>Headline style: direct product promise with specific technical nouns.</li><li>CTA phrasing: short action verbs such as &quot;获取&quot;, &quot;查看&quot;, &quot;购买&quot;, &quot;发布&quot;, &quot;追问&quot;, &quot;请求补充&quot;.</li><li>Sentence density: compact paragraphs, usually one or two sentences.</li><li>Product framing: emphasize measurable capability, cost, reliability, routing quality, and saved operational effort.</li><li>Trust signals: SLA-like status, token counts, answer delivery state, owner capacity, daily limits, pairing status, settlement history.</li><li>AgentMint copy should say what the platform does, not describe the UI itself.</li></ul></section><section><h2>11. Observed Pages</h2><ul><li><code>https://teamorouter.com/zh</code></li><li>Desktop viewport observed at <code>1440 x 1200</code>.</li><li>Mobile viewport observed at <code>390 x 900</code>.</li><li>Primary evidence came from rendered DOM structure, computed styles, CSS variables, accessibility snapshot, and responsive viewport inspection through <code>agent-browser</code>.</li></ul></section><section><h2>12. Agent Prompt Guide</h2><h3>Quick Color Reference</h3><ul><li>Primary CTA: <code>#D0240F</code></li><li>Primary hover: <code>#BB2009</code></li><li>Background: <code>#F7F7F7</code></li><li>Surface: <code>#FFFFFF</code></li><li>Heading text: <code>#121212</code></li><li>Body text: <code>#525252</code></li><li>Border or ring: <code>#DCDCDC</code> / <code>#C4C4C4</code></li><li>Focus: <code>#AE453F</code></li><li>Highlight cell: <code>#FFF7F2</code></li><li>Selected chip: <code>#FFE8DD</code></li></ul><h3>Example Component Prompts</h3><ul><li>Hero: &quot;Build a bright AI workbench hero on a warm <code>#F7F7F7</code> canvas, fixed translucent header, faint 40px technical grid behind the first screen, 60px black headline, compact body copy, red primary CTA, white secondary CTA.&quot;</li><li>Data card: &quot;Create a white <code>16px</code> radius card with <code>1px #DCDCDC</code> border, <code>0 10px 32px rgba(18,18,18,0.08)</code> shadow, 24px padding, compact heading, and dense table rows.&quot;</li><li>Question routing panel: &quot;Use a table-like card where selected or best-value columns have a warm red wash <code>#FFF7F2</code>; show agent, estimated token cost, preauth, status, and owner capacity as scannable rows.&quot;</li><li>Button set: &quot;Use <code>#D0240F</code> primary buttons with 6px radius and 40px height, white secondary buttons with <code>#C4C4C4</code> border, and pill filters using 34px height and selected red or <code>#FFE8DD</code> state.&quot;</li><li>Mobile layout: &quot;Collapse nav to logo, compact language pill, and 38px menu button; keep tables horizontally scrollable with 900px+ min-width instead of shrinking data.&quot;</li></ul><h3>Iteration Guide</h3><ul><li>When a page feels too traditional, add data structure first: route status, fuel numbers, answer states, owner limits, ranking, or settlement columns.</li><li>When a page feels too decorative, remove gradients/cards and return to canvas, white surfaces, borders, and red selected states.</li><li>When a page feels too sparse, increase information density inside cards rather than adding more page sections.</li><li>When a page feels too heavy, reduce shadows and rely on hairline borders.</li></ul><h3>Quick Summary</h3><p>Use a bright, warm, data-forward AI workbench style. The visual core is <code>#F7F7F7</code> canvas, white soft-shadow cards, black IBM Plex/Noto typography, red-orange primary actions, muted gray operational text, and dense table-like panels. Treat AgentMint as a measurable agent routing and settlement product: every answer, token, owner action, service limit, and fuel movement should feel visible and trustworthy.</p></section></article>
+            </div>
+          </article>
+        </section>
+      </div>
+    </main>
+
+    <script>
+      const sourceView = document.getElementById("sourceView");
+      const previewView = document.getElementById("previewView");
+      const copyButton = document.getElementById("copyButton");
+      const copyState = document.getElementById("copyState");
+      const viewButtons = document.querySelectorAll("[data-view]");
+
+      function setActiveView(view) {
+        const showSource = view === "source";
+        sourceView.hidden = !showSource;
+        previewView.hidden = showSource;
+        viewButtons.forEach((button) => {
+          button.classList.toggle("is-active", button.dataset.view === view);
+        });
+      }
+
+      viewButtons.forEach((button) => {
+        button.addEventListener("click", () => setActiveView(button.dataset.view));
+      });
+
+      copyButton.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(sourceView.textContent || "");
+          copyState.textContent = "Copied";
+        } catch (error) {
+          copyState.textContent = "Clipboard unavailable";
+        }
+
+        setTimeout(() => {
+          copyState.textContent = "";
+        }, 1400);
+      });
+    </script>
+  </body>
+</html>
