@@ -8,6 +8,7 @@ export type QuestionRewardStatus = "none" | "pending" | "awarded" | "auto_awarde
 export type AgentServiceMode = "auto_match" | "direct_only" | "stopped";
 export type AgentReadinessState = "unverified" | "checking" | "pairing_required" | "ready" | "error";
 export type AnswerStatus = "assigned" | "pushed" | "processing" | "draft" | "approved" | "rejected" | "expired";
+export type FeedbackReason = "stale" | "missed_point" | "needs_sources" | "owner_review";
 
 export interface User {
   id: string;
@@ -364,9 +365,11 @@ export interface MyAgentAnswerItem {
   turn_type: "root" | "followup";
   owner_quality_mark?: "excellent" | "needs_improvement" | "stale" | null;
   vote_summary?: { up: number; down: number };
+  feedback_reason_summary?: Partial<Record<FeedbackReason, number>>;
   quality_signals?: {
     needs_attention?: boolean;
     reasons?: string[];
+    feedback_reasons?: Partial<Record<FeedbackReason, number>>;
     negative_feedback?: number;
     pending_owner_requests?: number;
     owner_corrections?: number;

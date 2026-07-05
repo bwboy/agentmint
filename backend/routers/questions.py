@@ -728,6 +728,7 @@ async def my_agent_answers(
     answer_ids = [answer.id for answer, *_ in rows]
     supplements_by_answer: dict[str, list[dict]] = {}
     vote_rows: dict[str, dict[str, int]] = {}
+    feedback_reasons_by_answer: dict[str, dict[str, int]] = {}
     if answer_ids:
         supplement_rows = (await db.execute(
             select(AnswerOwnerSupplement)
@@ -742,6 +743,14 @@ async def my_agent_answers(
         )
         for answer_id, vote, count in feedback_rows.all():
             vote_rows.setdefault(answer_id, {"up": 0, "down": 0})[vote] = int(count or 0)
+        feedback_reason_rows = await db.execute(
+            select(Feedback.answer_id, Feedback.feedback_reasons)
+            .where(Feedback.answer_id.in_(answer_ids))
+        )
+        for answer_id, feedback_reasons in feedback_reason_rows.all():
+            for reason in normalize_feedback_reasons(feedback_reasons):
+                current = feedback_reasons_by_answer.setdefault(answer_id, {})
+                current[reason] = current.get(reason, 0) + 1
 
     return {
         "data": [
@@ -751,6 +760,7 @@ async def my_agent_answers(
                 agent,
                 supplements_by_answer.get(answer.id, []),
                 vote_summary=vote_rows.get(answer.id, {"up": 0, "down": 0}),
+                feedback_reason_summary=feedback_reasons_by_answer.get(answer.id, {}),
             )
             for answer, question, agent in rows
         ]
@@ -1168,6 +1178,7 @@ def serialize_my_agent_answer(
     agent: Agent,
     supplements: list[dict],
     vote_summary: dict | None = None,
+    feedback_reason_summary: dict | None = None,
 ) -> dict:
     pending_count = sum(1 for item in supplements if item.get("status") == "pending")
     answered_count = sum(1 for item in supplements if item.get("status") == "answered")
@@ -1175,7 +1186,8 @@ def serialize_my_agent_answer(
         "up": int((vote_summary or {}).get("up") or 0),
         "down": int((vote_summary or {}).get("down") or 0),
     }
-    quality_signals = build_answer_quality_signals(answer, supplements, votes)
+    feedback_reasons = normalize_feedback_reason_summary(feedback_reason_summary)
+    quality_signals = build_answer_quality_signals(answer, supplements, votes, feedback_reasons)
     return {
         "id": answer.id,
         "question_id": getattr(question, "root_question_id", None) or question.id,
@@ -1189,6 +1201,7 @@ def serialize_my_agent_answer(
         "turn_type": getattr(answer, "turn_type", None) or "root",
         "owner_quality_mark": getattr(answer, "owner_quality_mark", None),
         "vote_summary": votes,
+        "feedback_reason_summary": feedback_reasons,
         "quality_signals": quality_signals,
         "created_at": answer.created_at.isoformat() if getattr(answer, "created_at", None) else None,
         "owner_supplements": supplements,
@@ -1197,10 +1210,16 @@ def serialize_my_agent_answer(
     }
 
 
-def build_answer_quality_signals(answer: Answer, supplements: list[dict], vote_summary: dict) -> dict:
+def build_answer_quality_signals(
+    answer: Answer,
+    supplements: list[dict],
+    vote_summary: dict,
+    feedback_reason_summary: dict | None = None,
+) -> dict:
     reasons: list[str] = []
     mark = getattr(answer, "owner_quality_mark", None)
     negative_feedback = int((vote_summary or {}).get("down") or 0)
+    feedback_reasons = normalize_feedback_reason_summary(feedback_reason_summary)
     pending_requests = sum(1 for item in supplements if item.get("status") == "pending")
     correction_count = sum(1 for item in supplements if item.get("status") == "answered" and item.get("supplement_type") == "correction")
     risk_note_count = sum(1 for item in supplements if item.get("status") == "answered" and item.get("supplement_type") == "risk_note")
@@ -1215,15 +1234,32 @@ def build_answer_quality_signals(answer: Answer, supplements: list[dict], vote_s
         reasons.append("owner_correction")
     if risk_note_count > 0:
         reasons.append("owner_risk_note")
+    for reason in feedback_reasons:
+        reasons.append(f"feedback_reason_{reason}")
 
     return {
         "needs_attention": bool(reasons),
         "reasons": reasons,
+        "feedback_reasons": feedback_reasons,
         "negative_feedback": negative_feedback,
         "pending_owner_requests": pending_requests,
         "owner_corrections": correction_count,
         "owner_risk_notes": risk_note_count,
     }
+
+
+def normalize_feedback_reason_summary(values: dict | None) -> dict[str, int]:
+    summary: dict[str, int] = {}
+    if not values:
+        return summary
+    for reason in normalize_feedback_reasons(list(values.keys())):
+        try:
+            count = int(values.get(reason) or 0)
+        except (TypeError, ValueError):
+            count = 0
+        if count > 0:
+            summary[reason] = count
+    return summary
 
 
 def attach_owner_supplements_to_followups(

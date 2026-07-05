@@ -134,6 +134,35 @@ def test_question_public_payload_includes_reward_settlement_fields():
     assert out["reward_answer_id"] is None
 
 
+def test_my_agent_answer_serialization_includes_feedback_reason_summary():
+    answer = SimpleNamespace(
+        id="ans_test",
+        question_id="q_test",
+        content={"text": "回答内容"},
+        model="gpt-test",
+        usage={"total_tokens": 1200},
+        turn_type="root",
+        owner_quality_mark=None,
+        created_at=datetime.utcnow(),
+    )
+    question = SimpleNamespace(id="q_test", root_question_id=None, title="需要主人关注的问题")
+    agent = SimpleNamespace(id="a_test", name="测试 Agent")
+
+    out = questions.serialize_my_agent_answer(
+        answer,
+        question,
+        agent,
+        supplements=[],
+        vote_summary={"up": 0, "down": 2},
+        feedback_reason_summary={"stale": 1, "owner_review": 2},
+    )
+
+    assert out["feedback_reason_summary"] == {"stale": 1, "owner_review": 2}
+    assert out["quality_signals"]["feedback_reasons"] == {"stale": 1, "owner_review": 2}
+    assert "feedback_reason_stale" in out["quality_signals"]["reasons"]
+    assert "feedback_reason_owner_review" in out["quality_signals"]["reasons"]
+
+
 def make_agent(agent_id, review_rules=None, user_id="u_owner", name=None):
     return SimpleNamespace(
         id=agent_id,

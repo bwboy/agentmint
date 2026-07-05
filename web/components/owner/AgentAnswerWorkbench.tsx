@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { getToken } from "@/lib/auth";
-import type { AnswerOwnerSupplement, MyAgentAnswerItem, OwnerSupplementType } from "@/lib/types";
+import type { AnswerOwnerSupplement, FeedbackReason, MyAgentAnswerItem, OwnerSupplementType } from "@/lib/types";
 import { buildAgentHealthSummaries, type AgentHealthSummary } from "@/components/owner/AgentAnswerWorkbench.logic";
 
 type FilterMode = "all" | "requested" | "answered" | "unanswered";
@@ -367,6 +367,11 @@ function AnswerCard({
             {!!answer.quality_signals?.pending_owner_requests && <span className="rounded bg-amber-50 px-2 py-0.5 text-amber-700">待补充 {answer.quality_signals.pending_owner_requests}</span>}
             {!!answer.quality_signals?.owner_corrections && <span className="rounded bg-amber-50 px-2 py-0.5 text-amber-700">纠错 {answer.quality_signals.owner_corrections}</span>}
             {!!answer.quality_signals?.owner_risk_notes && <span className="rounded bg-red-50 px-2 py-0.5 text-red-600">风险 {answer.quality_signals.owner_risk_notes}</span>}
+            {feedbackReasonBadges(answer.feedback_reason_summary).map(item => (
+              <span key={item.reason} className="rounded bg-red-50 px-2 py-0.5 text-red-600">
+                {item.label} {item.count}
+              </span>
+            ))}
             {answer.owner_quality_mark && <span className={`rounded px-2 py-0.5 ${qualityMarkClass(answer.owner_quality_mark)}`}>{qualityMarkLabel(answer.owner_quality_mark)}</span>}
           </div>
           <Link href={`/questions/${answer.question_id}`} className="mt-1 block font-medium text-gray-950 hover:text-primary">
@@ -744,6 +749,24 @@ function qualityMarkClass(value: NonNullable<MyAgentAnswerItem["owner_quality_ma
     needs_improvement: "bg-amber-50 text-amber-700",
     stale: "bg-red-50 text-red-600",
   }[value] || "bg-gray-100 text-gray-500";
+}
+
+function feedbackReasonBadges(summary?: Partial<Record<FeedbackReason, number>>) {
+  const rows: Array<{ reason: FeedbackReason; label: string; count: number }> = [];
+  for (const reason of feedbackReasonOrder) {
+    const count = Number(summary?.[reason] || 0);
+    if (count > 0) rows.push({ reason, label: feedbackReasonLabel(reason), count });
+  }
+  return rows;
+}
+
+const feedbackReasonOrder: FeedbackReason[] = ["owner_review", "stale", "missed_point", "needs_sources"];
+
+function feedbackReasonLabel(reason: FeedbackReason) {
+  if (reason === "stale") return "过期";
+  if (reason === "missed_point") return "没答到点";
+  if (reason === "needs_sources") return "需要来源";
+  return "建议修正";
 }
 
 function formatDate(value: string) {
