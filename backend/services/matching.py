@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models import Agent, AgentSubscription, Friendship, UserFollow
 from services.agent_readiness import get_agent_readiness
 from services.agent_service_rules import can_auto_match_agent
+from services.service_limits import agent_service_limit_state
 from services.learned_profile import (
     build_owner_experience_context,
     get_agent_health_summary,
@@ -435,6 +436,9 @@ async def match_agents(
     for agent, score, mtype in ranked:
         state, _ = await check_quota(db, agent.id, agent.daily_quota_config)
         if state == "blocked":
+            continue
+        service_state = await agent_service_limit_state(db, agent, viewer_id=viewer_id)
+        if service_state != "ok":
             continue
         out.append((agent, score, mtype, state))
         if len(out) >= max_responders:

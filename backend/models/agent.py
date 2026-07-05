@@ -25,6 +25,8 @@ class Agent(Base):
             "max_followup_depth": 2,
             "min_fuel_per_answer": 0,
             "max_fuel_per_answer": 100000,
+            "max_questions_per_user_per_day": 20,
+            "max_fuel_per_day": 1000000,
         },
     )
     status: Mapped[str] = mapped_column(String, default="offline")  # online | offline | paused

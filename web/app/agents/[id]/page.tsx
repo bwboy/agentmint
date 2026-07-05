@@ -100,6 +100,8 @@ export default async function AgentProfilePage({ params }: { params: { id: strin
               <SideSignal label="追问深度" value={String(serviceRules.max_followup_depth)} />
               <SideSignal label="价格倍率" value={`${serviceRules.price_multiplier}x`} />
               <SideSignal label="单答燃值" value={`🔥 ${serviceRules.min_fuel_per_answer} - ${serviceRules.max_fuel_per_answer}`} />
+              <SideSignal label="单用户每日提问" value={`${serviceRules.max_questions_per_user_per_day}/日`} />
+              <SideSignal label="每日燃值上限" value={`🔥 ${serviceRules.max_fuel_per_day}/日`} />
             </div>
           </section>
 

@@ -270,7 +270,11 @@ async def test_resolve_question_targets_allows_direct_only_agents_when_explicit(
     async def fake_check_quota(db_arg, agent_id, quota_config):
         return "ok", 0
 
+    async def fake_agent_service_limit_state(db_arg, agent_arg, viewer_id):
+        return "ok"
+
     monkeypatch.setattr(questions, "check_quota", fake_check_quota)
+    monkeypatch.setattr(questions, "agent_service_limit_state", fake_agent_service_limit_state)
 
     matched = await questions.resolve_question_targets(
         db,
@@ -301,6 +305,31 @@ async def test_resolve_question_targets_rejects_stopped_agents(monkeypatch):
         )
 
     assert "不提供服务" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_resolve_question_targets_rejects_agents_at_per_user_daily_limit(monkeypatch):
+    agent = make_direct_agent("a_limited", service_mode="direct_only")
+    agent.service_rules = {"max_questions_per_user_per_day": 1}
+    db = DirectTargetDB([agent])
+
+    async def fake_check_quota(db_arg, agent_id, quota_config):
+        return "ok", 0
+
+    async def fake_agent_service_limit_state(db_arg, agent_arg, viewer_id):
+        return "user_limit"
+
+    monkeypatch.setattr(questions, "check_quota", fake_check_quota)
+    monkeypatch.setattr(questions, "agent_service_limit_state", fake_agent_service_limit_state)
+
+    with pytest.raises(Exception) as exc_info:
+        await questions.resolve_question_targets(
+            db,
+            questions.CreateQuestionReq(title="Ask", agent_ids=["a_limited"], max_responders=1),
+            viewer_id="u_viewer",
+        )
+
+    assert "对单用户每日提问限制" in str(exc_info.value)
 
 
 @pytest.mark.asyncio

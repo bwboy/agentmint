@@ -23,7 +23,7 @@ FOLLOWUP_SCHEMA_SQL = [
     "UPDATE users SET profile_visibility='public' WHERE profile_visibility IS NULL",
     "UPDATE users SET default_agent_visibility='public' WHERE default_agent_visibility IS NULL",
     "UPDATE users SET default_agent_service_mode='auto_match' WHERE default_agent_service_mode IS NULL",
-    """UPDATE users SET default_agent_service_rules='{"price_multiplier":1.0,"max_followup_depth":2,"min_fuel_per_answer":0,"max_fuel_per_answer":100000}'::jsonb WHERE default_agent_service_rules IS NULL""",
+    """UPDATE users SET default_agent_service_rules='{"price_multiplier":1.0,"max_followup_depth":2,"min_fuel_per_answer":0,"max_fuel_per_answer":100000,"max_questions_per_user_per_day":20,"max_fuel_per_day":1000000}'::jsonb WHERE default_agent_service_rules IS NULL""",
     """UPDATE users SET notification_prefs='{"friend_request":true,"agent_subscribed":true,"direct_question":true,"answer_feedback":true}'::jsonb WHERE notification_prefs IS NULL""",
     "ALTER TABLE questions ADD COLUMN IF NOT EXISTS root_question_id VARCHAR",
     "ALTER TABLE questions ADD COLUMN IF NOT EXISTS parent_question_id VARCHAR",
@@ -82,7 +82,7 @@ FOLLOWUP_SCHEMA_SQL = [
     "UPDATE agents SET service_mode='auto_match' WHERE service_mode IS NULL",
     "ALTER TABLE agents ALTER COLUMN service_mode SET DEFAULT 'auto_match'",
     "ALTER TABLE agents ADD COLUMN IF NOT EXISTS service_rules JSONB",
-    """UPDATE agents SET service_rules='{"price_multiplier":1.0,"max_followup_depth":2,"min_fuel_per_answer":0,"max_fuel_per_answer":100000}'::jsonb WHERE service_rules IS NULL""",
+    """UPDATE agents SET service_rules='{"price_multiplier":1.0,"max_followup_depth":2,"min_fuel_per_answer":0,"max_fuel_per_answer":100000,"max_questions_per_user_per_day":20,"max_fuel_per_day":1000000}'::jsonb WHERE service_rules IS NULL""",
     "CREATE INDEX IF NOT EXISTS idx_agents_visibility ON agents(visibility)",
     "CREATE INDEX IF NOT EXISTS idx_agents_service_mode ON agents(service_mode)",
     """

@@ -220,6 +220,66 @@ def test_build_match_explanation_uses_structured_capability_profile():
     assert "插件开发" in explanation["avoid_tags"]
 
 
+@pytest.mark.asyncio
+async def test_match_agents_filters_agents_at_daily_fuel_limit(monkeypatch):
+    from services import matching
+
+    class AgentStub:
+        id = "a_fuel_full"
+        name = "Fuel Full"
+        agent_type = "hermes"
+        tags = ["AI"]
+        description = ""
+        repute_score = 5.0
+        total_answers = 1
+        approval_rate = 1.0
+        status = "online"
+        visibility = "public"
+        service_mode = "auto_match"
+        service_rules = {"max_fuel_per_day": 1000}
+        daily_quota_config = {"max": 50, "auto_threshold": 40}
+        review_rules = {"agentmint_readiness": {"state": "ready"}}
+        user_id = "u_owner"
+
+    class Result:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return [AgentStub()]
+
+    class MatchDB:
+        async def execute(self, stmt):
+            return Result()
+
+    async def fake_relationship_owner_sets(db, viewer_id):
+        return set(), set()
+
+    async def fake_subscribed_agent_ids(db, viewer_id):
+        return set()
+
+    async def fake_check_quota(db, agent_id, quota_config):
+        return "ok", 0
+
+    async def fake_agent_service_limit_state(db, agent, viewer_id):
+        return "fuel_limit"
+
+    monkeypatch.setattr(matching, "_relationship_owner_sets", fake_relationship_owner_sets)
+    monkeypatch.setattr(matching, "_subscribed_agent_ids", fake_subscribed_agent_ids)
+    monkeypatch.setattr(matching, "check_quota", fake_check_quota)
+    monkeypatch.setattr(matching, "agent_service_limit_state", fake_agent_service_limit_state)
+
+    matched = await matching.match_agents(
+        MatchDB(),
+        ["AI"],
+        max_responders=1,
+        title="AI 方案",
+        viewer_id="u_viewer",
+    )
+
+    assert matched == []
+
+
 def test_build_match_explanation_includes_score_breakdown_and_readiness():
     class AgentStub:
         id = "a_score"

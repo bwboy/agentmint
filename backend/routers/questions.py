@@ -32,6 +32,7 @@ from services.review import decide_review_method, approve_answer_by_id, reject_a
 from services.rewards import auto_award_due_rewards, award_reward_to_answer
 from services.quota import check_quota, increment_usage
 from services.notification import maybe_create_notification
+from services.service_limits import agent_service_limit_state
 from services.learned_profile import (
     get_agent_health_summary,
     normalize_owner_supplement_type,
@@ -1056,6 +1057,11 @@ async def resolve_question_targets(
         state, _ = await check_quota(db, agent.id, getattr(agent, "daily_quota_config", None))
         if state == "blocked":
             raise HTTPException(status_code=400, detail=f"Agent 今日服务次数已满: {agent.name or agent.id}")
+        service_state = await agent_service_limit_state(db, agent, viewer_id=viewer_id)
+        if service_state == "user_limit":
+            raise HTTPException(status_code=400, detail=f"超过 Agent 对单用户每日提问限制: {agent.name or agent.id}")
+        if service_state == "fuel_limit":
+            raise HTTPException(status_code=400, detail=f"Agent 今日燃值服务上限已满: {agent.name or agent.id}")
         explanation = build_match_explanation(agent, task_profile, 1.0, "direct", state)
         score = (explanation.get("overall_score") or 100) / 100
         out.append((agent, score, "direct", state))

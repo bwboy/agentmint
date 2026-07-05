@@ -7,6 +7,7 @@ from services.agent_service_rules import (
     normalize_visibility,
     can_view_agent,
     can_auto_match_agent,
+    service_limit_state,
 )
 from services.billing import calculate_answer_fuel
 import pytest
@@ -73,12 +74,16 @@ def test_normalize_agent_service_rules_defaults_and_bounds():
         "max_followup_depth": 12,
         "min_fuel_per_answer": -5,
         "max_fuel_per_answer": 25_000_000,
+        "max_questions_per_user_per_day": 3,
+        "max_fuel_per_day": 50_000_000,
     })
 
     assert out["price_multiplier"] == 2.5
     assert out["max_followup_depth"] == 10
     assert out["min_fuel_per_answer"] == DEFAULT_SERVICE_RULES["min_fuel_per_answer"]
     assert out["max_fuel_per_answer"] == DEFAULT_SERVICE_RULES["max_fuel_per_answer"]
+    assert out["max_questions_per_user_per_day"] == 3
+    assert out["max_fuel_per_day"] == DEFAULT_SERVICE_RULES["max_fuel_per_day"]
 
 
 def test_visibility_and_service_mode_normalization():
@@ -121,3 +126,14 @@ def test_calculate_answer_fuel_uses_prompt_and_completion_tokens_with_multiplier
 
     agent.service_rules["max_fuel_per_answer"] = 1000
     assert calculate_answer_fuel({"prompt_tokens": 1000, "completion_tokens": 1000}, agent) == 1000
+
+
+def test_service_limit_state_blocks_per_user_questions_and_daily_fuel():
+    rules = normalize_service_rules({
+        "max_questions_per_user_per_day": 2,
+        "max_fuel_per_day": 3000,
+    })
+
+    assert service_limit_state(rules, questions_by_user_today=1, fuel_today=2999) == "ok"
+    assert service_limit_state(rules, questions_by_user_today=2, fuel_today=100) == "user_limit"
+    assert service_limit_state(rules, questions_by_user_today=0, fuel_today=3000) == "fuel_limit"

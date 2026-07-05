@@ -9,6 +9,8 @@ DEFAULT_SERVICE_RULES = {
     "max_followup_depth": 2,
     "min_fuel_per_answer": 0,
     "max_fuel_per_answer": 100_000,
+    "max_questions_per_user_per_day": 20,
+    "max_fuel_per_day": 1_000_000,
 }
 
 
@@ -28,6 +30,11 @@ def normalize_service_rules(value: dict | None) -> dict[str, int | float]:
     depth = _int(data.get("max_followup_depth"), DEFAULT_SERVICE_RULES["max_followup_depth"])
     min_fuel = _int(data.get("min_fuel_per_answer"), DEFAULT_SERVICE_RULES["min_fuel_per_answer"])
     max_fuel = _int(data.get("max_fuel_per_answer"), DEFAULT_SERVICE_RULES["max_fuel_per_answer"])
+    max_questions_per_user = _int(
+        data.get("max_questions_per_user_per_day"),
+        DEFAULT_SERVICE_RULES["max_questions_per_user_per_day"],
+    )
+    max_fuel_per_day = _int(data.get("max_fuel_per_day"), DEFAULT_SERVICE_RULES["max_fuel_per_day"])
 
     if multiplier < 0.1 or multiplier > 10:
         multiplier = DEFAULT_SERVICE_RULES["price_multiplier"]
@@ -40,12 +47,18 @@ def normalize_service_rules(value: dict | None) -> dict[str, int | float]:
         max_fuel = DEFAULT_SERVICE_RULES["max_fuel_per_answer"]
     if min_fuel > max_fuel:
         min_fuel = max_fuel
+    if max_questions_per_user <= 0 or max_questions_per_user > 100:
+        max_questions_per_user = DEFAULT_SERVICE_RULES["max_questions_per_user_per_day"]
+    if max_fuel_per_day <= 0 or max_fuel_per_day > DEFAULT_SERVICE_RULES["max_fuel_per_day"]:
+        max_fuel_per_day = DEFAULT_SERVICE_RULES["max_fuel_per_day"]
 
     return {
         "price_multiplier": round(float(multiplier), 2),
         "max_followup_depth": depth,
         "min_fuel_per_answer": min_fuel,
         "max_fuel_per_answer": max_fuel,
+        "max_questions_per_user_per_day": max_questions_per_user,
+        "max_fuel_per_day": max_fuel_per_day,
     }
 
 
@@ -87,6 +100,20 @@ def can_auto_match_agent(
             friend_owner_ids=friend_owner_ids,
         )
     )
+
+
+def service_limit_state(
+    rules: dict | None,
+    *,
+    questions_by_user_today: int,
+    fuel_today: int,
+) -> str:
+    normalized = normalize_service_rules(rules)
+    if int(questions_by_user_today or 0) >= int(normalized["max_questions_per_user_per_day"]):
+        return "user_limit"
+    if int(fuel_today or 0) >= int(normalized["max_fuel_per_day"]):
+        return "fuel_limit"
+    return "ok"
 
 
 def _int(value: Any, fallback: int) -> int:

@@ -371,6 +371,8 @@ function ServiceSummary({ agent }: { agent: Agent }) {
       <span className="rounded bg-gray-100 px-2 py-0.5 text-gray-500">{serviceModeLabel(agent.service_mode)}</span>
       <span className="rounded bg-orange-50 px-2 py-0.5 text-orange-600">x{rules.price_multiplier} 计费</span>
       <span className="rounded bg-blue-50 px-2 py-0.5 text-blue-600">追问 {rules.max_followup_depth} 层</span>
+      <span className="rounded bg-indigo-50 px-2 py-0.5 text-indigo-600">单用户 {rules.max_questions_per_user_per_day}/日</span>
+      <span className="rounded bg-teal-50 px-2 py-0.5 text-teal-600">燃值 {rules.max_fuel_per_day}/日</span>
       <span className="rounded bg-emerald-50 px-2 py-0.5 text-emerald-600">每日 {quota.max} 次</span>
     </div>
   );
@@ -607,6 +609,8 @@ function ServiceSettingsFields({
         <NumberField label="最大追问深度" value={rules.max_followup_depth} min={0} max={10} step={1} onChange={v => updateRule("max_followup_depth", v)} />
         <NumberField label="单次最低燃值" value={rules.min_fuel_per_answer} min={0} max={100000} step={100} onChange={v => updateRule("min_fuel_per_answer", v)} />
         <NumberField label="单次最高燃值" value={rules.max_fuel_per_answer} min={1} max={100000} step={100} onChange={v => updateRule("max_fuel_per_answer", v)} />
+        <NumberField label="单用户每日提问" value={rules.max_questions_per_user_per_day} min={1} max={100} step={1} onChange={v => updateRule("max_questions_per_user_per_day", v)} />
+        <NumberField label="每日燃值上限" value={rules.max_fuel_per_day} min={1} max={1000000} step={1000} onChange={v => updateRule("max_fuel_per_day", v)} />
       </div>
     </div>
   );
@@ -871,6 +875,8 @@ function normalizeServiceRules(rules?: Partial<AgentServiceRules>): AgentService
   const depth = Math.trunc(Number(rules?.max_followup_depth ?? 2));
   const minFuel = Math.trunc(Number(rules?.min_fuel_per_answer ?? 0));
   const maxFuel = Math.trunc(Number(rules?.max_fuel_per_answer ?? 100000));
+  const maxQuestionsPerUser = Math.trunc(Number(rules?.max_questions_per_user_per_day ?? 20));
+  const maxFuelPerDay = Math.trunc(Number(rules?.max_fuel_per_day ?? 1000000));
   const safeMax = Number.isFinite(maxFuel) && maxFuel > 0 ? Math.min(maxFuel, 100000) : 100000;
   const safeMin = Number.isFinite(minFuel) && minFuel >= 0 ? Math.min(minFuel, safeMax) : 0;
   return {
@@ -878,6 +884,8 @@ function normalizeServiceRules(rules?: Partial<AgentServiceRules>): AgentService
     max_followup_depth: Number.isFinite(depth) ? Math.max(0, Math.min(depth, 10)) : 2,
     min_fuel_per_answer: safeMin,
     max_fuel_per_answer: safeMax,
+    max_questions_per_user_per_day: Number.isFinite(maxQuestionsPerUser) && maxQuestionsPerUser > 0 ? Math.min(maxQuestionsPerUser, 100) : 20,
+    max_fuel_per_day: Number.isFinite(maxFuelPerDay) && maxFuelPerDay > 0 ? Math.min(maxFuelPerDay, 1000000) : 1000000,
   };
 }
 

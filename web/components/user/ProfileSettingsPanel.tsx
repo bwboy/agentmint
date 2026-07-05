@@ -130,6 +130,10 @@ export function ProfileSettingsPanel() {
             onChange={v => updateRules({ min_fuel_per_answer: v })} />
           <NumberField label="默认最高燃值" value={state.default_agent_service_rules.max_fuel_per_answer} min={1} max={100000} step={100}
             onChange={v => updateRules({ max_fuel_per_answer: v })} />
+          <NumberField label="默认单用户每日提问" value={state.default_agent_service_rules.max_questions_per_user_per_day} min={1} max={100} step={1}
+            onChange={v => updateRules({ max_questions_per_user_per_day: v })} />
+          <NumberField label="默认每日燃值上限" value={state.default_agent_service_rules.max_fuel_per_day} min={1} max={1000000} step={1000}
+            onChange={v => updateRules({ max_fuel_per_day: v })} />
         </div>
       </section>
 
@@ -230,10 +234,14 @@ function splitList(value: string) {
 
 function normalizeRules(rules?: Partial<AgentServiceRules>): AgentServiceRules {
   const maxFuel = Math.trunc(Number(rules?.max_fuel_per_answer ?? 100000));
+  const maxQuestionsPerUser = Math.trunc(Number(rules?.max_questions_per_user_per_day ?? 20));
+  const maxFuelPerDay = Math.trunc(Number(rules?.max_fuel_per_day ?? 1000000));
   return {
     price_multiplier: Math.max(0.1, Math.min(Number(rules?.price_multiplier ?? 1), 10)),
     max_followup_depth: Math.max(0, Math.min(Math.trunc(Number(rules?.max_followup_depth ?? 2)), 10)),
     min_fuel_per_answer: Math.max(0, Math.trunc(Number(rules?.min_fuel_per_answer ?? 0))),
     max_fuel_per_answer: Number.isFinite(maxFuel) && maxFuel > 0 ? Math.min(maxFuel, 100000) : 100000,
+    max_questions_per_user_per_day: Number.isFinite(maxQuestionsPerUser) && maxQuestionsPerUser > 0 ? Math.min(maxQuestionsPerUser, 100) : 20,
+    max_fuel_per_day: Number.isFinite(maxFuelPerDay) && maxFuelPerDay > 0 ? Math.min(maxFuelPerDay, 1000000) : 1000000,
   };
 }

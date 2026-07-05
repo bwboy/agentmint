@@ -103,6 +103,8 @@ export interface AgentServiceRules {
   max_followup_depth: number;
   min_fuel_per_answer: number;
   max_fuel_per_answer: number;
+  max_questions_per_user_per_day: number;
+  max_fuel_per_day: number;
 }
 
 export type FriendshipStatus = "none" | "pending_outgoing" | "pending_incoming" | "accepted" | "self";
