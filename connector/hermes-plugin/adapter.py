@@ -21,11 +21,13 @@ Tested against the Arena backend's `/ws` endpoint (see
 agentmint/backend/ws/hub.py for the protocol).
 """
 import asyncio
+import base64
 import logging
 import math
 import os
 import re
 import time
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +57,8 @@ DEFAULT_PLATFORM_URL = "ws://localhost:8000/ws"
 DEFAULT_MAX_CONCURRENT = 3
 DEFAULT_QUEUE_DB = "~/.hermes/agentmint-jobs.db"
 DEFAULT_USAGE_WAIT_SECONDS = 1.0
+MAX_INLINE_IMAGE_BYTES = 1_500_000
+MAX_INLINE_IMAGES = 3
 TRUE_VALUES = {"1", "true", "yes", "on"}
 TOOL_TRACE_PREFIXES = (
     "session_search:",
@@ -373,6 +377,8 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
 
         self._job_started_at[request_id] = time.monotonic()
 
+        attachments = _prepare_prompt_attachments(question_record.get("attachments") or [])
+
         # Build the conversational prompt Hermes will see.
         if turn_type == "followup":
             followup_text = _format_followup_text(title, body, tags)
@@ -381,10 +387,10 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
                 root_question=question_record.get("root_question"),
                 quoted_answer=question_record.get("quoted_answer"),
                 include_context=conversation_id not in getattr(self, "_warm_conversations", set()),
-                attachments=question_record.get("attachments") or [],
+                attachments=attachments,
             )
         else:
-            user_text = _format_prompt(title, body, tags, asker_nick, attachments=question_record.get("attachments") or [])
+            user_text = _format_prompt(title, body, tags, asker_nick, attachments=attachments)
         self._prompt_text_by_request[request_id] = user_text
 
         source = self.build_source(
@@ -1073,6 +1079,7 @@ def _format_followup_text(title: str, body: str, tags: list) -> str:
 def _format_attachment_context(attachments: list) -> str:
     lines = []
     has_image = False
+    has_inline_image = False
     for item in attachments[:10]:
         if not isinstance(item, dict):
             continue
@@ -1080,17 +1087,70 @@ def _format_attachment_context(attachments: list) -> str:
         kind = str(item.get("type") or "file").strip()
         if kind == "image":
             has_image = True
+        inline_data_url = str(item.get("inline_data_url") or "").strip()
+        if inline_data_url:
+            has_inline_image = True
         url = str(item.get("url") or "").strip()
         if url:
             lines.append(f"- {filename} ({kind}): {url}")
         else:
             lines.append(f"- {filename} ({kind})")
+        if inline_data_url:
+            lines.append(f"  图片内容已内联: {inline_data_url}")
+        elif item.get("inline_error"):
+            lines.append(f"  图片内联失败: {item.get('inline_error')}")
     if not lines:
         return ""
     prefix = "附件:\n"
     if has_image:
         prefix += "附件包含图片。若问题要求识别、比较或解释图片内容，必须先查看或下载图片后再回答；不要声称未收到图片。\n"
+    if has_inline_image:
+        prefix += "图片内容已内联在消息中，优先直接读取内联图片内容。\n"
     return prefix + "\n".join(lines)
+
+
+def _prepare_prompt_attachments(attachments: list) -> list:
+    prepared: list = []
+    inline_count = 0
+    for item in attachments[:10]:
+        if not isinstance(item, dict):
+            continue
+        copied = dict(item)
+        if copied.get("type") == "image" and inline_count < MAX_INLINE_IMAGES and not copied.get("inline_data_url"):
+            data_url, error = _download_image_as_data_url(copied)
+            if data_url:
+                copied["inline_data_url"] = data_url
+                inline_count += 1
+            elif error:
+                copied["inline_error"] = error
+        prepared.append(copied)
+    return prepared
+
+
+def _download_image_as_data_url(item: dict) -> tuple[str, str]:
+    url = str(item.get("url") or "").strip()
+    if not url:
+        return "", "missing_url"
+    mime = str(item.get("mime") or "image/jpeg").strip() or "image/jpeg"
+    try:
+        expected_size = int(item.get("size_bytes") or 0)
+    except (TypeError, ValueError):
+        expected_size = 0
+    if expected_size > MAX_INLINE_IMAGE_BYTES:
+        return "", "image_too_large"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "AgentMint-Hermes/1.0"})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = resp.read(MAX_INLINE_IMAGE_BYTES + 1)
+            content_type = resp.headers.get("Content-Type")
+    except Exception as e:
+        return "", f"download_failed:{type(e).__name__}"
+    if len(data) > MAX_INLINE_IMAGE_BYTES:
+        return "", "image_too_large"
+    if content_type and content_type.startswith("image/"):
+        mime = content_type.split(";")[0].strip()
+    encoded = base64.b64encode(data).decode("ascii")
+    return f"data:{mime};base64,{encoded}", ""
 
 
 def _format_followup_prompt(

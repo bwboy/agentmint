@@ -5,6 +5,7 @@ import sys
 import tempfile
 import types
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -116,6 +117,58 @@ class UsageExtractionTests(unittest.TestCase):
         self.assertIn("附件包含图片", prompt)
         self.assertIn("必须先查看或下载图片", prompt)
         self.assertIn("screen.jpeg (image): http://arena/api/files/object/uploads/screen.jpeg", prompt)
+
+    def test_formatted_prompt_can_inline_image_attachment_data(self):
+        prompt = self.adapter._format_prompt(
+            "这几个人都是谁",
+            "",
+            [],
+            "tester",
+            attachments=[{
+                "filename": "screen.jpeg",
+                "type": "image",
+                "mime": "image/jpeg",
+                "url": "http://arena/api/files/object/uploads/screen.jpeg",
+                "inline_data_url": "data:image/jpeg;base64,abcd",
+            }],
+        )
+
+        self.assertIn("图片内容已内联", prompt)
+        self.assertIn("data:image/jpeg;base64,abcd", prompt)
+
+    def test_prepare_prompt_attachments_downloads_small_images(self):
+        adapter_mod = self.adapter
+
+        class FakeHeaders:
+            def get(self, name):
+                return "image/png" if name == "Content-Type" else None
+
+        class FakeResponse:
+            headers = FakeHeaders()
+
+            def read(self, size):
+                return b"png-bytes"
+
+        @contextmanager
+        def fake_urlopen(req, timeout=0):
+            self.assertEqual(req.full_url, "http://arena/files/screen.png")
+            self.assertEqual(timeout, 8)
+            yield FakeResponse()
+
+        original_urlopen = adapter_mod.urllib.request.urlopen
+        adapter_mod.urllib.request.urlopen = fake_urlopen
+        try:
+            attachments = adapter_mod._prepare_prompt_attachments([{
+                "filename": "screen.png",
+                "type": "image",
+                "mime": "image/png",
+                "size_bytes": 9,
+                "url": "http://arena/files/screen.png",
+            }])
+        finally:
+            adapter_mod.urllib.request.urlopen = original_urlopen
+
+        self.assertEqual(attachments[0]["inline_data_url"], "data:image/png;base64,cG5nLWJ5dGVz")
 
     def test_tool_trace_detection_does_not_block_explanatory_answers(self):
         self.assertFalse(self.adapter._looks_like_tool_trace(
