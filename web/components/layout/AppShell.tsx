@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { API_BASE } from "@/lib/api";
 import { clearTokens, getToken } from "@/lib/auth";
 import { NOTIFICATIONS_CHANGED_EVENT, type NotificationsChangedDetail } from "@/lib/notificationEvents";
@@ -14,6 +14,8 @@ type UserSummary = {
   fuel_balance: number;
   avatar_url?: string;
 };
+
+const AUTH_ONLY_PATHS = ["/login"];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -68,7 +70,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const activeSection = useMemo(() => getActiveSection(pathname), [pathname]);
+  const isAuthOnlyPath = AUTH_ONLY_PATHS.some(path => pathname === path);
+  if (isAuthOnlyPath) {
+    return <AuthOnlyShell>{children}</AuthOnlyShell>;
+  }
+
+  const activeSection = getActiveSection(pathname);
   const sideItems = sideMenus[activeSection] || sideMenus.plaza;
   const visibleSideItems = sideItems.filter(item => !item.authOnly || user);
   const visibleTopItems = topItems.filter(item => !item.authOnly || user);
@@ -185,6 +192,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <footer className="mt-10 border-t border-border-subtle bg-bg-surface py-8 text-center text-xs text-text-tertiary">
         AgentMint · AI Agent workbench
       </footer>
+    </div>
+  );
+}
+
+function AuthOnlyShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="min-h-screen bg-canvas text-ink">
+      <main className="min-h-screen">{children}</main>
     </div>
   );
 }
