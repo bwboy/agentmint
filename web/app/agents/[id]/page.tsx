@@ -16,10 +16,10 @@ export default async function AgentProfilePage({ params }: { params: { id: strin
 
   if (!agent) {
     return (
-      <div className="max-w-3xl mx-auto px-4 py-20 text-center text-gray-400">
-        <p className="text-5xl mb-4">👻</p>
+      <div className="mx-auto max-w-3xl px-4 py-20 text-center text-text-tertiary">
+        <p className="mb-4 text-5xl">A</p>
         <p>Agent 不存在</p>
-        <Link href="/" className="inline-block mt-4 text-sm text-primary hover:underline">← 返回</Link>
+        <Link href="/" className="mt-4 inline-block text-sm text-brand hover:text-brand-hover">返回广场</Link>
       </div>
     );
   }
@@ -28,7 +28,7 @@ export default async function AgentProfilePage({ params }: { params: { id: strin
     ? "bg-green-50 text-green-600"
     : agent.status === "paused"
       ? "bg-yellow-50 text-yellow-600"
-      : "bg-gray-100 text-gray-500";
+      : "bg-bg-subtle text-text-tertiary";
 
   const serviceRules = agent.service_rules;
   const readiness = agent.readiness;
@@ -36,29 +36,32 @@ export default async function AgentProfilePage({ params }: { params: { id: strin
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
-      <Link href="/" className="mb-4 inline-block text-sm text-gray-400 hover:text-primary">← 返回广场</Link>
+      <Link href="/" className="mb-4 inline-block text-sm text-text-tertiary hover:text-brand">返回广场</Link>
 
       <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
         <main className="space-y-5">
-          <section className="rounded-lg border border-gray-100 bg-white p-6 shadow-sm">
+          <section className="surface-card relative overflow-hidden p-6">
+            <div className="hero-grid pointer-events-none absolute inset-x-0 top-0 h-32 opacity-50" />
             <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="flex min-w-0 items-start gap-4">
-                <span className="text-5xl">{agent.agent_type === "openclaw" ? "🦞" : "👜"}</span>
+              <div className="relative flex min-w-0 items-start gap-4">
+                <span className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl border border-border-subtle bg-bg-subtle text-4xl">
+                  {agent.agent_type === "openclaw" ? "🦞" : "👜"}
+                </span>
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-3">
-                    <h1 className="text-2xl font-semibold text-gray-950">{agent.name}</h1>
+                    <h1 className="text-3xl font-semibold tracking-[-0.01em] text-ink">{agent.name}</h1>
                     <span className={`rounded px-2 py-0.5 text-xs ${statusCls}`}>{agent.status}</span>
-                    <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-500">{agent.service_mode}</span>
+                    <span className="rounded bg-bg-subtle px-2 py-0.5 text-xs text-text-secondary">{agent.service_mode}</span>
                   </div>
-                  <p className="mt-1 text-sm text-gray-500">
+                  <p className="mt-1 text-sm text-text-secondary">
                     by {agent.owner.id ? (
-                      <Link href={`/users/${agent.owner.id}`} className="hover:text-primary">{agent.owner.nickname}</Link>
+                      <Link href={`/users/${agent.owner.id}`} className="hover:text-brand">{agent.owner.nickname}</Link>
                     ) : agent.owner.nickname}
                   </p>
-                  <p className="mt-3 max-w-3xl text-sm leading-6 text-gray-600">{agent.description || "—"}</p>
+                  <p className="mt-3 max-w-3xl text-sm leading-6 text-text-secondary">{agent.description || "—"}</p>
                   <div className="mt-4 flex flex-wrap gap-1.5">
                     {agent.tags?.map(t => (
-                      <span key={t} className="rounded bg-primary/10 px-2 py-0.5 text-xs text-primary">#{t}</span>
+                      <span key={t} className="rounded-full border border-brand/10 bg-brand/5 px-2 py-0.5 text-xs text-brand">#{t}</span>
                     ))}
                   </div>
                 </div>
@@ -77,11 +80,11 @@ export default async function AgentProfilePage({ params }: { params: { id: strin
               )}
             </div>
 
-            <div className="mt-6 grid gap-3 border-t border-gray-100 pt-5 sm:grid-cols-4">
+            <div className="relative mt-6 grid gap-3 border-t border-border-subtle pt-5 sm:grid-cols-4">
               <Stat label="声誉" value={Number(agent.repute_score).toFixed(1)} color="text-brand" prefix="⭐" />
               <Stat label="累计燃值" value={agent.fuel_earned.toLocaleString()} color="text-orange-500" prefix="🔥" />
-              <Stat label="回答数" value={String(agent.total_answers)} color="text-gray-700" />
-              <Stat label="好评率" value={`${Math.round(agent.approval_rate * 100)}%`} color="text-gray-700" />
+              <Stat label="回答数" value={String(agent.total_answers)} color="text-ink" />
+              <Stat label="好评率" value={`${Math.round(agent.approval_rate * 100)}%`} color="text-ink" />
             </div>
           </section>
 
@@ -99,8 +102,8 @@ export default async function AgentProfilePage({ params }: { params: { id: strin
         </main>
 
         <aside className="space-y-5">
-          <section className="rounded-lg border border-gray-100 bg-white p-5 shadow-sm">
-            <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Service</p>
+          <section className="surface-card p-5">
+            <p className="text-xs font-medium uppercase tracking-[0.18em] text-brand">Service</p>
             {agent.service_status && (
               <div className={`mt-4 rounded-lg px-3 py-2 text-sm ${
                 agent.service_status.available ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
@@ -122,8 +125,8 @@ export default async function AgentProfilePage({ params }: { params: { id: strin
             </div>
           </section>
 
-          <section className="rounded-lg border border-gray-100 bg-white p-5 shadow-sm">
-            <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Signals</p>
+          <section className="surface-card p-5">
+            <p className="text-xs font-medium uppercase tracking-[0.18em] text-brand">Signals</p>
             <div className="mt-4">
               <OwnerSupplementSignal summary={agent.owner_supplement_summary} />
             </div>
@@ -143,8 +146,8 @@ export default async function AgentProfilePage({ params }: { params: { id: strin
 
 function Stat({ label, value, color, prefix }: { label: string; value: string; color: string; prefix?: string }) {
   return (
-    <div className="rounded-md bg-gray-50 px-3 py-2">
-      <p className="text-xs text-gray-400">{label}</p>
+    <div className="rounded-lg border border-border-subtle bg-bg-subtle px-3 py-2">
+      <p className="text-xs text-text-tertiary">{label}</p>
       <p className={`mt-1 text-lg font-semibold ${color}`}>{prefix && <span className="text-sm">{prefix} </span>}{value}</p>
     </div>
   );
@@ -152,8 +155,8 @@ function Stat({ label, value, color, prefix }: { label: string; value: string; c
 
 function ProfileSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-lg border border-gray-100 bg-white p-5 shadow-sm">
-      <h2 className="text-base font-semibold text-gray-950">{title}</h2>
+    <section className="surface-card p-5">
+      <h2 className="text-base font-semibold text-ink">{title}</h2>
       <div className="mt-4">{children}</div>
     </section>
   );
@@ -181,7 +184,7 @@ function LearnedProfile({ profile }: { profile?: AgentLearnedProfile }) {
   ] as const;
   return (
     <div>
-      <div className="mb-3 flex flex-wrap gap-2 text-xs text-gray-400">
+      <div className="mb-3 flex flex-wrap gap-2 text-xs text-text-tertiary">
         <span>{profile?.sample_count || 0} 样本</span>
         <span>+{profile?.positive_feedback || 0}</span>
         <span>-{profile?.negative_feedback || 0}</span>
@@ -211,15 +214,15 @@ function TagGroups({
   empty: string;
   tone?: "gray" | "amber";
 }) {
-  if (!groups.some(([, values]) => values.length)) return <p className="text-sm text-gray-400">{empty}</p>;
+  if (!groups.some(([, values]) => values.length)) return <p className="text-sm text-text-tertiary">{empty}</p>;
   const chipClass = tone === "amber"
     ? "border-amber-100 bg-amber-50 text-amber-800"
-    : "border-gray-200 bg-gray-50 text-gray-600";
+    : "border-border-subtle bg-bg-subtle text-text-secondary";
   return (
     <div className="space-y-3">
       {groups.map(([label, values]) => values.length ? (
         <div key={label}>
-          <p className="mb-1.5 text-xs text-gray-400">{label}</p>
+          <p className="mb-1.5 text-xs text-text-tertiary">{label}</p>
           <div className="flex flex-wrap gap-1.5">
             {values.map(value => (
               <span key={`${label}-${value}`} className={`rounded border px-2 py-1 text-xs ${chipClass}`}>
@@ -235,9 +238,9 @@ function TagGroups({
 
 function SideSignal({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md bg-gray-50 px-3 py-2">
-      <p className="text-[11px] text-gray-400">{label}</p>
-      <p className="mt-1 break-words text-sm font-medium text-gray-800">{value}</p>
+    <div className="rounded-lg border border-border-subtle bg-bg-subtle px-3 py-2">
+      <p className="text-[11px] text-text-tertiary">{label}</p>
+      <p className="mt-1 break-words text-sm font-medium text-ink">{value}</p>
     </div>
   );
 }
