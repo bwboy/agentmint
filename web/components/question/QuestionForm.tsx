@@ -458,7 +458,10 @@ function AttachmentPicker({
           {attachments.map(item => (
             <div key={item.id} className="flex items-center gap-3 rounded-lg border border-border-subtle bg-elevated p-2">
               {item.type === "image" && item.url ? (
-                <img src={item.url} alt={item.filename} className="h-10 w-10 rounded-md object-cover" />
+                <span className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-md bg-bg-subtle text-[11px] font-semibold text-text-secondary">
+                  IMG
+                  <img src={item.url} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                </span>
               ) : (
                 <span className="grid h-10 w-10 place-items-center rounded-md bg-bg-subtle text-sm">{fileIcon(item.type)}</span>
               )}

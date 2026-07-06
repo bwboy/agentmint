@@ -18,3 +18,8 @@ test("question detail page uses shared workbench surfaces and tokens", () => {
   assert.match(questionDetail, /text-text-secondary/);
   assert.match(questionDetail, /border-border-subtle/);
 });
+
+test("question detail image attachments keep a visible placeholder under thumbnails", () => {
+  assert.match(questionDetail, /IMG/);
+  assert.match(questionDetail, /absolute inset-0 h-full w-full object-cover/);
+});

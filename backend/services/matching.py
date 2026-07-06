@@ -419,6 +419,11 @@ async def match_agents(
                 if sim >= SIMILARITY_THRESHOLD:
                     mtype = "subscribed_similarity" if a.id in subscribed_agent_ids else "similarity"
                     scored.append((a, sim * SIMILARITY_DISCOUNT, mtype))
+            if not scored:
+                scored = [
+                    (a, 0.0, "subscribed_fallback" if a.id in subscribed_agent_ids else "fallback")
+                    for a in agents
+                ]
         ranked = scored
 
     # Sort by combined rank

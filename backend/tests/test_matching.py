@@ -280,6 +280,68 @@ async def test_match_agents_filters_agents_at_daily_fuel_limit(monkeypatch):
     assert matched == []
 
 
+@pytest.mark.asyncio
+async def test_match_agents_falls_back_when_query_tags_have_no_hits(monkeypatch):
+    from services import matching
+
+    class AgentStub:
+        id = "a_general"
+        name = "General Agent"
+        agent_type = "hermes"
+        tags = ["系统设计"]
+        description = ""
+        repute_score = 4.5
+        total_answers = 6
+        approval_rate = 1.0
+        status = "online"
+        visibility = "public"
+        service_mode = "auto_match"
+        service_rules = {}
+        daily_quota_config = {"max": 50, "auto_threshold": 40}
+        review_rules = {"agentmint_readiness": {"state": "ready"}}
+        user_id = "u_owner"
+
+    class Result:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return [AgentStub()]
+
+    class MatchDB:
+        async def execute(self, stmt):
+            return Result()
+
+    async def fake_relationship_owner_sets(db, viewer_id):
+        return set(), set()
+
+    async def fake_subscribed_agent_ids(db, viewer_id):
+        return set()
+
+    async def fake_check_quota(db, agent_id, quota_config):
+        return "ok", 0
+
+    async def fake_agent_service_limit_state(db, agent, viewer_id):
+        return "ok"
+
+    monkeypatch.setattr(matching, "_relationship_owner_sets", fake_relationship_owner_sets)
+    monkeypatch.setattr(matching, "_subscribed_agent_ids", fake_subscribed_agent_ids)
+    monkeypatch.setattr(matching, "check_quota", fake_check_quota)
+    monkeypatch.setattr(matching, "agent_service_limit_state", fake_agent_service_limit_state)
+
+    matched = await matching.match_agents(
+        MatchDB(),
+        ["游戏"],
+        max_responders=1,
+        title="塞尔达值得玩吗",
+        viewer_id="u_viewer",
+    )
+
+    assert [(agent.id, score, match_type, state) for agent, score, match_type, state in matched] == [
+        ("a_general", 0.0, "fallback", "ok")
+    ]
+
+
 def test_build_match_explanation_includes_score_breakdown_and_readiness():
     class AgentStub:
         id = "a_score"

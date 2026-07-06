@@ -76,7 +76,8 @@ def upload(stream: BinaryIO, filename: str, content_type: str | None = None) -> 
     if settings.file_store == "oss":
         url = f"https://{_bucket()}.{settings.oss_endpoint}/{key}"
     else:
-        url = f"{settings.minio_endpoint}/{_bucket()}/{key}"
+        public_endpoint = (settings.minio_public_endpoint or settings.minio_endpoint).rstrip("/")
+        url = f"{public_endpoint}/{_bucket()}/{key}"
 
     return {
         "id": f"f_{uuid.uuid4().hex[:8]}",

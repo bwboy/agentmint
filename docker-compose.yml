@@ -51,6 +51,7 @@ services:
       SMS_PROVIDER: ${SMS_PROVIDER:-mock}
       FILE_STORE: ${FILE_STORE:-minio}
       MINIO_ENDPOINT: http://minio:9000
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-agentmint-files}

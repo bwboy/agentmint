@@ -218,7 +218,14 @@ function AttachmentStrip({ attachments, compact = false }: { attachments: Attach
           className="stateful flex min-w-0 items-center gap-3 rounded-xl border border-border-subtle bg-bg-subtle p-2 hover:border-brand-selected"
         >
           {item.type === "image" && item.url ? (
-            <img src={item.url} alt={item.filename} className="h-12 w-12 shrink-0 rounded-lg object-cover" />
+            <span className="relative grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-lg bg-elevated text-[11px] font-semibold text-text-secondary">
+              IMG
+              <img
+                src={item.url}
+                alt=""
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+            </span>
           ) : (
             <span className="grid h-12 w-12 shrink-0 place-items-center rounded-lg bg-elevated text-[11px] font-semibold text-text-secondary">
               {attachmentLabel(item.type)}
