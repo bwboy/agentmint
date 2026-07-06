@@ -175,6 +175,11 @@ class UsageExtractionTests(unittest.TestCase):
             "我先说明一下：browser_navigate 和 terminal 是工具名，不是最终答案。"
         ))
 
+    def test_vision_tool_trace_is_not_uploaded_as_final_answer(self):
+        self.assertTrue(self.adapter._looks_like_tool_trace(
+            '👁️ vision_analyze: "这张图片里有三位人物，请识别他们分别是《荒野大镖客：救赎2》..."'
+        ))
+
     def test_on_question_uses_stable_agentmint_identity_for_pairing(self):
         adapter_mod = self.adapter
 

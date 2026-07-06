@@ -29,7 +29,9 @@ export function AnswerMarkdown({ text }: { text: string }) {
         </div>
       ) : (
         <div className="rounded-lg border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-          {parsed.workingOnly ? "Agent 仍在处理，本条暂未形成最终回答。" : "暂无可展示的最终回答。"}
+          {parsed.workingOnly
+            ? "Agent 仍在运行，最终回复到达后会自动更新。"
+            : "暂无可展示的最终回答；当前只收到运行过程记录。"}
         </div>
       )}
       {parsed.traces.length > 0 && (

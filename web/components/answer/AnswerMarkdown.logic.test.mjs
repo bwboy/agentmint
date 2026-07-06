@@ -35,6 +35,16 @@ test("detects working-only status updates", () => {
   ]);
 });
 
+test("separates vision tool traces from final answer text", () => {
+  const parsed = parseAnswerContent('👁️ vision_analyze: "这张图片里有三位人物，请识别他们分别是《荒野大镖客：救赎2》..."');
+
+  assert.equal(parsed.finalText, "");
+  assert.equal(parsed.hasFinalAnswer, false);
+  assert.deepEqual(parsed.traces, [
+    { kind: "tool", text: '👁️ vision_analyze: "这张图片里有三位人物，请识别他们分别是《荒野大镖客：救赎2》..."' },
+  ]);
+});
+
 test("keeps regular markdown intact", () => {
   const parsed = parseAnswerContent("# 标题\n\n| A | B |\n| - | - |\n| 1 | 2 |");
 

@@ -66,6 +66,8 @@ TOOL_TRACE_PREFIXES = (
     "web_search:",
     "search_query:",
     "tool_call:",
+    "vision_analyze:",
+    "image_analyze:",
     "execute_code:",
     "terminal:",
     "shell:",
@@ -73,7 +75,7 @@ TOOL_TRACE_PREFIXES = (
 )
 TOOL_TRACE_RE = re.compile(
     r"(^|[\s\W])("
-    r"session_search|browser_[a-z0-9_]*|web_search|search_query|tool_call|execute_code|terminal|shell|bash"
+    r"session_search|browser_[a-z0-9_]*|web_search|search_query|tool_call|vision_analyze|image_analyze|execute_code|terminal|shell|bash"
     r")\s*:",
     re.IGNORECASE,
 )
