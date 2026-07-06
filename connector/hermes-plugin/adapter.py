@@ -80,7 +80,7 @@ TOOL_TRACE_RE = re.compile(
     re.IGNORECASE,
 )
 WORKING_STATUS_RE = re.compile(
-    r"^\s*(?:[^\w\s]+\s*)?working\s+[-—]\s+.+\biteration\s+\d+/\d+\b.*\breceiving\s+stream\s+response\b",
+    r"^\s*(?:[^\w\s]+\s*)?working\s+[-—]\s+.+\biteration\s+\d+/\d+\b.*\b(?:receiving|waiting\s+for)\s+stream\s+response\b",
     re.IGNORECASE,
 )
 INTERRUPTING_STATUS_RE = re.compile(

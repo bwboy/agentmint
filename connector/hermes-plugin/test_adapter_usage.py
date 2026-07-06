@@ -180,6 +180,11 @@ class UsageExtractionTests(unittest.TestCase):
             '👁️ vision_analyze: "这张图片里有三位人物，请识别他们分别是《荒野大镖客：救赎2》..."'
         ))
 
+    def test_waiting_for_stream_response_is_working_status(self):
+        self.assertTrue(self.adapter._looks_like_working_status(
+            "⌛ Working — 3 min — iteration 1/150, waiting for stream response (150s, no chunks yet)"
+        ))
+
     def test_on_question_uses_stable_agentmint_identity_for_pairing(self):
         adapter_mod = self.adapter
 

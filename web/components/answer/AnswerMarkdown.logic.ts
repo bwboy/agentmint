@@ -11,7 +11,7 @@ export type ParsedAnswerContent = {
 };
 
 const TOOL_TRACE_START_PATTERN = /(?:🌐\s*)?browser_[a-z_]+:|(?:💻\s*)?terminal:|(?:🧰\s*)?tool_[a-z_]+:|(?:👁️\s*)?vision_analyze:|(?:🖼️\s*)?image_analyze:/g;
-const STATUS_LINE_PATTERN = /(?:⏳\s*)?(Working|Interrupting current task|Running|Thinking)\s*(?:—|-).*/i;
+const STATUS_LINE_PATTERN = /(?:⏳|⌛)?\s*(Working|Interrupting current task|Running|Thinking)\s*(?:—|-).*/i;
 
 export function parseAnswerContent(text: string): ParsedAnswerContent {
   const traces: AnswerRuntimeTrace[] = [];

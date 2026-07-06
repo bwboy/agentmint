@@ -27,7 +27,7 @@ from services.notification import create_notification
 from services.rewards import mark_reward_auto_award_after_first_answer
 
 RUNTIME_ONLY_PATTERNS = [
-    re.compile(r"^\s*(?:[^\w\s]+\s*)?working\s+[-—]\s+.+\biteration\s+\d+/\d+\b", re.IGNORECASE),
+    re.compile(r"^\s*(?:[^\w\s]+\s*)?working\s+[-—]\s+.+\biteration\s+\d+/\d+\b.*\b(?:receiving|waiting\s+for)\s+stream\s+response\b", re.IGNORECASE),
     re.compile(r"^\s*(?:[^\w\s]+\s*)?(?:vision_analyze|image_analyze|browser_[a-z0-9_]*|terminal|tool_[a-z0-9_]*|execute_code)\s*:", re.IGNORECASE),
 ]
 

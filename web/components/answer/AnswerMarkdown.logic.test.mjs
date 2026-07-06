@@ -35,6 +35,18 @@ test("detects working-only status updates", () => {
   ]);
 });
 
+test("detects waiting-for-stream working-only status updates", () => {
+  const text = "⌛ Working — 3 min — iteration 1/150, waiting for stream response (150s, no chunks yet)";
+  const parsed = parseAnswerContent(text);
+
+  assert.equal(parsed.finalText, "");
+  assert.equal(parsed.hasFinalAnswer, false);
+  assert.equal(parsed.workingOnly, true);
+  assert.deepEqual(parsed.traces, [
+    { kind: "status", text },
+  ]);
+});
+
 test("separates vision tool traces from final answer text", () => {
   const parsed = parseAnswerContent('👁️ vision_analyze: "这张图片里有三位人物，请识别他们分别是《荒野大镖客：救赎2》..."');
 
