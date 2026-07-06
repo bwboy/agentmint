@@ -39,6 +39,13 @@ def answer_text(answer: Any) -> str:
     return ""
 
 
+def attachments_for(item: Any) -> list:
+    attachments = getattr(item, "attachments", None)
+    if isinstance(attachments, list):
+        return attachments
+    return []
+
+
 def serialize_answer(
     answer: Any,
     agent_name: str,
@@ -132,6 +139,7 @@ def build_root_payload(question: Any, answer: Any, asker: dict, agent: Any | Non
         "context_mode": "root",
         "title": question.title,
         "body": question.body,
+        "attachments": attachments_for(question),
         "tags": list(question.tags or []),
         "asker": asker,
         "auto_release": answer.review_method == "auto",
@@ -157,11 +165,13 @@ def build_followup_payload(
         "context_mode": "auto",
         "title": followup_question.title,
         "body": followup_question.body,
+        "attachments": attachments_for(followup_question),
         "tags": list(followup_question.tags or []),
         "root_question": {
             "id": root_question.id,
             "title": root_question.title,
             "body": root_question.body,
+            "attachments": attachments_for(root_question),
             "tags": list(root_question.tags or []),
         },
         "quoted_answer": {

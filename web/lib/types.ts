@@ -198,6 +198,7 @@ export interface Question {
   turn_type?: "root" | "followup";
   title: string;
   body: string;
+  attachments?: Attachment[];
   tags: string[];
   asker: { nickname: string; trust_level: number };
   deadline_at: string;

@@ -53,6 +53,7 @@ EMERGENCY_FUEL_MULTIPLIER = 3
 class CreateQuestionReq(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     body: str = ""
+    attachments: list[dict] = []
     tags: list[str] = []
     deadline_minutes: int = 30
     max_responders: int = 5
@@ -67,6 +68,7 @@ class CreateFollowUpReq(BaseModel):
     quoted_answer_id: str = Field(min_length=1)
     agent_ids: list[str] = Field(min_length=1)
     text: str = Field(min_length=1, max_length=4000)
+    attachments: list[dict] = []
     deadline_minutes: int = 30
 
 
@@ -313,6 +315,7 @@ async def create_question(
         asker_id=user.id,
         title=req.title,
         body=req.body,
+        attachments=normalize_attachments(req.attachments),
         tags=req.tags,
         deadline_at=deadline,
         max_responders=req.max_responders,
@@ -510,6 +513,7 @@ async def create_followup(
         asker_id=user.id,
         title=f"追问：{root.title}",
         body=req.text,
+        attachments=normalize_attachments(req.attachments),
         tags=list(root.tags or []),
         deadline_at=deadline,
         max_responders=len(target_agent_ids),
@@ -1130,6 +1134,7 @@ def question_public_payload(q: Question, asker_nickname: str, asker_trust_level:
         "id": q.id,
         "title": q.title,
         "body": q.body,
+        "attachments": normalize_attachments(getattr(q, "attachments", None) or []),
         "tags": list(q.tags or []),
         "root_question_id": getattr(q, "root_question_id", None),
         "turn_type": getattr(q, "turn_type", None) or "root",
@@ -1154,6 +1159,32 @@ def question_public_payload(q: Question, asker_nickname: str, asker_trust_level:
     if answer_count is not None:
         out["answer_count"] = answer_count
     return out
+
+
+def normalize_attachments(items: list[dict] | None) -> list[dict]:
+    normalized: list[dict] = []
+    for raw in items or []:
+        if not isinstance(raw, dict):
+            continue
+        file_id = str(raw.get("id") or "").strip()
+        filename = str(raw.get("filename") or "").strip()
+        url = str(raw.get("url") or "").strip()
+        if not file_id or not filename:
+            continue
+        try:
+            size_bytes = max(0, int(raw.get("size_bytes") or 0))
+        except (TypeError, ValueError):
+            size_bytes = 0
+        normalized.append({
+            "id": file_id,
+            "type": str(raw.get("type") or "other"),
+            "mime": str(raw.get("mime") or "application/octet-stream"),
+            "filename": filename[:240],
+            "size_bytes": size_bytes,
+            "url": url,
+            **({"thumbnail_url": str(raw.get("thumbnail_url"))} if raw.get("thumbnail_url") else {}),
+        })
+    return normalized[:10]
 
 
 def serialize_owner_supplement(item: AnswerOwnerSupplement) -> dict:

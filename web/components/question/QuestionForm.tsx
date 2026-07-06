@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, ApiError } from "@/lib/api";
+import { API_BASE, api, ApiError } from "@/lib/api";
 import { getToken } from "@/lib/auth";
-import type { Agent, QuestionVisibility } from "@/lib/types";
+import type { Agent, Attachment, QuestionVisibility } from "@/lib/types";
 
 const DEFAULT_ESTIMATED_FUEL_PER_ANSWER = 900;
 const DEFAULT_BASE_CAP_MULTIPLIER = 1.5;
@@ -49,6 +49,7 @@ export function QuestionForm({ targetAgent }: { targetAgent?: Agent | null }) {
   const [visibility, setVisibility] = useState<QuestionVisibility>(targetAgent ? "private" : "public");
   const [fuelEstimate, setFuelEstimate] = useState<FuelEstimate | null>(null);
   const [rewardFuel, setRewardFuel] = useState(0);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -93,6 +94,7 @@ export function QuestionForm({ targetAgent }: { targetAgent?: Agent | null }) {
         json: {
           title,
           body,
+          attachments,
           tags,
           deadline_minutes: safeDeadline,
           max_responders: responderCount,
@@ -131,6 +133,7 @@ export function QuestionForm({ targetAgent }: { targetAgent?: Agent | null }) {
             className="w-full rounded-lg border border-gray-200 px-3 py-3 text-sm focus:border-primary focus:outline-none"
             placeholder="补充背景、约束、希望输出格式、已经尝试过的方案等" />
         </div>
+        <AttachmentPicker attachments={attachments} onChange={setAttachments} />
       </div>
 
       <div className="space-y-4">
@@ -386,6 +389,105 @@ function SegmentedNumber({
       </div>
     </div>
   );
+}
+
+function AttachmentPicker({
+  attachments,
+  onChange,
+}: {
+  attachments: Attachment[];
+  onChange: (items: Attachment[]) => void;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function uploadFiles(files: FileList | null) {
+    const token = getToken();
+    if (!token || !files?.length) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const uploaded: Attachment[] = [];
+      for (const file of Array.from(files).slice(0, Math.max(0, 10 - attachments.length))) {
+        const form = new FormData();
+        form.append("file", file);
+        const res = await fetch(`${API_BASE}/api/files/upload`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          body: form,
+        });
+        if (!res.ok) {
+          const detail = await res.json().catch(() => null);
+          throw new Error(detail?.detail || "附件上传失败");
+        }
+        uploaded.push(await res.json());
+      }
+      if (uploaded.length) onChange([...attachments, ...uploaded].slice(0, 10));
+    } catch (e: any) {
+      setError(e.message || "附件上传失败");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-border-subtle bg-bg-subtle p-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-medium text-ink">图片与文件</p>
+          <p className="mt-1 text-[11px] text-text-tertiary">支持图片、PDF、文档、表格、代码等，单个最大 50MB。</p>
+        </div>
+        <label className="stateful cursor-pointer rounded-md border border-border-default bg-elevated px-3 py-1.5 text-xs font-medium text-ink hover:border-brand-selected hover:text-brand">
+          {uploading ? "上传中..." : "添加附件"}
+          <input
+            type="file"
+            multiple
+            accept="image/*,.pdf,.txt,.md,.json,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
+            className="sr-only"
+            disabled={uploading || attachments.length >= 10}
+            onChange={event => {
+              void uploadFiles(event.target.files);
+              event.currentTarget.value = "";
+            }}
+          />
+        </label>
+      </div>
+      {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
+      {attachments.length > 0 && (
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {attachments.map(item => (
+            <div key={item.id} className="flex items-center gap-3 rounded-lg border border-border-subtle bg-elevated p-2">
+              {item.type === "image" && item.url ? (
+                <img src={item.url} alt={item.filename} className="h-10 w-10 rounded-md object-cover" />
+              ) : (
+                <span className="grid h-10 w-10 place-items-center rounded-md bg-bg-subtle text-sm">{fileIcon(item.type)}</span>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-medium text-ink">{item.filename}</p>
+                <p className="text-[11px] text-text-tertiary">{item.type} · {Math.max(1, Math.round(item.size_bytes / 1024))}KB</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onChange(attachments.filter(att => att.id !== item.id))}
+                className="rounded px-2 py-1 text-xs text-text-tertiary hover:bg-bg-subtle hover:text-brand"
+              >
+                移除
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function fileIcon(type: Attachment["type"]) {
+  if (type === "document") return "PDF";
+  if (type === "spreadsheet") return "XLS";
+  if (type === "code") return "{}";
+  if (type === "audio") return "AUD";
+  if (type === "video") return "VID";
+  return "FILE";
 }
 
 function clampInt(value: number, min: number, max: number) {

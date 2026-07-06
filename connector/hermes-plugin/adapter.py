@@ -330,7 +330,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         asker_tl = asker.get("trust_level", 1)
 
         question_record = {
-            "title": title, "body": body, "tags": tags,
+            "title": title, "body": body, "attachments": msg.get("attachments") or [], "tags": tags,
             "asker": asker, "deadline_at": msg.get("deadline_at"),
             "conversation_id": conversation_id,
             "turn_type": turn_type,
@@ -381,9 +381,10 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
                 root_question=question_record.get("root_question"),
                 quoted_answer=question_record.get("quoted_answer"),
                 include_context=conversation_id not in getattr(self, "_warm_conversations", set()),
+                attachments=question_record.get("attachments") or [],
             )
         else:
-            user_text = _format_prompt(title, body, tags, asker_nick)
+            user_text = _format_prompt(title, body, tags, asker_nick, attachments=question_record.get("attachments") or [])
         self._prompt_text_by_request[request_id] = user_text
 
         source = self.build_source(
@@ -427,6 +428,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
                     model=ans.get("model", "hermes"),
                     usage=ans.get("usage", {}),
                     capability=ans.get("capability"),
+                    attachments=ans.get("attachments") or [],
                     duration_ms=ans.get("duration_ms", 0),
                 )
                 if ok:
@@ -454,7 +456,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
 
     # ─── Outbound: Hermes → Arena ───
 
-    async def send(self, chat_id, content, reply_to=None, metadata=None):  # type: ignore[override]
+    async def send(self, chat_id, content, reply_to=None, metadata=None, media_files=None, force_document=False):  # type: ignore[override]
         """Hermes finished a turn — upload the answer to Arena.
 
         `chat_id` is the Hermes conversation_id. The active turn map resolves
@@ -484,6 +486,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
             return SendResult(success=True, message_id=request_id)
 
         meta = metadata or {}
+        attachments = _attachments_from_media_files(media_files)
         if meta.get("expect_edits"):
             if meta.get("notify"):
                 final_meta = dict(meta)
@@ -493,6 +496,8 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
                     content=str(content),
                     reply_to=reply_to,
                     metadata=final_meta,
+                    media_files=media_files,
+                    force_document=force_document,
                 )
             self._streaming_answers[request_id] = {
                 "content": str(content),
@@ -559,6 +564,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
                     duration_ms=duration_ms,
                     prompt_text=prompt_text or "",
                     event=event,
+                    attachments=attachments,
                 ),
                 name=f"agentmint-answer-upload-{request_id}",
             )
@@ -575,6 +581,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
             usage=usage,
             capability=capability,
             duration_ms=duration_ms,
+            attachments=attachments,
         )
 
     async def _upload_answer_after_usage_wait(
@@ -589,6 +596,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         duration_ms: int,
         prompt_text: str,
         event: asyncio.Event,
+        attachments: list[dict] | None = None,
     ) -> None:
         real_usage = False
         final_model = model
@@ -626,6 +634,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
                 usage=usage,
                 capability=final_capability,
                 duration_ms=duration_ms,
+                attachments=attachments or [],
             )
             if not real_usage:
                 await self._correct_late_usage_if_available(request_id, final_model)
@@ -695,9 +704,11 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         usage: dict,
         capability: dict,
         duration_ms: int,
+        attachments: list[dict] | None = None,
     ):
         answer_payload = {
             "text": content,
+            "attachments": attachments or [],
             "model": model,
             "usage": usage,
             "capability": capability,
@@ -723,7 +734,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
 
         ok = await self._client.send_answer(
             request_id, text=answer_payload["text"], model=model,
-            usage=usage, capability=capability, duration_ms=duration_ms,
+            usage=usage, capability=capability, attachments=answer_payload["attachments"], duration_ms=duration_ms,
         )
         if ok:
             self._queue.mark(request_id, "uploaded")
@@ -1018,6 +1029,7 @@ async def _standalone_send(pconfig, chat_id, message, *, thread_id=None,
             model="hermes",
             usage={},
             capability=_capability_hint("hermes"),
+            attachments=_attachments_from_media_files(media_files),
         )
         if ok:
             result = {"success": True, "message_id": str(chat_id)}
@@ -1032,13 +1044,16 @@ async def _standalone_send(pconfig, chat_id, message, *, thread_id=None,
 # Helpers
 # ════════════════════════════════════════════════════════════════
 
-def _format_prompt(title: str, body: str, tags: list, asker_nick: str) -> str:
+def _format_prompt(title: str, body: str, tags: list, asker_nick: str, attachments: list | None = None) -> str:
     """Render an Arena question as a natural Hermes user message."""
     parts = [f"# {title}"]
     if body:
         parts.append(f"\n{body}")
     if tags:
         parts.append(f"\n[标签: {', '.join(tags)}]")
+    attachment_context = _format_attachment_context(attachments or [])
+    if attachment_context:
+        parts.append(attachment_context)
     parts.append(f"\n\n{AGENTMINT_PROMPT_SAFETY_GUIDANCE}")
     parts.append(f"\n— 来自 AgentMint 提问者「{asker_nick}」。请给出清晰、可执行的回答。")
     return "\n".join(parts)
@@ -1055,12 +1070,30 @@ def _format_followup_text(title: str, body: str, tags: list) -> str:
     return "\n\n".join(part for part in parts if part)
 
 
+def _format_attachment_context(attachments: list) -> str:
+    lines = []
+    for item in attachments[:10]:
+        if not isinstance(item, dict):
+            continue
+        filename = str(item.get("filename") or "attachment").strip()
+        kind = str(item.get("type") or "file").strip()
+        url = str(item.get("url") or "").strip()
+        if url:
+            lines.append(f"- {filename} ({kind}): {url}")
+        else:
+            lines.append(f"- {filename} ({kind})")
+    if not lines:
+        return ""
+    return "附件:\n" + "\n".join(lines)
+
+
 def _format_followup_prompt(
     followup_text: str,
     *,
     root_question: Any,
     quoted_answer: Any,
     include_context: bool,
+    attachments: list | None = None,
 ) -> str:
     """Render a follow-up turn, optionally seeding cold Hermes conversations."""
     parts: list[str] = []
@@ -1075,11 +1108,18 @@ def _format_followup_prompt(
                 parts.append(root_body)
             if root_tags:
                 parts.append(f"[标签: {', '.join(root_tags)}]")
+            if isinstance(root_question, dict):
+                root_attachment_context = _format_attachment_context(root_question.get("attachments") or [])
+                if root_attachment_context:
+                    parts.append(root_attachment_context)
         if quoted_text:
             parts.append("Original answer:")
             parts.append(quoted_text)
     parts.append("Follow-up question:")
     parts.append(str(followup_text or "").strip())
+    attachment_context = _format_attachment_context(attachments or [])
+    if attachment_context:
+        parts.append(attachment_context)
     parts.append(AGENTMINT_PROMPT_SAFETY_GUIDANCE)
     return "\n\n".join(part for part in parts if part)
 
@@ -1094,6 +1134,7 @@ def _prompt_from_job(job: dict | None) -> str:
             root_question=q.get("root_question"),
             quoted_answer=q.get("quoted_answer"),
             include_context=True,
+            attachments=q.get("attachments") or [],
         )
     asker = q.get("asker") or {}
     return _format_prompt(
@@ -1101,6 +1142,7 @@ def _prompt_from_job(job: dict | None) -> str:
         (q.get("body") or "").strip(),
         q.get("tags") or [],
         asker.get("nickname", "anonymous"),
+        attachments=q.get("attachments") or [],
     )
 
 
@@ -1127,6 +1169,53 @@ def _extract_quoted_answer_text(quoted_answer: Any) -> str:
             or ""
         ).strip()
     return str(quoted_answer or "").strip()
+
+
+def _attachments_from_media_files(media_files: Any) -> list[dict]:
+    attachments: list[dict] = []
+    if not media_files:
+        return attachments
+    for index, item in enumerate(media_files if isinstance(media_files, (list, tuple)) else [media_files]):
+        if isinstance(item, dict):
+            filename = str(item.get("filename") or item.get("name") or item.get("path") or f"attachment-{index + 1}")
+            mime = str(item.get("mime") or item.get("content_type") or "application/octet-stream")
+            url = str(item.get("url") or item.get("download_url") or "")
+            size_bytes = item.get("size_bytes") or item.get("size") or 0
+        else:
+            path = getattr(item, "path", None) or getattr(item, "filename", None) or str(item)
+            filename = Path(str(path)).name or f"attachment-{index + 1}"
+            mime = str(getattr(item, "mime", None) or getattr(item, "content_type", None) or "application/octet-stream")
+            url = str(getattr(item, "url", "") or "")
+            size_bytes = getattr(item, "size_bytes", 0) or getattr(item, "size", 0) or 0
+        try:
+            size = max(0, int(size_bytes or 0))
+        except (TypeError, ValueError):
+            size = 0
+        attachments.append({
+            "id": f"media_{index + 1}",
+            "type": _attachment_type_from_mime(mime),
+            "mime": mime,
+            "filename": filename,
+            "size_bytes": size,
+            "url": url,
+        })
+    return attachments[:10]
+
+
+def _attachment_type_from_mime(mime: str) -> str:
+    if mime.startswith("image/"):
+        return "image"
+    if mime.startswith("video/"):
+        return "video"
+    if mime.startswith("audio/"):
+        return "audio"
+    if mime.startswith("text/") or mime in {"application/json", "application/xml"}:
+        return "code"
+    if mime in {"text/csv"} or "spreadsheet" in mime:
+        return "spreadsheet"
+    if mime == "application/pdf" or "wordprocessingml" in mime or "presentationml" in mime:
+        return "document"
+    return "other"
 
 
 def _synthetic_question_record(request_id: str) -> dict:

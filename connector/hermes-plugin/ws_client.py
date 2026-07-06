@@ -113,13 +113,14 @@ class ArenaWSClient:
 
     async def send_answer(self, request_id: str, *, text: str, model: str,
                           usage: dict, capability: dict | None = None,
+                          attachments: list[dict] | None = None,
                           duration_ms: int = 0,
                           usage_correction: bool = False) -> bool:
         payload = {
             "type": "answer",
             "request_id": request_id,
             "status": "success",
-            "content": {"text": text, "attachments": []},
+            "content": {"text": text, "attachments": attachments or []},
             "model": model,
             "usage": usage,
             "capability": capability or {},

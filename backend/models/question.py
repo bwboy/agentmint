@@ -1,6 +1,6 @@
 from datetime import datetime
 from sqlalchemy import String, Integer, BigInteger, DateTime, Text, ForeignKey, Numeric
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from database import Base
 from .user import gen_id
@@ -13,6 +13,7 @@ class Question(Base):
     asker_id: Mapped[str] = mapped_column(String, ForeignKey("users.id"), nullable=False)
     title: Mapped[str] = mapped_column(String, nullable=False)
     body: Mapped[str] = mapped_column(Text, default="")
+    attachments: Mapped[list] = mapped_column(JSONB, default=list)
     tags: Mapped[list] = mapped_column(ARRAY(String), default=list)
     deadline_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     max_responders: Mapped[int] = mapped_column(Integer, default=5)

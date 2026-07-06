@@ -119,7 +119,7 @@
 ### `POST /api/questions` 🔒
 请求：
 ```json
-{ "title": "Rust 零拷贝？", "body": "...", "tags": ["rust"],
+{ "title": "Rust 零拷贝？", "body": "...", "tags": ["rust"], "attachments": [],
   "deadline_minutes": 30, "max_responders": 3, "is_emergency": false }
 ```
 返回 `201`：
@@ -130,6 +130,7 @@
 ```
 燃值预扣公式：`matched_count × 2000 × (is_emergency ? 3 : 1)`。
 匹配后立即向已连接的 Connector 推送 WebSocket `question` 消息。
+`attachments` 使用 `/api/files/upload` 返回的文件元数据，当前支持图片和常规文件，最多保留 10 个。
 
 ### `GET /api/questions?tag=&sort=latest&page=1&size=20`
 公开。`answer_count` 仅计 `approved`。

@@ -25,8 +25,8 @@ def test_build_conversation_id_is_stable_per_root_and_agent():
 
 
 def test_build_followup_payload_contains_quote_context():
-    root = SimpleNamespace(id="q_root", title="Root title", body="Root body", tags=["wow"], deadline_at=datetime.utcnow())
-    followup = SimpleNamespace(id="q_fu", title="追问：Root title", body="More?", tags=["wow"], deadline_at=datetime.utcnow() + timedelta(minutes=30))
+    root = SimpleNamespace(id="q_root", title="Root title", body="Root body", tags=["wow"], attachments=[], deadline_at=datetime.utcnow())
+    followup = SimpleNamespace(id="q_fu", title="追问：Root title", body="More?", tags=["wow"], attachments=[], deadline_at=datetime.utcnow() + timedelta(minutes=30))
     answer = SimpleNamespace(
         id="ans_1",
         agent_id="a_1",
@@ -51,9 +51,45 @@ def test_build_followup_payload_contains_quote_context():
     assert payload["body"] == "More?"
 
 
+def test_question_payloads_include_attachments():
+    attachments = [
+        {
+            "id": "f_img",
+            "type": "image",
+            "filename": "screen.png",
+            "mime": "image/png",
+            "size_bytes": 2048,
+            "url": "http://files/screen.png",
+        }
+    ]
+    root = SimpleNamespace(id="q_root", title="Root title", body="Root body", tags=["wow"], attachments=attachments, deadline_at=datetime.utcnow())
+    followup = SimpleNamespace(id="q_fu", title="追问：Root title", body="More?", tags=["wow"], attachments=attachments, deadline_at=datetime.utcnow() + timedelta(minutes=30))
+    answer = SimpleNamespace(
+        id="ans_1",
+        agent_id="a_1",
+        request_id="req_q_fu_a_1",
+        conversation_id="conv_q_root_a_1",
+        review_method="auto",
+    )
+    quoted = SimpleNamespace(id="ans_root", agent_id="a_1", content={"text": "Original answer"})
+
+    root_payload = build_root_payload(root, answer, {"nickname": "Gavin", "trust_level": 3})
+    followup_payload = build_followup_payload(
+        root_question=root,
+        followup_question=followup,
+        answer=answer,
+        quoted_answer=quoted,
+        asker={"nickname": "Gavin", "trust_level": 3},
+    )
+
+    assert root_payload["attachments"] == attachments
+    assert followup_payload["attachments"] == attachments
+    assert followup_payload["root_question"]["attachments"] == attachments
+
+
 def test_question_payloads_include_owner_experience_context():
-    root = SimpleNamespace(id="q_root", title="Root title", body="Root body", tags=["wow"], deadline_at=datetime.utcnow())
-    followup = SimpleNamespace(id="q_fu", title="追问：Root title", body="More?", tags=["wow"], deadline_at=datetime.utcnow() + timedelta(minutes=30))
+    root = SimpleNamespace(id="q_root", title="Root title", body="Root body", tags=["wow"], attachments=[], deadline_at=datetime.utcnow())
+    followup = SimpleNamespace(id="q_fu", title="追问：Root title", body="More?", tags=["wow"], attachments=[], deadline_at=datetime.utcnow() + timedelta(minutes=30))
     answer = SimpleNamespace(
         id="ans_1",
         agent_id="a_1",
@@ -147,6 +183,7 @@ def test_followup_schema_migration_adds_question_columns():
     assert "ALTER TABLE questions ADD COLUMN IF NOT EXISTS root_question_id" in sql
     assert "ALTER TABLE questions ADD COLUMN IF NOT EXISTS parent_question_id" in sql
     assert "ALTER TABLE questions ADD COLUMN IF NOT EXISTS quoted_answer_id" in sql
+    assert "ALTER TABLE questions ADD COLUMN IF NOT EXISTS attachments JSONB" in sql
     assert "ALTER TABLE questions ADD COLUMN IF NOT EXISTS turn_type" in sql
     assert "UPDATE questions SET turn_type='root' WHERE turn_type IS NULL" in sql
     assert "ALTER TABLE questions ALTER COLUMN turn_type SET NOT NULL" in sql

@@ -18,7 +18,7 @@ import {
   questionPollingDeadline,
   rewardStatusSummary,
 } from "@/components/question/QuestionAnswerPoller.logic";
-import type { Answer, FollowUpThread } from "@/lib/types";
+import type { Answer, Attachment, FollowUpThread } from "@/lib/types";
 
 async function fetchQuestion(id: string): Promise<Question | null> {
   const token = cookies().get("agentmint_token")?.value;
@@ -81,6 +81,7 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
               ⏰ {isExpired ? "已截止" : new Date(question.deadline_at).toLocaleTimeString() + " 截止"}
             </span>
           </div>
+          <AttachmentStrip attachments={question.attachments || []} />
           <QuestionFuelPanel summary={fuelSummary} />
           <RewardStatusPanel question={question} />
         </div>
@@ -112,17 +113,7 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
               <OwnerSupplements items={ans.owner_supplements} />
               <AnswerSettlementPanel answer={ans} question={question} />
 
-              {ans.content?.attachments && ans.content.attachments.length > 0 && (
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {ans.content.attachments.map(att => (
-                    <div key={att.id} className="flex items-center gap-2 rounded-lg border border-border-subtle bg-bg-subtle px-3 py-1.5 text-xs text-text-secondary">
-                      <span>{att.type === "image" ? "🖼" : att.type === "code" ? "📄" : "📎"}</span>
-                      <span>{att.filename}</span>
-                      <span className="text-text-tertiary">({Math.round(att.size_bytes / 1024)}KB)</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <AttachmentStrip attachments={ans.content?.attachments || []} compact />
 
               {ans.capability && (
                 <details className="mt-4 border-t border-border-subtle pt-4">
@@ -212,6 +203,45 @@ function QuestionFuelPanel({ summary }: { summary: ReturnType<typeof questionFue
       </p>
     </div>
   );
+}
+
+function AttachmentStrip({ attachments, compact = false }: { attachments: Attachment[]; compact?: boolean }) {
+  if (!attachments.length) return null;
+  return (
+    <div className={`mt-4 grid gap-2 ${compact ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>
+      {attachments.map(item => (
+        <a
+          key={item.id}
+          href={item.url || "#"}
+          target="_blank"
+          rel="noreferrer"
+          className="stateful flex min-w-0 items-center gap-3 rounded-xl border border-border-subtle bg-bg-subtle p-2 hover:border-brand-selected"
+        >
+          {item.type === "image" && item.url ? (
+            <img src={item.url} alt={item.filename} className="h-12 w-12 shrink-0 rounded-lg object-cover" />
+          ) : (
+            <span className="grid h-12 w-12 shrink-0 place-items-center rounded-lg bg-elevated text-[11px] font-semibold text-text-secondary">
+              {attachmentLabel(item.type)}
+            </span>
+          )}
+          <span className="min-w-0">
+            <span className="block truncate text-xs font-medium text-ink">{item.filename}</span>
+            <span className="mt-0.5 block text-[11px] text-text-tertiary">{item.type} · {Math.max(1, Math.round(item.size_bytes / 1024))}KB</span>
+          </span>
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function attachmentLabel(type: Attachment["type"]) {
+  if (type === "image") return "IMG";
+  if (type === "document") return "PDF";
+  if (type === "spreadsheet") return "XLS";
+  if (type === "code") return "{}";
+  if (type === "audio") return "AUD";
+  if (type === "video") return "VID";
+  return "FILE";
 }
 
 function FuelSignal({ label, value }: { label: string; value: string }) {

@@ -103,6 +103,9 @@ Connector                                  Platform
   "context_mode": "auto",
   "title": "Rust 零拷贝怎么实现？",
   "body":  "...",
+  "attachments": [
+    { "id": "f_123", "type": "image", "filename": "screen.png", "mime": "image/png", "size_bytes": 2048, "url": "http://..." }
+  ],
   "tags":  ["rust", "系统编程"],
   "asker": { "nickname": "小明", "trust_level": 2 },
   "auto_release": true,

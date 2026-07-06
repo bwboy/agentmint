@@ -21,3 +21,9 @@ test("responder control keeps a custom numeric entry", () => {
   assert.match(source, /customLabel="自定义"/);
   assert.match(source, /aria-label=\{customLabel/);
 });
+
+test("question form supports image and file attachments", () => {
+  assert.match(source, /AttachmentPicker/);
+  assert.match(source, /\/api\/files\/upload/);
+  assert.match(source, /attachments/);
+});

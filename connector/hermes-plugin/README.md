@@ -328,5 +328,5 @@ rsync -a --delete connector/hermes-plugin/ ~/.hermes/plugins/platforms/agentmint
 
 - `usage` 优先回传 Hermes 实际提供的 token 统计；如果底层 provider / gateway 没给计量字段，插件会上传带 `estimated: true` 的估算值。
 - `capability` 现在只能给出 `engine.provider="hermes"`，没法精确说出回答用了哪些 Skills / MCP / 知识库 — 这需要从 `ctx` 里读 Hermes 的当前能力清单，留作后续。
-- 富媒体（图片附件）：`send()` 收到的 `media_files` 参数还没接，回答里只回传文本。
+- 富媒体：`send()` 会把 `media_files` 元数据转成 AgentMint 回答附件；如果 Hermes 只给本地文件路径而不给可访问 URL，平台会展示文件名但无法直接下载。后续可补平台代理上传。
 - 紧急配额（platform-side `emergency_reserve`）没消费。
