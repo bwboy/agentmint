@@ -21,9 +21,10 @@ Tested against the Arena backend's `/ws` endpoint (see
 agentmint/backend/ws/hub.py for the protocol).
 """
 import asyncio
-import base64
+import hashlib
 import logging
 import math
+import mimetypes
 import os
 import re
 import time
@@ -57,8 +58,7 @@ DEFAULT_PLATFORM_URL = "ws://localhost:8000/ws"
 DEFAULT_MAX_CONCURRENT = 3
 DEFAULT_QUEUE_DB = "~/.hermes/agentmint-jobs.db"
 DEFAULT_USAGE_WAIT_SECONDS = 1.0
-MAX_INLINE_IMAGE_BYTES = 1_500_000
-MAX_INLINE_IMAGES = 3
+MAX_ATTACHMENT_BYTES = 25_000_000
 TRUE_VALUES = {"1", "true", "yes", "on"}
 TOOL_TRACE_PREFIXES = (
     "session_search:",
@@ -380,6 +380,8 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         self._job_started_at[request_id] = time.monotonic()
 
         attachments = _prepare_prompt_attachments(question_record.get("attachments") or [])
+        media_urls, media_types = _attachment_media_fields(attachments)
+        message_type = _message_type_for_media(media_types)
 
         # Build the conversational prompt Hermes will see.
         if turn_type == "followup":
@@ -402,12 +404,20 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
             user_id="agentmint-platform",
             user_name="AgentMint",
         )
-        event = MessageEvent(
-            text=user_text,
-            message_type=MessageType.TEXT,
-            source=source,
-            message_id=request_id,
-        )
+        event_kwargs = {
+            "text": user_text,
+            "message_type": message_type,
+            "source": source,
+            "message_id": request_id,
+            "media_urls": media_urls,
+            "media_types": media_types,
+        }
+        try:
+            event = MessageEvent(**event_kwargs)
+        except TypeError:
+            event_kwargs.pop("media_urls", None)
+            event_kwargs.pop("media_types", None)
+            event = MessageEvent(**event_kwargs)
         locks = getattr(self, "_conversation_locks", None)
         if locks is None:
             locks = self._conversation_locks = {}
@@ -1119,80 +1129,166 @@ def _format_followup_text(title: str, body: str, tags: list) -> str:
 def _format_attachment_context(attachments: list) -> str:
     lines = []
     has_image = False
-    has_inline_image = False
+    has_local_media = False
     for item in attachments[:10]:
         if not isinstance(item, dict):
             continue
         filename = str(item.get("filename") or "attachment").strip()
         kind = str(item.get("type") or "file").strip()
+        mime = str(item.get("mime") or item.get("media_type") or "").strip()
         if kind == "image":
             has_image = True
-        inline_data_url = str(item.get("inline_data_url") or "").strip()
-        if inline_data_url:
-            has_inline_image = True
-        url = str(item.get("url") or "").strip()
-        if inline_data_url:
-            lines.append(f"- {filename} ({kind})")
-        elif url:
-            lines.append(f"- {filename} ({kind}): {url}")
+        local_path = str(item.get("local_path") or "").strip()
+        if local_path:
+            has_local_media = True
+            label = mime or kind
+            lines.append(f"- {filename} ({label}): {local_path}")
         else:
-            lines.append(f"- {filename} ({kind})")
-        if inline_data_url:
-            lines.append(f"  图片内容已内联: {inline_data_url}")
-        elif item.get("inline_error"):
-            lines.append(f"  图片内联失败: {item.get('inline_error')}")
+            label = mime or kind
+            lines.append(f"- {filename} ({label})")
+        if item.get("local_error"):
+            lines.append(f"  附件本地缓存失败: {item.get('local_error')}")
     if not lines:
         return ""
     prefix = "附件:\n"
     if has_image:
-        prefix += "附件包含图片。若问题要求识别、比较或解释图片内容，必须先查看或下载图片后再回答；不要声称未收到图片。\n"
-    if has_inline_image:
-        prefix += "图片内容已内联在消息中，优先直接读取内联图片内容，无需下载原始链接。\n"
+        prefix += "附件包含图片。图片已作为 Hermes 本地媒体文件传入；若问题要求识别、比较或解释图片内容，必须先查看图片后再回答。\n"
+    if has_local_media:
+        prefix += "附件已作为 Hermes 本地媒体文件传入，不要下载原始远程链接；需要时直接使用下面的本地路径。\n"
     return prefix + "\n".join(lines)
 
 
-def _prepare_prompt_attachments(attachments: list) -> list:
+def _prepare_prompt_attachments(attachments: list, *, cache_root: Path | None = None) -> list:
     prepared: list = []
-    inline_count = 0
     for item in attachments[:10]:
         if not isinstance(item, dict):
             continue
         copied = dict(item)
-        if copied.get("type") == "image" and inline_count < MAX_INLINE_IMAGES and not copied.get("inline_data_url"):
-            data_url, error = _download_image_as_data_url(copied)
-            if data_url:
-                copied["inline_data_url"] = data_url
-                inline_count += 1
-            elif error:
-                copied["inline_error"] = error
+        copied.pop("inline_data_url", None)
+        local_path, media_type, media_kind, error = _download_attachment_to_local_cache(copied, cache_root=cache_root)
+        if local_path:
+            copied["local_path"] = local_path
+            copied["media_type"] = media_type
+            copied["media_kind"] = media_kind
+            copied["mime"] = media_type
+        elif error:
+            copied["local_error"] = error
         prepared.append(copied)
     return prepared
 
 
-def _download_image_as_data_url(item: dict) -> tuple[str, str]:
+def _download_attachment_to_local_cache(item: dict, *, cache_root: Path | None = None) -> tuple[str, str, str, str]:
     url = str(item.get("url") or "").strip()
     if not url:
-        return "", "missing_url"
-    mime = str(item.get("mime") or "image/jpeg").strip() or "image/jpeg"
+        return "", "", "", "missing_url"
+    kind = str(item.get("type") or "file").strip() or "file"
+    mime = str(item.get("mime") or "").strip()
     try:
         expected_size = int(item.get("size_bytes") or 0)
     except (TypeError, ValueError):
         expected_size = 0
-    if expected_size > MAX_INLINE_IMAGE_BYTES:
-        return "", "image_too_large"
+    if expected_size > MAX_ATTACHMENT_BYTES:
+        return "", "", "", "attachment_too_large"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "AgentMint-Hermes/1.0"})
         with urllib.request.urlopen(req, timeout=8) as resp:
-            data = resp.read(MAX_INLINE_IMAGE_BYTES + 1)
+            data = resp.read(MAX_ATTACHMENT_BYTES + 1)
             content_type = resp.headers.get("Content-Type")
     except Exception as e:
-        return "", f"download_failed:{type(e).__name__}"
-    if len(data) > MAX_INLINE_IMAGE_BYTES:
-        return "", "image_too_large"
-    if content_type and content_type.startswith("image/"):
+        return "", "", "", f"download_failed:{type(e).__name__}"
+    if len(data) > MAX_ATTACHMENT_BYTES:
+        return "", "", "", "attachment_too_large"
+    if content_type:
         mime = content_type.split(";")[0].strip()
-    encoded = base64.b64encode(data).decode("ascii")
-    return f"data:{mime};base64,{encoded}", ""
+    if not mime:
+        guessed, _ = mimetypes.guess_type(str(item.get("filename") or ""))
+        mime = guessed or "application/octet-stream"
+    if kind == "image" or mime.startswith("image/"):
+        if not _looks_like_image_bytes(data):
+            return "", "", "", "not_image_data"
+        media_kind = "image"
+        if not mime.startswith("image/"):
+            mime = _guess_image_mime(data) or "image/jpeg"
+    else:
+        media_kind = "document"
+    cache_dir = _agentmint_media_cache_dir(media_kind, cache_root=cache_root)
+    ext = _safe_attachment_ext(item, mime, media_kind)
+    digest = hashlib.sha256(data).hexdigest()[:16]
+    filepath = cache_dir / f"agentmint_{digest}{ext}"
+    filepath.write_bytes(data)
+    return str(filepath), mime, media_kind, ""
+
+
+def _agentmint_media_cache_dir(media_kind: str, *, cache_root: Path | None = None) -> Path:
+    if cache_root is None:
+        hermes_home = Path(os.path.expanduser(os.getenv("HERMES_HOME", "~/.hermes")))
+        cache_root = hermes_home / "cache" / "agentmint"
+    cache_dir = cache_root / ("images" if media_kind == "image" else "documents")
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir
+
+
+def _safe_attachment_ext(item: dict, mime: str, media_kind: str) -> str:
+    filename = str(item.get("filename") or "").strip()
+    ext = Path(filename).suffix.lower()
+    if re.fullmatch(r"\.[a-z0-9]{1,12}", ext):
+        return ext
+    guessed = mimetypes.guess_extension(mime or "")
+    if guessed and re.fullmatch(r"\.[a-zA-Z0-9]{1,12}", guessed):
+        return guessed.lower()
+    return ".jpg" if media_kind == "image" else ".bin"
+
+
+def _looks_like_image_bytes(data: bytes) -> bool:
+    if len(data) < 4:
+        return False
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return True
+    if data[:3] == b"\xff\xd8\xff":
+        return True
+    if data[:6] in {b"GIF87a", b"GIF89a"}:
+        return True
+    if data[:2] == b"BM":
+        return True
+    if data[:4] == b"RIFF" and len(data) >= 12 and data[8:12] == b"WEBP":
+        return True
+    return False
+
+
+def _guess_image_mime(data: bytes) -> str:
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:6] in {b"GIF87a", b"GIF89a"}:
+        return "image/gif"
+    if data[:2] == b"BM":
+        return "image/bmp"
+    if data[:4] == b"RIFF" and len(data) >= 12 and data[8:12] == b"WEBP":
+        return "image/webp"
+    return ""
+
+
+def _attachment_media_fields(attachments: list) -> tuple[list[str], list[str]]:
+    media_urls: list[str] = []
+    media_types: list[str] = []
+    for item in attachments:
+        if not isinstance(item, dict):
+            continue
+        local_path = str(item.get("local_path") or "").strip()
+        if not local_path:
+            continue
+        media_urls.append(local_path)
+        media_types.append(str(item.get("media_type") or item.get("mime") or "application/octet-stream"))
+    return media_urls, media_types
+
+
+def _message_type_for_media(media_types: list[str]):
+    if not media_types:
+        return MessageType.TEXT
+    if any(str(media_type).startswith("image/") for media_type in media_types):
+        return MessageType.PHOTO
+    return getattr(MessageType, "DOCUMENT", MessageType.TEXT)
 
 
 def _format_followup_prompt(

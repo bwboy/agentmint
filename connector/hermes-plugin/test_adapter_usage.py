@@ -111,14 +111,17 @@ class UsageExtractionTests(unittest.TestCase):
                 "filename": "screen.jpeg",
                 "type": "image",
                 "url": "http://arena/api/files/object/uploads/screen.jpeg",
+                "local_path": "/tmp/agentmint/screen.jpeg",
+                "mime": "image/jpeg",
             }],
         )
 
         self.assertIn("附件包含图片", prompt)
-        self.assertIn("必须先查看或下载图片", prompt)
-        self.assertIn("screen.jpeg (image): http://arena/api/files/object/uploads/screen.jpeg", prompt)
+        self.assertIn("已作为 Hermes 本地媒体文件传入", prompt)
+        self.assertIn("screen.jpeg (image/jpeg): /tmp/agentmint/screen.jpeg", prompt)
+        self.assertNotIn("http://arena/api/files/object/uploads/screen.jpeg", prompt)
 
-    def test_formatted_prompt_can_inline_image_attachment_data(self):
+    def test_formatted_prompt_does_not_embed_inline_image_data(self):
         prompt = self.adapter._format_prompt(
             "这几个人都是谁",
             "",
@@ -130,15 +133,15 @@ class UsageExtractionTests(unittest.TestCase):
                 "mime": "image/jpeg",
                 "url": "http://arena/api/files/object/uploads/screen.jpeg",
                 "inline_data_url": "data:image/jpeg;base64,abcd",
+                "local_path": "/tmp/agentmint/screen.jpeg",
             }],
         )
 
-        self.assertIn("图片内容已内联", prompt)
-        self.assertIn("data:image/jpeg;base64,abcd", prompt)
-        self.assertIn("无需下载原始链接", prompt)
+        self.assertIn("已作为 Hermes 本地媒体文件传入", prompt)
+        self.assertNotIn("data:image/jpeg;base64,abcd", prompt)
         self.assertNotIn("http://arena/api/files/object/uploads/screen.jpeg", prompt)
 
-    def test_prepare_prompt_attachments_downloads_small_images(self):
+    def test_prepare_prompt_attachments_downloads_images_to_local_media_cache(self):
         adapter_mod = self.adapter
 
         class FakeHeaders:
@@ -149,7 +152,7 @@ class UsageExtractionTests(unittest.TestCase):
             headers = FakeHeaders()
 
             def read(self, size):
-                return b"png-bytes"
+                return b"\x89PNG\r\n\x1a\npng-bytes"
 
         @contextmanager
         def fake_urlopen(req, timeout=0):
@@ -160,17 +163,82 @@ class UsageExtractionTests(unittest.TestCase):
         original_urlopen = adapter_mod.urllib.request.urlopen
         adapter_mod.urllib.request.urlopen = fake_urlopen
         try:
-            attachments = adapter_mod._prepare_prompt_attachments([{
-                "filename": "screen.png",
-                "type": "image",
-                "mime": "image/png",
-                "size_bytes": 9,
-                "url": "http://arena/files/screen.png",
-            }])
+            with tempfile.TemporaryDirectory() as tmp:
+                attachments = adapter_mod._prepare_prompt_attachments([{
+                    "filename": "screen.png",
+                    "type": "image",
+                    "mime": "image/png",
+                    "size_bytes": 18,
+                    "url": "http://arena/files/screen.png",
+                }], cache_root=Path(tmp))
+                local_path = Path(attachments[0]["local_path"])
+                self.assertTrue(local_path.exists())
+                self.assertEqual(local_path.read_bytes(), b"\x89PNG\r\n\x1a\npng-bytes")
         finally:
             adapter_mod.urllib.request.urlopen = original_urlopen
 
-        self.assertEqual(attachments[0]["inline_data_url"], "data:image/png;base64,cG5nLWJ5dGVz")
+        self.assertEqual(attachments[0]["media_type"], "image/png")
+        self.assertEqual(attachments[0]["media_kind"], "image")
+        self.assertNotIn("inline_data_url", attachments[0])
+
+    def test_dispatch_question_passes_image_attachments_as_hermes_media(self):
+        adapter_mod = self.adapter
+
+        class TestAdapter(adapter_mod.ArenaAdapter):
+            def __init__(self):
+                self._job_started_at = {}
+                self._prompt_text_by_request = {}
+                self._active_request_by_chat = {}
+                self._warm_conversations = set()
+                self._conversation_locks = {}
+                self.events = []
+
+            def build_source(self, **kwargs):
+                return SimpleNamespace(**kwargs)
+
+            async def handle_message(self, event):
+                self.events.append(event)
+
+        async def run_case():
+            adapter = TestAdapter()
+            original_message_event = adapter_mod.MessageEvent
+            original_message_type = adapter_mod.MessageType
+            original_prepare = adapter_mod._prepare_prompt_attachments
+            adapter_mod.MessageEvent = lambda **kwargs: SimpleNamespace(**kwargs)
+            adapter_mod.MessageType = SimpleNamespace(TEXT="text", PHOTO="photo", DOCUMENT="document")
+            adapter_mod._prepare_prompt_attachments = lambda attachments: [{
+                "filename": "screen.png",
+                "type": "image",
+                "mime": "image/png",
+                "local_path": "/tmp/agentmint/screen.png",
+                "media_type": "image/png",
+                "media_kind": "image",
+            }]
+            try:
+                await adapter._dispatch_question_record(
+                    request_id="req_media",
+                    conversation_id="conv_media",
+                    turn_type="root",
+                    question_record={
+                        "title": "这几个人是谁",
+                        "body": "",
+                        "tags": [],
+                        "asker": {"nickname": "alice"},
+                        "attachments": [{"type": "image", "url": "http://arena/files/screen.png"}],
+                    },
+                )
+            finally:
+                adapter_mod.MessageEvent = original_message_event
+                adapter_mod.MessageType = original_message_type
+                adapter_mod._prepare_prompt_attachments = original_prepare
+            return adapter.events[0]
+
+        event = asyncio.run(run_case())
+
+        self.assertEqual(event.message_type, "photo")
+        self.assertEqual(event.media_urls, ["/tmp/agentmint/screen.png"])
+        self.assertEqual(event.media_types, ["image/png"])
+        self.assertIn("screen.png", event.text)
 
     def test_tool_trace_detection_does_not_block_explanatory_answers(self):
         self.assertFalse(self.adapter._looks_like_tool_trace(
