@@ -4,18 +4,26 @@ export function getConnectorInstructions({
   agentType,
   connectorId,
   token,
+  permissionProfile = "balanced",
 }: {
   agentType: AgentType;
   connectorId: string;
   token: string;
+  permissionProfile?: "strict" | "balanced" | "expanded";
 }) {
   if (agentType === "hermes") {
     return {
       title: "Hermes Plugin 配置",
       command: [
-        `export AGENTMINT_CONNECTOR_ID=${connectorId}`,
-        `export AGENTMINT_CONNECTOR_TOKEN=${token}`,
-        "export AGENTMINT_PLATFORM_URL=ws://localhost:8000/ws",
+        "git pull",
+        [
+          "connector/hermes-plugin/setup.sh",
+          "--mode copy",
+          `--connector-id ${connectorId}`,
+          `--connector-token ${token}`,
+          "--platform-url ws://localhost:8000/ws",
+          `--permission-profile ${permissionProfile}`,
+        ].join(" "),
         "hermes gateway",
       ].join("\n"),
     };

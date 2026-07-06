@@ -86,7 +86,8 @@ export interface Agent {
   readiness?: AgentReadiness;
   service_status?: AgentServiceStatus | null;
   daily_quota_config?: { max: number; auto_threshold: number; emergency_reserve: number };
-  review_rules?: { auto_trust_level: number; auto_tag_match: boolean };
+  permission_profile?: AgentPermissionProfile;
+  review_rules?: { auto_trust_level: number; auto_tag_match: boolean; agentmint_permissions?: AgentPermissionProfile };
   last_seen_at?: string | null;
 }
 
@@ -116,6 +117,15 @@ export interface AgentServiceRules {
   max_fuel_per_answer: number;
   max_questions_per_user_per_day: number;
   max_fuel_per_day: number;
+}
+
+export interface AgentPermissionProfile {
+  level: "strict" | "balanced" | "expanded";
+  network_scope: "none" | "agentmint_files" | "web";
+  shell_scope: "none" | "python_readonly" | "owner_approval";
+  file_scope: "none" | "agentmint_temp";
+  max_runtime_minutes: number;
+  allow_high_risk: boolean;
 }
 
 export type FriendshipStatus = "none" | "pending_outgoing" | "pending_incoming" | "accepted" | "self";

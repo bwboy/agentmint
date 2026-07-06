@@ -35,6 +35,7 @@ class ConfigureTests(unittest.TestCase):
             usage_wait_seconds=2.5,
             debug_usage=True,
             queue_db="~/.hermes/agentmint-jobs.db",
+            permission_profile="balanced",
         )
         data = {
             "plugins": {"enabled": ["platforms/lark"]},
@@ -59,6 +60,27 @@ class ConfigureTests(unittest.TestCase):
         self.assertEqual(agentmint["extra"]["usage_wait_seconds"], 2.5)
         self.assertTrue(agentmint["extra"]["debug_usage"])
         self.assertEqual(agentmint["extra"]["queue_db"], "~/.hermes/agentmint-jobs.db")
+        self.assertEqual(agentmint["extra"]["permission_profile"], "balanced")
+
+    def test_configure_writes_safe_permission_profile_without_disabling_approvals(self):
+        args = Namespace(
+            connector_id="conn_test",
+            connector_token="conn_sk_test",
+            platform_url="ws://192.168.1.88:8000/ws",
+            max_concurrent=3,
+            usage_wait_seconds=1.0,
+            debug_usage=False,
+            queue_db="",
+            permission_profile="expanded",
+        )
+
+        updated = self.configure_mod.configure({}, args)
+
+        self.assertNotEqual(updated.get("approvals", {}).get("mode"), "off")
+        self.assertIn("python", updated["command_allowlist"])
+        self.assertIn("python3", updated["command_allowlist"])
+        agentmint = updated["gateway"]["platforms"]["agentmint"]
+        self.assertEqual(agentmint["extra"]["permission_profile"], "expanded")
 
     def test_backup_creates_timestamped_copy(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -20,6 +20,7 @@ Options:
   --max-concurrent N           Default: 3.
   --usage-wait-seconds N       Default: 1.0.
   --debug-usage                Enable usage debug logs.
+  --permission-profile PROFILE Local permission profile: strict, balanced, or expanded. Default: balanced.
   --skip-enable                Do not call `hermes plugins enable platforms/agentmint`.
   -h, --help                   Show this help.
 EOF
@@ -34,6 +35,7 @@ QUEUE_DB=""
 MAX_CONCURRENT="3"
 USAGE_WAIT_SECONDS="1.0"
 DEBUG_USAGE=0
+PERMISSION_PROFILE="balanced"
 SKIP_ENABLE=0
 
 while [[ $# -gt 0 ]]; do
@@ -55,6 +57,8 @@ while [[ $# -gt 0 ]]; do
     --usage-wait-seconds) USAGE_WAIT_SECONDS="${2:-}"; shift 2 ;;
     --usage-wait-seconds=*) USAGE_WAIT_SECONDS="${1#*=}"; shift ;;
     --debug-usage) DEBUG_USAGE=1; shift ;;
+    --permission-profile) PERMISSION_PROFILE="${2:-}"; shift 2 ;;
+    --permission-profile=*) PERMISSION_PROFILE="${1#*=}"; shift ;;
     --skip-enable) SKIP_ENABLE=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *)
@@ -117,6 +121,7 @@ configure_args=(
   --hermes-home "$HERMES_HOME_DIR"
   --max-concurrent "$MAX_CONCURRENT"
   --usage-wait-seconds "$USAGE_WAIT_SECONDS"
+  --permission-profile "$PERMISSION_PROFILE"
 )
 
 if [[ -n "$QUEUE_DB" ]]; then

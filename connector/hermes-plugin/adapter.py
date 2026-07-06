@@ -1131,7 +1131,9 @@ def _format_attachment_context(attachments: list) -> str:
         if inline_data_url:
             has_inline_image = True
         url = str(item.get("url") or "").strip()
-        if url:
+        if inline_data_url:
+            lines.append(f"- {filename} ({kind})")
+        elif url:
             lines.append(f"- {filename} ({kind}): {url}")
         else:
             lines.append(f"- {filename} ({kind})")
@@ -1145,7 +1147,7 @@ def _format_attachment_context(attachments: list) -> str:
     if has_image:
         prefix += "附件包含图片。若问题要求识别、比较或解释图片内容，必须先查看或下载图片后再回答；不要声称未收到图片。\n"
     if has_inline_image:
-        prefix += "图片内容已内联在消息中，优先直接读取内联图片内容。\n"
+        prefix += "图片内容已内联在消息中，优先直接读取内联图片内容，无需下载原始链接。\n"
     return prefix + "\n".join(lines)
 
 

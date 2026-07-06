@@ -22,6 +22,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-concurrent", type=int, default=3, help="Max concurrent AgentMint questions")
     parser.add_argument("--usage-wait-seconds", type=float, default=1.0, help="Seconds to wait for Hermes usage metadata")
     parser.add_argument("--debug-usage", action="store_true", help="Enable usage capture debug logs")
+    parser.add_argument(
+        "--permission-profile",
+        choices=("strict", "balanced", "expanded"),
+        default="balanced",
+        help="Local Hermes permission profile for AgentMint tasks. Does not disable approvals.",
+    )
     parser.add_argument("--skip-enable", action="store_true", help="Do not call `hermes plugins enable platforms/agentmint`")
     return parser.parse_args()
 
@@ -55,6 +61,25 @@ def ensure_mapping(value: Any) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+def permission_allowlist(profile: str) -> list[str]:
+    if profile == "expanded":
+        return ["python", "python3"]
+    if profile == "balanced":
+        return ["python", "python3"]
+    return []
+
+
+def merge_list(existing: Any, additions: list[str]) -> list[str]:
+    values = existing if isinstance(existing, list) else []
+    merged: list[str] = []
+    for value in [*values, *additions]:
+        if not isinstance(value, str) or not value.strip():
+            continue
+        if value not in merged:
+            merged.append(value)
+    return merged
+
+
 def configure(data: dict, args: argparse.Namespace) -> dict:
     plugins = ensure_mapping(data.get("plugins"))
     enabled = plugins.get("enabled")
@@ -82,6 +107,7 @@ def configure(data: dict, args: argparse.Namespace) -> dict:
     extra["max_concurrent"] = args.max_concurrent
     extra["usage_wait_seconds"] = args.usage_wait_seconds
     extra["debug_usage"] = bool(args.debug_usage)
+    extra["permission_profile"] = args.permission_profile
     if args.queue_db:
         extra["queue_db"] = args.queue_db
 
@@ -89,6 +115,10 @@ def configure(data: dict, args: argparse.Namespace) -> dict:
     platforms["agentmint"] = agentmint
     gateway["platforms"] = platforms
     data["gateway"] = gateway
+    data["command_allowlist"] = merge_list(
+        data.get("command_allowlist"),
+        permission_allowlist(args.permission_profile),
+    )
     return data
 
 

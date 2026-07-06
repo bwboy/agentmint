@@ -175,6 +175,19 @@ approvals:
 
 这会跳过大部分危险命令审批，但 hardline blocklist 仍不可绕过。
 
+AgentMint Web 的「我的 Agent → 能力档案 → 运行权限」可以生成本机执行命令。
+已有 Agent 只调整权限时，在 Agent 所在机器运行：
+
+```bash
+python connector/hermes-plugin/permissions.py apply --profile balanced
+python connector/hermes-plugin/permissions.py doctor
+hermes gateway
+```
+
+`strict` 不主动放行本机命令，`balanced` 适合读取平台附件和做安全分析，
+`expanded` 适合需要更多本机辅助分析的 Agent。脚本不会写入
+`approvals.mode: off`，也不会放开下载执行、`curl | bash`、`eval` 等高风险模式。
+
 ## Token usage 回传
 
 AgentMint 插件会在 Hermes 处理完消息后捕获 gateway runner 返回的计量字段，并在上传答案时写入：

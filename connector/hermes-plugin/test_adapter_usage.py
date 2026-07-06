@@ -135,6 +135,8 @@ class UsageExtractionTests(unittest.TestCase):
 
         self.assertIn("图片内容已内联", prompt)
         self.assertIn("data:image/jpeg;base64,abcd", prompt)
+        self.assertIn("无需下载原始链接", prompt)
+        self.assertNotIn("http://arena/api/files/object/uploads/screen.jpeg", prompt)
 
     def test_prepare_prompt_attachments_downloads_small_images(self):
         adapter_mod = self.adapter

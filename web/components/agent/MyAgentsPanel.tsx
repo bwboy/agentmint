@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { getToken } from "@/lib/auth";
-import type { Agent, AgentCapabilityProfile, AgentLearnedProfile, AgentProfileTagField, AgentReadinessState, AgentServiceMode, AgentServiceRules, AgentType, AgentVisibility } from "@/lib/types";
+import type { Agent, AgentCapabilityProfile, AgentLearnedProfile, AgentPermissionProfile, AgentProfileTagField, AgentReadinessState, AgentServiceMode, AgentServiceRules, AgentType, AgentVisibility } from "@/lib/types";
 import { OwnerSupplementSignal } from "./OwnerSupplementSignal";
 import { getConnectorInstructions } from "./connectorInstructions";
 
@@ -32,6 +32,7 @@ type AgentEditState = {
   service_mode: AgentServiceMode;
   service_rules: AgentServiceRules;
   daily_quota_config: { max: number; auto_threshold: number; emergency_reserve: number };
+  permission_profile: AgentPermissionProfile;
 };
 
 export function MyAgentsPanel() {
@@ -105,6 +106,7 @@ export function MyAgentsPanel() {
       service_mode: agent.service_mode || "auto_match",
       service_rules: normalizeServiceRules(agent.service_rules),
       daily_quota_config: normalizeQuota(agent.daily_quota_config),
+      permission_profile: normalizePermissionProfile(agent.permission_profile),
     });
   }
 
@@ -123,6 +125,7 @@ export function MyAgentsPanel() {
           service_mode: editState.service_mode,
           service_rules: normalizeServiceRules(editState.service_rules),
           daily_quota_config: normalizeQuota(editState.daily_quota_config),
+          permission_profile: normalizePermissionProfile(editState.permission_profile),
         },
       });
       setEditing(null);
@@ -222,7 +225,11 @@ export function MyAgentsPanel() {
   }
 
   if (agents === null) return <p className="text-gray-400 text-sm">加载中…</p>;
-  const connectorInstructions = tokenInfo ? getConnectorInstructions(tokenInfo) : null;
+  const tokenAgent = tokenInfo ? agents.find(agent => agent.id === tokenInfo.agentId) : null;
+  const connectorInstructions = tokenInfo ? getConnectorInstructions({
+    ...tokenInfo,
+    permissionProfile: normalizePermissionProfile(tokenAgent?.permission_profile).level,
+  }) : null;
 
   return (
     <div className="space-y-4">
@@ -309,6 +316,11 @@ export function MyAgentsPanel() {
             {editing === a.id && editState && (
               <div className="mt-5 border-t border-gray-100 pt-4">
                 <AgentProfileForm
+                  state={editState}
+                  onChange={setEditState}
+                />
+                <PermissionSettingsFields
+                  agent={a}
                   state={editState}
                   onChange={setEditState}
                 />
@@ -643,6 +655,114 @@ function QuotaSettingsFields({
   );
 }
 
+function PermissionSettingsFields({
+  agent,
+  state,
+  onChange,
+}: {
+  agent: Agent;
+  state: AgentEditState;
+  onChange: (value: AgentEditState) => void;
+}) {
+  const profile = normalizePermissionProfile(state.permission_profile);
+  const update = (patch: Partial<AgentPermissionProfile>) => {
+    onChange({ ...state, permission_profile: normalizePermissionProfile({ ...profile, ...patch }) });
+  };
+  const command = permissionApplyCommand(profile);
+
+  return (
+    <div className="mt-4 rounded-lg border border-cyan-100 bg-cyan-50 p-3">
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+        <span className="font-medium text-cyan-800">运行权限</span>
+        <span className="text-cyan-600">网页只定义策略；真正授权需要在 Agent 所在机器执行脚本</span>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        <label className="block">
+          <span className="block text-xs text-cyan-700 mb-1">权限档位</span>
+          <select
+            value={profile.level}
+            onChange={e => update({ level: e.target.value as AgentPermissionProfile["level"] })}
+            className="w-full px-3 py-2 border border-cyan-100 rounded-lg bg-white text-sm"
+          >
+            <option value="strict">严格：只回答，不主动用工具</option>
+            <option value="balanced">平衡：允许读取平台附件</option>
+            <option value="expanded">扩展：可做更多本机辅助分析</option>
+          </select>
+        </label>
+        <NumberField
+          label="最长运行分钟"
+          value={profile.max_runtime_minutes}
+          min={1}
+          max={120}
+          step={1}
+          onChange={v => update({ max_runtime_minutes: v })}
+        />
+        <SelectPermissionField
+          label="网络范围"
+          value={profile.network_scope}
+          onChange={v => update({ network_scope: v as AgentPermissionProfile["network_scope"] })}
+          options={[["none", "不主动联网"], ["agentmint_files", "仅平台附件"], ["web", "允许网页检索"]]}
+        />
+        <SelectPermissionField
+          label="Shell 范围"
+          value={profile.shell_scope}
+          onChange={v => update({ shell_scope: v as AgentPermissionProfile["shell_scope"] })}
+          options={[["none", "禁止"], ["python_readonly", "只允许本地 Python 分析"], ["owner_approval", "需要主人审批"]]}
+        />
+        <SelectPermissionField
+          label="文件范围"
+          value={profile.file_scope}
+          onChange={v => update({ file_scope: v as AgentPermissionProfile["file_scope"] })}
+          options={[["none", "不读文件"], ["agentmint_temp", "仅 AgentMint 临时附件"]]}
+        />
+        <label className="flex items-center gap-2 rounded-lg border border-cyan-100 bg-white px-3 py-2 text-sm text-cyan-800">
+          <input
+            type="checkbox"
+            checked={profile.allow_high_risk}
+            disabled={profile.level !== "expanded"}
+            onChange={e => update({ allow_high_risk: e.target.checked })}
+          />
+          允许高风险动作提示
+        </label>
+      </div>
+      <div className="mt-3 rounded-lg border border-cyan-100 bg-white p-3">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span className="text-xs font-medium text-cyan-800">Agent 端执行</span>
+          <span className="text-[11px] text-cyan-600">保存后，在运行 {agent.name} 的机器执行</span>
+        </div>
+        <pre className="whitespace-pre-wrap break-all rounded bg-gray-950 px-3 py-2 font-mono text-xs text-cyan-50">{command}</pre>
+      </div>
+    </div>
+  );
+}
+
+function SelectPermissionField({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: [string, string][];
+}) {
+  return (
+    <label className="block">
+      <span className="block text-xs text-cyan-700 mb-1">{label}</span>
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="w-full px-3 py-2 border border-cyan-100 rounded-lg bg-white text-sm"
+      >
+        {options.map(([key, labelText]) => (
+          <option key={key} value={key}>{labelText}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 function NumberField({
   label,
   value,
@@ -887,6 +1007,33 @@ function normalizeServiceRules(rules?: Partial<AgentServiceRules>): AgentService
     max_questions_per_user_per_day: Number.isFinite(maxQuestionsPerUser) && maxQuestionsPerUser > 0 ? Math.min(maxQuestionsPerUser, 100) : 20,
     max_fuel_per_day: Number.isFinite(maxFuelPerDay) && maxFuelPerDay > 0 ? Math.min(maxFuelPerDay, 1000000) : 1000000,
   };
+}
+
+function normalizePermissionProfile(profile?: Partial<AgentPermissionProfile>): AgentPermissionProfile {
+  const level = profile?.level;
+  const network = profile?.network_scope;
+  const shell = profile?.shell_scope;
+  const files = profile?.file_scope;
+  const runtime = Math.trunc(Number(profile?.max_runtime_minutes ?? 10));
+  const safeLevel: AgentPermissionProfile["level"] =
+    level === "strict" || level === "balanced" || level === "expanded" ? level : "balanced";
+  return {
+    level: safeLevel,
+    network_scope: network === "none" || network === "agentmint_files" || network === "web" ? network : "agentmint_files",
+    shell_scope: shell === "none" || shell === "python_readonly" || shell === "owner_approval" ? shell : "none",
+    file_scope: files === "none" || files === "agentmint_temp" ? files : "agentmint_temp",
+    max_runtime_minutes: Number.isFinite(runtime) ? Math.max(1, Math.min(runtime, 120)) : 10,
+    allow_high_risk: safeLevel === "expanded" && Boolean(profile?.allow_high_risk),
+  };
+}
+
+function permissionApplyCommand(profile: AgentPermissionProfile) {
+  return [
+    "git pull",
+    `python connector/hermes-plugin/permissions.py apply --profile ${profile.level}`,
+    "python connector/hermes-plugin/permissions.py doctor",
+    "hermes gateway",
+  ].join("\n");
 }
 
 function normalizeQuota(quota?: Partial<AgentEditState["daily_quota_config"]>) {

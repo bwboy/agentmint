@@ -23,6 +23,11 @@ from services.notification import maybe_create_notification
 from services.service_limits import agent_service_status
 
 router = APIRouter(prefix="/api", tags=["agents"])
+PERMISSIONS_KEY = "agentmint_permissions"
+PERMISSION_PROFILES = {"strict", "balanced", "expanded"}
+NETWORK_SCOPES = {"none", "agentmint_files", "web"}
+SHELL_SCOPES = {"none", "python_readonly", "owner_approval"}
+FILE_SCOPES = {"none", "agentmint_temp"}
 
 
 class CreateAgentReq(BaseModel):
@@ -48,6 +53,7 @@ class UpdateAgentReq(BaseModel):
     visibility: str | None = None
     service_mode: str | None = None
     service_rules: dict | None = None
+    permission_profile: dict | None = None
 
 
 class LearnedProfileReviewReq(BaseModel):
@@ -376,6 +382,8 @@ async def update_agent(
     if req.review_rules is not None: agent.review_rules = req.review_rules
     if req.capability_profile is not None:
         agent.review_rules = merge_capability_profile(agent.review_rules, req.capability_profile)
+    if req.permission_profile is not None:
+        agent.review_rules = merge_permission_profile(agent.review_rules, req.permission_profile)
 
     await db.commit()
     await db.refresh(agent)
@@ -827,6 +835,7 @@ def _agent_to_dict(
         "owner": {"nickname": owner_nickname},
         "created_at": agent.created_at.isoformat() if agent.created_at else None,
         "capability_profile": normalize_capability_profile((agent.review_rules or {}).get("capability_profile")),
+        "permission_profile": normalize_permission_profile((agent.review_rules or {}).get(PERMISSIONS_KEY)),
         "learned_profile": get_agent_learned_profile(agent),
         "learned_profile_review": build_learned_profile_review(agent.review_rules),
         "owner_supplement_summary": get_owner_supplement_summary(agent),
@@ -852,6 +861,37 @@ def merge_capability_profile(review_rules: dict | None, capability_profile: dict
     if "auto_tag_match" not in rules:
         rules["auto_tag_match"] = True
     rules["capability_profile"] = normalize_capability_profile(capability_profile)
+    return rules
+
+
+def normalize_permission_profile(profile: dict | None) -> dict:
+    profile = profile if isinstance(profile, dict) else {}
+    level = str(profile.get("level") or "balanced")
+    network = str(profile.get("network_scope") or "agentmint_files")
+    shell = str(profile.get("shell_scope") or "none")
+    files = str(profile.get("file_scope") or "agentmint_temp")
+    max_runtime = profile.get("max_runtime_minutes", 10)
+    try:
+        max_runtime_int = int(max_runtime)
+    except (TypeError, ValueError):
+        max_runtime_int = 10
+    return {
+        "level": level if level in PERMISSION_PROFILES else "balanced",
+        "network_scope": network if network in NETWORK_SCOPES else "agentmint_files",
+        "shell_scope": shell if shell in SHELL_SCOPES else "none",
+        "file_scope": files if files in FILE_SCOPES else "agentmint_temp",
+        "max_runtime_minutes": min(120, max(1, max_runtime_int)),
+        "allow_high_risk": bool(profile.get("allow_high_risk", False)) and level == "expanded",
+    }
+
+
+def merge_permission_profile(review_rules: dict | None, profile: dict | None) -> dict:
+    rules = dict(review_rules or {"auto_trust_level": 2, "auto_tag_match": True})
+    if "auto_trust_level" not in rules:
+        rules["auto_trust_level"] = 2
+    if "auto_tag_match" not in rules:
+        rules["auto_tag_match"] = True
+    rules[PERMISSIONS_KEY] = normalize_permission_profile(profile)
     return rules
 
 
