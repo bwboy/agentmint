@@ -607,7 +607,7 @@ async def test_duplicate_upload_does_not_overwrite_terminal_answer(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_final_upload_overwrites_runtime_only_answer(monkeypatch):
+async def test_final_upload_merges_runtime_only_answer(monkeypatch):
     answer = make_answer(status="approved")
     answer.content = {"text": "⏳ Working — 3 min — iteration 1/150, receiving stream response"}
     session = FakeSession(answer)
@@ -624,7 +624,7 @@ async def test_final_upload_overwrites_runtime_only_answer(monkeypatch):
         "capability": {"tools": [{"name": "vision"}]},
     })
 
-    assert answer.content == {"text": "最终答案"}
+    assert answer.content == {"text": "⏳ Working — 3 min — iteration 1/150, receiving stream response\n\n最终答案"}
     assert answer.model == "model-final"
     assert answer.usage == {"total_tokens": 99}
     assert answer.status == "approved"
@@ -632,7 +632,7 @@ async def test_final_upload_overwrites_runtime_only_answer(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_final_upload_overwrites_waiting_for_stream_status(monkeypatch):
+async def test_final_upload_merges_waiting_for_stream_status(monkeypatch):
     answer = make_answer(status="approved")
     answer.content = {"text": "⌛ Working — 3 min — iteration 1/150, waiting for stream response (150s, no chunks yet)"}
     session = FakeSession(answer)
@@ -649,8 +649,33 @@ async def test_final_upload_overwrites_waiting_for_stream_status(monkeypatch):
         "capability": {},
     })
 
-    assert answer.content == {"text": "最终答案"}
+    assert answer.content == {"text": "⌛ Working — 3 min — iteration 1/150, waiting for stream response (150s, no chunks yet)\n\n最终答案"}
     assert answer.status == "approved"
+    assert session.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_runtime_upload_is_stored_as_processing_without_settlement(monkeypatch):
+    answer = make_answer(status="pushed")
+    answer.content = {}
+    answer.fuel_earned = 0
+    session = FakeSession(answer)
+
+    monkeypatch.setattr(review, "AsyncSessionLocal", lambda: session)
+
+    await review.handle_uploaded_answer("a_test", {
+        "type": "answer",
+        "request_id": "req_test",
+        "status": "success",
+        "content": {"text": "⌛ Working — 3 min — iteration 1/150, waiting for stream response (150s, no chunks yet)"},
+        "model": "hermes",
+        "usage": {"total_tokens": 0, "runtime_update": True},
+        "capability": {},
+    })
+
+    assert answer.status == "processing"
+    assert answer.content["text"].startswith("⌛ Working")
+    assert answer.fuel_earned == 0
     assert session.commits == 1
 
 

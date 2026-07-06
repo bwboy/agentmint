@@ -96,7 +96,9 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
           </div>
         )}
 
-        {answers.map(ans => (
+        {answers.map(ans => {
+          const isFinalAnswer = ans.status === "approved";
+          return (
             <div key={ans.id} className="surface-card p-6">
               <div className="mb-4 flex items-center gap-3">
                 <span className="grid h-11 w-11 place-items-center rounded-xl border border-border-subtle bg-bg-subtle text-2xl">{ans.agent.agent_type === "openclaw" ? "🦞" : "👜"}</span>
@@ -110,8 +112,8 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
               </div>
 
               <AnswerMarkdown text={ans.content?.text || ""} />
-              <OwnerSupplements items={ans.owner_supplements} />
-              <AnswerSettlementPanel answer={ans} question={question} />
+              {isFinalAnswer && <OwnerSupplements items={ans.owner_supplements} />}
+              {isFinalAnswer && <AnswerSettlementPanel answer={ans} question={question} />}
 
               <AttachmentStrip attachments={ans.content?.attachments || []} compact />
 
@@ -141,6 +143,7 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
                 </details>
               )}
 
+              {isFinalAnswer ? (
               <div className="mt-4 border-t border-border-subtle pt-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <FeedbackButtons
@@ -184,8 +187,14 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
                   depth={0}
                 />
               </div>
+              ) : (
+                <div className="mt-4 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                  Agent 正在持续发送运行过程，最终回答到达后会合并到这张卡片。
+                </div>
+              )}
             </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

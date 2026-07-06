@@ -206,11 +206,12 @@ async def get_question(
 
     await auto_award_due_rewards(db, q)
 
-    # Approved answers, with agent info
+    # Final and in-progress answers, with agent info. Runtime updates share the
+    # same Answer row so the asker can see progress before final approval.
     ans_rows = (await db.execute(
         select(Answer, Agent.name, Agent.agent_type, Agent.repute_score, Agent.service_rules)
         .join(Agent, Answer.agent_id == Agent.id)
-        .where(Answer.question_id == q.id, Answer.status == "approved")
+        .where(Answer.question_id == q.id, Answer.status.in_(["processing", "draft", "approved"]))
         .order_by(Answer.created_at.asc())
     )).all()
 
@@ -225,14 +226,19 @@ async def get_question(
         followup_answer_rows = (await db.execute(
             select(Answer, Agent.name, Agent.agent_type, Agent.repute_score, Agent.service_rules)
             .join(Agent, Answer.agent_id == Agent.id)
-            .where(Answer.question_id.in_(followup_ids), Answer.status == "approved")
+            .where(Answer.question_id.in_(followup_ids), Answer.status.in_(["processing", "draft", "approved"]))
             .order_by(Answer.created_at.asc())
         )).all()
 
-    await mark_answer_views_for_question(db, q, [row[0] for row in ans_rows], viewer)
+    approved_root_answers = [row[0] for row in ans_rows if row[0].status == "approved"]
+    await mark_answer_views_for_question(db, q, approved_root_answers, viewer)
 
     # Vote summary per root and follow-up answer
-    ans_ids = [a.id for a, *_ in ans_rows] + [a.id for a, *_ in followup_answer_rows]
+    ans_ids = [
+        a.id
+        for a, *_ in [*ans_rows, *followup_answer_rows]
+        if a.status == "approved"
+    ]
     vote_rows: dict[str, dict[str, int]] = {}
     if ans_ids:
         rows = await db.execute(

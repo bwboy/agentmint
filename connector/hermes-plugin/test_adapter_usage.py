@@ -1066,7 +1066,7 @@ class UsageExtractionTests(unittest.TestCase):
         self.assertFalse(sent[1]["usage"].get("estimated", False))
         self.assertEqual(marked[0][2]["answer"]["usage"], sent[1]["usage"])
 
-    def test_tool_trace_send_is_cached_not_uploaded(self):
+    def test_tool_trace_send_is_uploaded_as_runtime_update(self):
         adapter_mod = self.adapter
 
         class FakeQueue:
@@ -1119,11 +1119,12 @@ class UsageExtractionTests(unittest.TestCase):
         result, sent, tasks, streaming = asyncio.run(run_case())
 
         self.assertTrue(result.success)
-        self.assertIsNone(sent)
+        self.assertIsNotNone(sent)
+        self.assertEqual(sent[1]["usage"], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "runtime_update": True})
         self.assertEqual(tasks, set())
         self.assertEqual(streaming["req_tool"]["content"], 'browser_navigate: "https://www.google.com/search?q=finops"')
 
-    def test_combined_tool_trace_send_is_cached_not_uploaded(self):
+    def test_combined_tool_trace_send_is_uploaded_as_runtime_update(self):
         adapter_mod = self.adapter
 
         class FakeQueue:
@@ -1181,11 +1182,12 @@ class UsageExtractionTests(unittest.TestCase):
         result, sent, tasks, streaming = asyncio.run(run_case())
 
         self.assertTrue(result.success)
-        self.assertIsNone(sent)
+        self.assertIsNotNone(sent)
+        self.assertEqual(sent[1]["usage"], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "runtime_update": True})
         self.assertEqual(tasks, set())
         self.assertEqual(streaming["req_tool_combo"]["content"], content)
 
-    def test_working_status_send_is_cached_not_uploaded(self):
+    def test_working_status_send_is_uploaded_as_runtime_update(self):
         adapter_mod = self.adapter
 
         class FakeQueue:
@@ -1236,7 +1238,8 @@ class UsageExtractionTests(unittest.TestCase):
         result, sent, tasks, streaming = asyncio.run(run_case())
 
         self.assertTrue(result.success)
-        self.assertIsNone(sent)
+        self.assertIsNotNone(sent)
+        self.assertEqual(sent[1]["usage"], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "runtime_update": True})
         self.assertEqual(tasks, set())
         self.assertEqual(streaming["req_working"]["content"], content)
 
@@ -1303,7 +1306,7 @@ class UsageExtractionTests(unittest.TestCase):
         self.assertEqual(sent[1]["text"], "最终答案")
         self.assertEqual(marked[-1][1], "uploaded")
 
-    def test_interrupting_status_send_is_cached_not_uploaded(self):
+    def test_interrupting_status_send_is_uploaded_as_runtime_update(self):
         adapter_mod = self.adapter
 
         class FakeQueue:
@@ -1354,7 +1357,8 @@ class UsageExtractionTests(unittest.TestCase):
         result, sent, tasks, streaming = asyncio.run(run_case())
 
         self.assertTrue(result.success)
-        self.assertIsNone(sent)
+        self.assertIsNotNone(sent)
+        self.assertEqual(sent[1]["usage"], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "runtime_update": True})
         self.assertEqual(tasks, set())
         self.assertEqual(streaming["req_interrupt"]["content"], content)
 

@@ -534,12 +534,19 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
             }
             if getattr(self, "debug_usage", False):
                 log.info(
-                    "agentmint tool trace cached request_id=%s metadata=%s chars=%d",
+                    "agentmint runtime update uploading request_id=%s metadata=%s chars=%d",
                     request_id,
                     _metadata_debug_summary(meta),
                     len(str(content)),
                 )
-            return SendResult(success=True, message_id=request_id)
+            return await self._upload_runtime_update(
+                request_id=request_id,
+                conversation_id=conversation_id,
+                content=str(content),
+                model=meta.get("model") or meta.get("active_model") or "hermes",
+                capability=meta.get("capability") or _capability_hint(meta.get("model") or "hermes"),
+                attachments=attachments,
+            )
 
         turn_meta = self._last_turn_metadata.get(request_id, {})
         model = meta.get("model") or meta.get("active_model") or turn_meta.get("model") or "hermes"
@@ -756,6 +763,34 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
             return SendResult(success=True, message_id=request_id)
         # WS down — leave job at 'answered'; _on_reconnected will retry.
         return SendResult(success=False, message_id=request_id)
+
+    async def _upload_runtime_update(
+        self,
+        *,
+        request_id: str,
+        conversation_id: str | None,
+        content: str,
+        model: str,
+        capability: dict,
+        attachments: list[dict] | None = None,
+    ):
+        if self._client is None:
+            return SendResult(success=False, message_id=request_id)
+        ok = await self._client.send_answer(
+            request_id,
+            text=content,
+            model=model,
+            usage={
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+                "runtime_update": True,
+            },
+            capability=capability,
+            attachments=attachments or [],
+            duration_ms=0,
+        )
+        return SendResult(success=ok, message_id=request_id)
 
     def _resolve_request_for_chat(self, chat_id: Any) -> tuple[str, str]:
         conversation_id = str(chat_id)

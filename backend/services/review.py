@@ -81,33 +81,39 @@ async def handle_uploaded_answer(agent_id: str, msg: dict):
             print(f"[review] no matching answer row for request_id={request_id}, agent={agent_id}")
             return
 
+        runtime_only_upload = _is_runtime_only_message(msg)
+
         if answer.status in {"draft", "approved", "rejected", "expired"}:
             if msg.get("usage_correction"):
                 await _apply_usage_correction(db, answer, msg)
                 print(f"[review] usage corrected for request_id={request_id}, status={answer.status}")
                 return
-            if success and answer.status in {"draft", "approved"} and _is_runtime_only_answer(answer):
-                answer.content = msg.get("content", {}) or {}
-                answer.model = msg.get("model", "") or ""
-                answer.usage = msg.get("usage", {}) or {}
-                answer.capability = msg.get("capability", {}) or {}
-                answer.reviewed_at = datetime.utcnow() if answer.status == "approved" else answer.reviewed_at
+            if success and answer.status in {"draft", "approved"} and _can_merge_upload(answer, msg):
+                _merge_answer_upload(answer, msg, keep_status=runtime_only_upload)
+                if answer.status == "approved" and not runtime_only_upload:
+                    answer.reviewed_at = datetime.utcnow()
                 await db.commit()
-                print(f"[review] runtime-only answer replaced for request_id={request_id}, status={answer.status}")
+                print(f"[review] answer upload merged for request_id={request_id}, status={answer.status}")
                 return
             print(f"[review] duplicate answer ignored for request_id={request_id}, status={answer.status}")
             return
 
-        answer.content = msg.get("content", {}) or {}
-        answer.model = msg.get("model", "") or ""
-        answer.usage = msg.get("usage", {}) or {}
-        answer.capability = msg.get("capability", {}) or {}
+        answer.content = _append_upload_to_content(getattr(answer, "content", None) or {}, msg.get("content", {}) or {})
+        answer.model = msg.get("model", "") or getattr(answer, "model", "") or ""
+        answer.usage = msg.get("usage", {}) or getattr(answer, "usage", {}) or {}
+        answer.capability = msg.get("capability", {}) or getattr(answer, "capability", {}) or {}
 
         if not success:
             answer.status = "rejected"
             answer.reviewed_at = datetime.utcnow()
             await db.commit()
             print(f"[review] {request_id} rejected (agent reported failure)")
+            return
+
+        if runtime_only_upload:
+            answer.status = "processing"
+            await db.commit()
+            print(f"[review] {request_id} runtime update merged")
             return
 
         answer.status = "draft"
@@ -140,6 +146,61 @@ def _is_runtime_only_answer(answer: Answer) -> bool:
     if not text:
         return False
     return any(pattern.search(text) for pattern in RUNTIME_ONLY_PATTERNS)
+
+
+def _is_runtime_only_message(msg: dict) -> bool:
+    content = msg.get("content", {}) or {}
+    text = str(content.get("text") if isinstance(content, dict) else content or "").strip()
+    return bool(text) and any(pattern.search(text) for pattern in RUNTIME_ONLY_PATTERNS)
+
+
+def _can_merge_upload(answer: Answer, msg: dict) -> bool:
+    return _is_runtime_only_answer(answer) or _is_runtime_only_message(msg)
+
+
+def _merge_answer_upload(answer: Answer, msg: dict, *, keep_status: bool = False) -> None:
+    answer.content = _append_upload_to_content(getattr(answer, "content", None) or {}, msg.get("content", {}) or {})
+    answer.model = msg.get("model", "") or getattr(answer, "model", "") or ""
+    answer.usage = msg.get("usage", {}) or getattr(answer, "usage", {}) or {}
+    answer.capability = msg.get("capability", {}) or getattr(answer, "capability", {}) or {}
+    if not keep_status and answer.status == "processing":
+        answer.status = "draft"
+
+
+def _append_upload_to_content(existing: dict, incoming: dict) -> dict:
+    existing = existing if isinstance(existing, dict) else {}
+    incoming = incoming if isinstance(incoming, dict) else {"text": str(incoming or "")}
+    existing_text = str(existing.get("text") or "").strip()
+    incoming_text = str(incoming.get("text") or "").strip()
+    existing_runtime = _text_is_runtime_only(existing_text)
+    incoming_runtime = _text_is_runtime_only(incoming_text)
+
+    if not existing_text:
+        text = incoming_text
+    elif not incoming_text:
+        text = existing_text
+    elif existing_runtime and not incoming_runtime:
+        text = "\n\n".join([existing_text, incoming_text])
+    elif incoming_runtime:
+        text = "\n\n".join([existing_text, incoming_text])
+    else:
+        text = incoming_text
+
+    attachments = []
+    for source in (existing, incoming):
+        for item in source.get("attachments") or []:
+            if isinstance(item, dict) and item not in attachments:
+                attachments.append(item)
+
+    out = {**existing, **incoming, "text": text}
+    if attachments:
+        out["attachments"] = attachments[:10]
+    return out
+
+
+def _text_is_runtime_only(text: str) -> bool:
+    value = str(text or "").strip()
+    return bool(value) and any(pattern.search(value) for pattern in RUNTIME_ONLY_PATTERNS)
 
 
 async def reject_answer_by_id(db: AsyncSession, answer: Answer) -> None:
