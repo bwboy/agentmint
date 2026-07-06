@@ -476,8 +476,11 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         conversation_id, request_id = self._resolve_request_for_chat(chat_id)
         existing_job = self._queue.by_request_id(request_id)
         if existing_job and existing_job.get("answer") and existing_job.get("status") in {"answered", "uploaded"}:
-            log.info("duplicate answer ignored for %s (status=%s)", request_id, existing_job.get("status"))
-            return SendResult(success=True, message_id=request_id)
+            previous_text = (existing_job.get("answer") or {}).get("text", "")
+            if not _is_runtime_only_content(previous_text):
+                log.info("duplicate answer ignored for %s (status=%s)", request_id, existing_job.get("status"))
+                return SendResult(success=True, message_id=request_id)
+            log.info("runtime-only answer will be replaced for %s (status=%s)", request_id, existing_job.get("status"))
         if request_id in getattr(self, "_pending_answer_uploads", set()):
             log.info("duplicate answer ignored for %s (upload pending)", request_id)
             return SendResult(success=True, message_id=request_id)
@@ -1384,6 +1387,11 @@ def _looks_like_tool_trace(content: Any) -> bool:
 def _looks_like_working_status(content: Any) -> bool:
     text = str(content or "").strip()
     return bool(WORKING_STATUS_RE.search(text) or INTERRUPTING_STATUS_RE.search(text))
+
+
+def _is_runtime_only_content(content: Any) -> bool:
+    text = str(content or "").strip()
+    return bool(text) and (_looks_like_tool_trace(text) or _looks_like_working_status(text))
 
 
 def _metadata_debug_summary(value: Any) -> str:

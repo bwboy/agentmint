@@ -607,6 +607,31 @@ async def test_duplicate_upload_does_not_overwrite_terminal_answer(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_final_upload_overwrites_runtime_only_answer(monkeypatch):
+    answer = make_answer(status="approved")
+    answer.content = {"text": "⏳ Working — 3 min — iteration 1/150, receiving stream response"}
+    session = FakeSession(answer)
+
+    monkeypatch.setattr(review, "AsyncSessionLocal", lambda: session)
+
+    await review.handle_uploaded_answer("a_test", {
+        "type": "answer",
+        "request_id": "req_test",
+        "status": "success",
+        "content": {"text": "最终答案"},
+        "model": "model-final",
+        "usage": {"total_tokens": 99},
+        "capability": {"tools": [{"name": "vision"}]},
+    })
+
+    assert answer.content == {"text": "最终答案"}
+    assert answer.model == "model-final"
+    assert answer.usage == {"total_tokens": 99}
+    assert answer.status == "approved"
+    assert session.commits == 1
+
+
+@pytest.mark.asyncio
 async def test_usage_correction_updates_terminal_answer_without_overwriting_content(monkeypatch):
     answer = make_answer(status="approved")
     agent = SimpleNamespace(id="a_test", fuel_earned=10, service_rules={})

@@ -8,6 +8,7 @@ Both call `approve_answer`/`reject_answer` here so fuel-earning, repute
 adjustment, and notification creation happen in exactly one place.
 """
 from datetime import datetime
+import re
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +25,11 @@ from services.billing import (
 from services.learned_profile import update_learned_profile_from_approval
 from services.notification import create_notification
 from services.rewards import mark_reward_auto_award_after_first_answer
+
+RUNTIME_ONLY_PATTERNS = [
+    re.compile(r"^\s*(?:[^\w\s]+\s*)?working\s+[-—]\s+.+\biteration\s+\d+/\d+\b", re.IGNORECASE),
+    re.compile(r"^\s*(?:[^\w\s]+\s*)?(?:vision_analyze|image_analyze|browser_[a-z0-9_]*|terminal|tool_[a-z0-9_]*|execute_code)\s*:", re.IGNORECASE),
+]
 
 
 def decide_review_method(
@@ -80,6 +86,15 @@ async def handle_uploaded_answer(agent_id: str, msg: dict):
                 await _apply_usage_correction(db, answer, msg)
                 print(f"[review] usage corrected for request_id={request_id}, status={answer.status}")
                 return
+            if success and answer.status in {"draft", "approved"} and _is_runtime_only_answer(answer):
+                answer.content = msg.get("content", {}) or {}
+                answer.model = msg.get("model", "") or ""
+                answer.usage = msg.get("usage", {}) or {}
+                answer.capability = msg.get("capability", {}) or {}
+                answer.reviewed_at = datetime.utcnow() if answer.status == "approved" else answer.reviewed_at
+                await db.commit()
+                print(f"[review] runtime-only answer replaced for request_id={request_id}, status={answer.status}")
+                return
             print(f"[review] duplicate answer ignored for request_id={request_id}, status={answer.status}")
             return
 
@@ -117,6 +132,14 @@ async def handle_uploaded_answer(agent_id: str, msg: dict):
 async def approve_answer_by_id(db: AsyncSession, answer: Answer) -> None:
     """Operator manually approves a draft answer."""
     await _approve_inline(db, answer)
+
+
+def _is_runtime_only_answer(answer: Answer) -> bool:
+    content = getattr(answer, "content", None) or {}
+    text = str(content.get("text") if isinstance(content, dict) else content or "").strip()
+    if not text:
+        return False
+    return any(pattern.search(text) for pattern in RUNTIME_ONLY_PATTERNS)
 
 
 async def reject_answer_by_id(db: AsyncSession, answer: Answer) -> None:

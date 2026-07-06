@@ -1235,6 +1235,69 @@ class UsageExtractionTests(unittest.TestCase):
         self.assertEqual(tasks, set())
         self.assertEqual(streaming["req_working"]["content"], content)
 
+    def test_final_answer_can_replace_previous_runtime_only_upload(self):
+        adapter_mod = self.adapter
+
+        class FakeQueue:
+            def __init__(self):
+                self.marked = []
+
+            def mark(self, request_id, status, **kwargs):
+                self.marked.append((request_id, status, kwargs))
+                return True
+
+            def by_request_id(self, request_id):
+                return {
+                    "request_id": request_id,
+                    "chat_id": request_id,
+                    "status": "uploaded",
+                    "question": {"title": "Question", "body": "", "tags": [], "asker": {"nickname": "tester"}},
+                    "answer": {"text": "⏳ Working — 3 min — iteration 1/150, receiving stream response"},
+                }
+
+        class FakeClient:
+            def __init__(self):
+                self.sent = None
+
+            async def send_answer(self, request_id, **kwargs):
+                self.sent = (request_id, kwargs)
+                return True
+
+        class TestAdapter(adapter_mod.ArenaAdapter):
+            def __init__(self):
+                self._last_turn_metadata = {}
+                self._turn_metadata_events = {}
+                self._pending_answer_uploads = set()
+                self._background_upload_tasks = set()
+                self._streaming_answers = {}
+                self.usage_wait_seconds = 0
+                self._prompt_text_by_request = {"req_replace": "Question prompt text"}
+                self._job_started_at = {}
+                self._warm_conversations = set()
+                self._queue = FakeQueue()
+                self._client = FakeClient()
+
+        async def run_case():
+            adapter = TestAdapter()
+            original_send_result = adapter_mod.SendResult
+            adapter_mod.SendResult = lambda **kwargs: SimpleNamespace(**kwargs)
+            try:
+                result = await adapter.send(
+                    "req_replace",
+                    "最终答案",
+                    metadata={"usage": {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3}},
+                )
+            finally:
+                adapter_mod.SendResult = original_send_result
+            return result, adapter._client.sent, adapter._queue.marked
+
+        result, sent, marked = asyncio.run(run_case())
+
+        self.assertTrue(result.success)
+        self.assertEqual(sent[0], "req_replace")
+        self.assertEqual(sent[1]["text"], "最终答案")
+        self.assertEqual(marked[-1][1], "uploaded")
+
     def test_interrupting_status_send_is_cached_not_uploaded(self):
         adapter_mod = self.adapter
 
