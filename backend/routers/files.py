@@ -1,8 +1,9 @@
-"""File upload endpoint — multipart, 50 MB limit."""
+"""File upload and download endpoints."""
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from fastapi.responses import StreamingResponse
 
 from services.auth import get_current_user
-from services.files import upload
+from services.files import get_object, upload
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
@@ -25,3 +26,23 @@ async def upload_file(
     meta = upload(stream, file.filename or "upload.bin", file.content_type)
     meta["size_bytes"] = len(data)
     return meta
+
+
+@router.get("/object/{key:path}")
+async def download_file(key: str):
+    try:
+        obj = get_object(key)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="文件 key 无效")
+    except Exception:
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    body = obj["Body"]
+    headers = {
+        "Cache-Control": "public, max-age=31536000, immutable",
+    }
+    return StreamingResponse(
+        body.iter_chunks(),
+        media_type=obj.get("ContentType") or "application/octet-stream",
+        headers=headers,
+    )

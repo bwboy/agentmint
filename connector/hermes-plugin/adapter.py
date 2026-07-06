@@ -1072,11 +1072,14 @@ def _format_followup_text(title: str, body: str, tags: list) -> str:
 
 def _format_attachment_context(attachments: list) -> str:
     lines = []
+    has_image = False
     for item in attachments[:10]:
         if not isinstance(item, dict):
             continue
         filename = str(item.get("filename") or "attachment").strip()
         kind = str(item.get("type") or "file").strip()
+        if kind == "image":
+            has_image = True
         url = str(item.get("url") or "").strip()
         if url:
             lines.append(f"- {filename} ({kind}): {url}")
@@ -1084,7 +1087,10 @@ def _format_attachment_context(attachments: list) -> str:
             lines.append(f"- {filename} ({kind})")
     if not lines:
         return ""
-    return "附件:\n" + "\n".join(lines)
+    prefix = "附件:\n"
+    if has_image:
+        prefix += "附件包含图片。若问题要求识别、比较或解释图片内容，必须先查看或下载图片后再回答；不要声称未收到图片。\n"
+    return prefix + "\n".join(lines)
 
 
 def _format_followup_prompt(

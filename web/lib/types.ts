@@ -293,6 +293,7 @@ export interface Attachment {
   mime: string;
   filename: string;
   size_bytes: number;
+  key?: string;
   url?: string;
   inline?: string;
   thumbnail_url?: string;

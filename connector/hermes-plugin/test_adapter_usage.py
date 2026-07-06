@@ -100,6 +100,23 @@ class UsageExtractionTests(unittest.TestCase):
         self.assertIn("do not ask for approval", prompt)
         self.assertIn("fetch it as data first", prompt)
 
+    def test_formatted_prompt_tells_agent_to_inspect_image_attachments(self):
+        prompt = self.adapter._format_prompt(
+            "这几个人都是谁",
+            "",
+            [],
+            "tester",
+            attachments=[{
+                "filename": "screen.jpeg",
+                "type": "image",
+                "url": "http://arena/api/files/object/uploads/screen.jpeg",
+            }],
+        )
+
+        self.assertIn("附件包含图片", prompt)
+        self.assertIn("必须先查看或下载图片", prompt)
+        self.assertIn("screen.jpeg (image): http://arena/api/files/object/uploads/screen.jpeg", prompt)
+
     def test_tool_trace_detection_does_not_block_explanatory_answers(self):
         self.assertFalse(self.adapter._looks_like_tool_trace(
             "我先说明一下：browser_navigate 和 terminal 是工具名，不是最终答案。"

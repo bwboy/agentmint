@@ -1168,6 +1168,7 @@ def normalize_attachments(items: list[dict] | None) -> list[dict]:
             continue
         file_id = str(raw.get("id") or "").strip()
         filename = str(raw.get("filename") or "").strip()
+        key = str(raw.get("key") or "").strip().lstrip("/")
         url = str(raw.get("url") or "").strip()
         if not file_id or not filename:
             continue
@@ -1182,6 +1183,7 @@ def normalize_attachments(items: list[dict] | None) -> list[dict]:
             "filename": filename[:240],
             "size_bytes": size_bytes,
             "url": url,
+            **({"key": key} if key else {}),
             **({"thumbnail_url": str(raw.get("thumbnail_url"))} if raw.get("thumbnail_url") else {}),
         })
     return normalized[:10]

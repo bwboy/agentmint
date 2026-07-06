@@ -198,6 +198,30 @@ def test_followup_schema_migration_adds_answer_columns():
     assert "ALTER TABLE answers ALTER COLUMN turn_type SET NOT NULL" in sql
 
 
+def test_normalize_attachments_keeps_storage_key():
+    assert questions.normalize_attachments([
+        {
+            "id": "f_img",
+            "key": "uploads/screen.png",
+            "type": "image",
+            "filename": "screen.png",
+            "mime": "image/png",
+            "size_bytes": 2048,
+            "url": "http://api/api/files/object/uploads/screen.png",
+        }
+    ]) == [
+        {
+            "id": "f_img",
+            "key": "uploads/screen.png",
+            "type": "image",
+            "filename": "screen.png",
+            "mime": "image/png",
+            "size_bytes": 2048,
+            "url": "http://api/api/files/object/uploads/screen.png",
+        }
+    ]
+
+
 class FakeConnection:
     def __init__(self):
         self.executed = []

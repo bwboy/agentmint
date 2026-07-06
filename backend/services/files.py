@@ -76,8 +76,7 @@ def upload(stream: BinaryIO, filename: str, content_type: str | None = None) -> 
     if settings.file_store == "oss":
         url = f"https://{_bucket()}.{settings.oss_endpoint}/{key}"
     else:
-        public_endpoint = (settings.minio_public_endpoint or settings.minio_endpoint).rstrip("/")
-        url = f"{public_endpoint}/{_bucket()}/{key}"
+        url = object_url(key)
 
     return {
         "id": f"f_{uuid.uuid4().hex[:8]}",
@@ -87,3 +86,17 @@ def upload(stream: BinaryIO, filename: str, content_type: str | None = None) -> 
         "type": detect_kind(mime),
         "url": url,
     }
+
+
+def object_url(key: str) -> str:
+    public_base = (settings.public_api_base_url or "").rstrip("/")
+    safe_key = str(key or "").lstrip("/")
+    return f"{public_base}/api/files/object/{safe_key}"
+
+
+def get_object(key: str):
+    safe_key = str(key or "").lstrip("/")
+    if not safe_key or ".." in PurePosixPath(safe_key).parts:
+        raise ValueError("invalid file key")
+    s3 = _client()
+    return s3.get_object(Bucket=_bucket(), Key=safe_key)

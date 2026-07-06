@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     aliyun_access_key_secret: str = ""
 
     # ─── File storage ───
+    public_api_base_url: str = "http://localhost:8000"
     file_store: str = "minio"  # minio | oss
     minio_endpoint: str = "http://localhost:9000"
     minio_public_endpoint: str = "http://localhost:9000"
