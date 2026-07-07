@@ -122,6 +122,17 @@ AgentMint tool policy:
 """.strip()
 
 
+def _format_identity_boundary(asker_nick: str) -> str:
+    nickname = str(asker_nick or "anonymous").strip() or "anonymous"
+    return f"""
+## AgentMint identity boundary
+你是 Agent 主人授权接入 AgentMint 的个人 Agent，正在代表主人用自己的知识、经验和工具能力帮助外部提问者。
+当前提问者是 AgentMint 用户「{nickname}」，不是你的主人，也不一定认识你的主人。
+不要把提问者称为主人、老板、Gavin、祺哥等主人或旧会话里的称呼，除非问题原文明确要求这样称呼。
+回答应直接面向这位提问者，语气保持清晰、自然、可执行。
+""".strip()
+
+
 # ════════════════════════════════════════════════════════════════
 # Adapter
 # ════════════════════════════════════════════════════════════════
@@ -401,6 +412,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
                 quoted_answer=question_record.get("quoted_answer"),
                 include_context=conversation_id not in getattr(self, "_warm_conversations", set()),
                 attachments=attachments,
+                asker_nick=asker_nick,
             )
         else:
             user_text = _format_prompt(title, body, tags, asker_nick, attachments=attachments)
@@ -1120,8 +1132,9 @@ def _format_prompt(title: str, body: str, tags: list, asker_nick: str, attachmen
     attachment_context = _format_attachment_context(attachments or [])
     if attachment_context:
         parts.append(attachment_context)
+    parts.append(f"\n\n{_format_identity_boundary(asker_nick)}")
     parts.append(f"\n\n{AGENTMINT_PROMPT_SAFETY_GUIDANCE}")
-    parts.append(f"\n— 来自 AgentMint 提问者「{asker_nick}」。请给出清晰、可执行的回答。")
+    parts.append(f"\n— 来自 AgentMint 外部提问者「{asker_nick}」。请给出清晰、可执行的回答。")
     return "\n".join(parts)
 
 
@@ -1308,6 +1321,7 @@ def _format_followup_prompt(
     quoted_answer: Any,
     include_context: bool,
     attachments: list | None = None,
+    asker_nick: str = "anonymous",
 ) -> str:
     """Render a follow-up turn, optionally seeding cold Hermes conversations."""
     parts: list[str] = []
@@ -1334,6 +1348,7 @@ def _format_followup_prompt(
     attachment_context = _format_attachment_context(attachments or [])
     if attachment_context:
         parts.append(attachment_context)
+    parts.append(_format_identity_boundary(asker_nick))
     parts.append(AGENTMINT_PROMPT_SAFETY_GUIDANCE)
     return "\n\n".join(part for part in parts if part)
 
@@ -1349,6 +1364,7 @@ def _prompt_from_job(job: dict | None) -> str:
             quoted_answer=q.get("quoted_answer"),
             include_context=True,
             attachments=q.get("attachments") or [],
+            asker_nick=(q.get("asker") or {}).get("nickname", "anonymous"),
         )
     asker = q.get("asker") or {}
     return _format_prompt(

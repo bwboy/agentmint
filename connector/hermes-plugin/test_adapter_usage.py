@@ -101,6 +101,19 @@ class UsageExtractionTests(unittest.TestCase):
         self.assertIn("do not ask for approval", prompt)
         self.assertIn("fetch it as data first", prompt)
 
+    def test_formatted_prompt_separates_asker_from_agent_owner(self):
+        prompt = self.adapter._format_prompt(
+            "帮我判断这张图",
+            "这几个人是谁？",
+            ["游戏"],
+            "祺哥",
+        )
+
+        self.assertIn("当前提问者是 AgentMint 用户「祺哥」", prompt)
+        self.assertIn("不是你的主人", prompt)
+        self.assertIn("不要把提问者称为主人", prompt)
+        self.assertIn("代表主人", prompt)
+
     def test_formatted_prompt_tells_agent_to_inspect_image_attachments(self):
         prompt = self.adapter._format_prompt(
             "这几个人都是谁",
@@ -595,10 +608,13 @@ class UsageExtractionTests(unittest.TestCase):
             root_question={"title": "Root", "body": "Root body", "tags": ["python"]},
             quoted_answer={"text": "Original answer"},
             include_context=False,
+            asker_nick="祺哥",
         )
 
         self.assertIn("More?", prompt)
         self.assertIn("AgentMint tool policy", prompt)
+        self.assertIn("当前提问者是 AgentMint 用户「祺哥」", prompt)
+        self.assertIn("不是你的主人", prompt)
         self.assertNotIn("Root body", prompt)
         self.assertNotIn("Original answer", prompt)
 
