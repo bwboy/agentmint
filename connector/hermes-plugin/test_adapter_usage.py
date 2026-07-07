@@ -1760,7 +1760,7 @@ Ask the bot owner to run: hermes pairing approve agentmint KJ5S6H25"""
         self.assertEqual(marked[2][1], "uploaded")
         self.assertEqual(sent[0], "req_missing")
 
-    def test_send_ignores_duplicate_answer_after_upload(self):
+    def test_send_uploads_additional_answer_after_upload(self):
         adapter_mod = self.adapter
 
         class FakeQueue:
@@ -1807,14 +1807,16 @@ Ask the bot owner to run: hermes pairing approve agentmint KJ5S6H25"""
             adapter_mod.SendResult = lambda **kwargs: SimpleNamespace(**kwargs)
             try:
                 result = await adapter.send("req_4", "later self-improvement message", metadata={})
+                await asyncio.wait_for(next(iter(adapter._background_upload_tasks)), timeout=1)
             finally:
                 adapter_mod.SendResult = original_send_result
             return result, adapter._queue.marked, adapter._client.sent
 
         result, marked, sent = asyncio.run(run_case())
         self.assertTrue(result.success)
-        self.assertEqual(marked, [])
-        self.assertIsNone(sent)
+        self.assertEqual(sent[0], "req_4")
+        self.assertEqual(sent[1]["text"], "later self-improvement message")
+        self.assertEqual(marked[-1][1], "uploaded")
 
     def test_late_real_usage_corrects_previous_estimate(self):
         adapter_mod = self.adapter
