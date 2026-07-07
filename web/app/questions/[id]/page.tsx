@@ -13,6 +13,7 @@ import {
   answerSettlementSummary,
   answerUsageSignature,
   followupsForAnswer,
+  isRuntimeAnswerUpdate,
   questionAnswersForPolling,
   questionFuelSummary,
   questionPollingDeadline,
@@ -98,7 +99,7 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
 
         {answers.map(ans => {
           const isFinalAnswer = ans.status === "approved";
-          const isRuntimeUpdate = Boolean(ans.runtime_update || ans.usage?.runtime_update);
+          const isRuntimeUpdate = isRuntimeAnswerUpdate(ans);
           return (
             <div key={ans.id} className="surface-card p-6">
               <div className="mb-4 flex items-center gap-3">

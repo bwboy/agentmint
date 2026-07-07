@@ -48,6 +48,21 @@ export function answerUsageSignature(answers: Question["answers"] = []) {
     .join("|");
 }
 
+const RUNTIME_ANSWER_PATTERNS = [
+  /^\s*(?:👁️\s*)?Looking at (?:the )?image/i,
+  /^\s*(?:⏳|⌛)\s*Working\s*—/i,
+  /^\s*⚡\s*Interrupting current task/i,
+];
+
+export function isRuntimeAnswerUpdate(answer: Pick<Answer, "usage" | "content">) {
+  if (answer.usage?.runtime_update) return true;
+
+  const text = String(answer.content?.text || "").trim();
+  if (!text) return false;
+
+  return RUNTIME_ANSWER_PATTERNS.some(pattern => pattern.test(text));
+}
+
 export function questionAnswersForPolling(question: Pick<Question, "answers" | "followups">) {
   return [
     ...(question.answers || []),

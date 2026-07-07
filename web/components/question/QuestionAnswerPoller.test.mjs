@@ -5,6 +5,7 @@ import {
   answerSettlementSummary,
   answerUsageSignature,
   followupsForAnswer,
+  isRuntimeAnswerUpdate,
   questionPollingDeadline,
   questionFuelSummary,
   rewardStatusSummary,
@@ -12,6 +13,36 @@ import {
   questionAnswersForPolling,
   shouldRefreshQuestionAnswers,
 } from "./QuestionAnswerPoller.logic.ts";
+
+test("detects structured runtime answer updates", () => {
+  assert.equal(
+    isRuntimeAnswerUpdate({
+      usage: { runtime_update: true },
+      content: { text: "👁️ Looking at the image..." },
+    }),
+    true,
+  );
+});
+
+test("detects legacy Hermes runtime answer text", () => {
+  assert.equal(
+    isRuntimeAnswerUpdate({
+      usage: { total_tokens: 0 },
+      content: { text: "👁️ Looking at the image..." },
+    }),
+    true,
+  );
+});
+
+test("does not treat normal image answers as runtime updates", () => {
+  assert.equal(
+    isRuntimeAnswerUpdate({
+      usage: { total_tokens: 250 },
+      content: { text: "我看了图片，这几个人分别是 Arthur、Dutch 和 Hosea。" },
+    }),
+    false,
+  );
+});
 
 test("refreshes while the question can still receive answers and a new answer appears", () => {
   assert.equal(
