@@ -271,6 +271,126 @@ class UsageExtractionTests(unittest.TestCase):
             "⚠️ The model provider failed after retries. I kept raw provider details out of chat; check gateway logs for diagnostics."
         ))
 
+    def test_non_conversational_metadata_is_runtime_update_even_for_unknown_text(self):
+        adapter_mod = self.adapter
+
+        class FakeQueue:
+            def by_request_id(self, request_id):
+                return {
+                    "request_id": request_id,
+                    "chat_id": "conv_runtime_meta",
+                    "status": "pending",
+                    "question": {"title": "Question", "body": "", "tags": []},
+                    "answer": None,
+                }
+
+        class FakeClient:
+            def __init__(self):
+                self.sent = []
+
+            async def send_answer(self, request_id, **kwargs):
+                self.sent.append((request_id, kwargs))
+                return True
+
+        class TestAdapter(adapter_mod.ArenaAdapter):
+            def __init__(self):
+                self._active_request_by_chat = {"conv_runtime_meta": "req_runtime_meta"}
+                self._last_turn_metadata = {}
+                self._turn_metadata_events = {}
+                self._pending_answer_uploads = set()
+                self._background_upload_tasks = set()
+                self._streaming_answers = {}
+                self._prompt_text_by_request = {"req_runtime_meta": "Prompt"}
+                self._job_started_at = {}
+                self.debug_usage = False
+                self.usage_wait_seconds = 0
+                self._queue = FakeQueue()
+                self._client = FakeClient()
+
+        async def run_case():
+            adapter = TestAdapter()
+            original_send_result = adapter_mod.SendResult
+            adapter_mod.SendResult = lambda **kwargs: SimpleNamespace(**kwargs)
+            try:
+                result = await adapter.send(
+                    "conv_runtime_meta",
+                    "Some future Hermes progress text that is not in any regex",
+                    metadata={"non_conversational": True, "event_type": "progress"},
+                )
+            finally:
+                adapter_mod.SendResult = original_send_result
+            return result, adapter._client.sent
+
+        result, sent = asyncio.run(run_case())
+
+        self.assertTrue(result.success)
+        self.assertEqual(sent[0][0], "req_runtime_meta")
+        self.assertTrue(sent[0][1]["usage"]["runtime_update"])
+        self.assertEqual(sent[0][1]["text"], "Some future Hermes progress text that is not in any regex")
+
+    def test_failed_metadata_marks_provider_failure_without_text_matching(self):
+        adapter_mod = self.adapter
+
+        class FakeQueue:
+            def __init__(self):
+                self.marked = []
+
+            def by_request_id(self, request_id):
+                return {
+                    "request_id": request_id,
+                    "chat_id": "conv_failed_meta",
+                    "status": "pending",
+                    "question": {"title": "Question", "body": "", "tags": []},
+                    "answer": None,
+                }
+
+            def mark(self, request_id, status, **kwargs):
+                self.marked.append((request_id, status, kwargs))
+                return True
+
+        class FakeClient:
+            def __init__(self):
+                self.sent = []
+
+            async def send_answer(self, *args, **kwargs):
+                self.sent.append((args, kwargs))
+                return True
+
+        class TestAdapter(adapter_mod.ArenaAdapter):
+            def __init__(self):
+                self._active_request_by_chat = {"conv_failed_meta": "req_failed_meta"}
+                self._last_turn_metadata = {}
+                self._turn_metadata_events = {}
+                self._pending_answer_uploads = set()
+                self._background_upload_tasks = set()
+                self._streaming_answers = {}
+                self._prompt_text_by_request = {"req_failed_meta": "Prompt"}
+                self._job_started_at = {}
+                self.debug_usage = False
+                self.usage_wait_seconds = 0
+                self._queue = FakeQueue()
+                self._client = FakeClient()
+
+        async def run_case():
+            adapter = TestAdapter()
+            original_send_result = adapter_mod.SendResult
+            adapter_mod.SendResult = lambda **kwargs: SimpleNamespace(**kwargs)
+            try:
+                result = await adapter.send(
+                    "conv_failed_meta",
+                    "A sanitized infrastructure failure message",
+                    metadata={"failed": True, "error_type": "provider_failed"},
+                )
+            finally:
+                adapter_mod.SendResult = original_send_result
+            return result, adapter._queue.marked, adapter._client.sent
+
+        result, marked, sent = asyncio.run(run_case())
+
+        self.assertTrue(result.success)
+        self.assertEqual(marked, [("req_failed_meta", "failed", {"error": "provider_failed"})])
+        self.assertEqual(sent, [])
+
     def test_send_marks_provider_failure_without_uploading_approved_answer(self):
         adapter_mod = self.adapter
 

@@ -515,11 +515,12 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
             self._queue.mark(request_id, "failed", error="pairing_required")
             return SendResult(success=True, message_id=request_id)
 
-        if _looks_like_provider_failure(content):
-            self._queue.mark(request_id, "failed", error="provider_failed")
+        meta = metadata or {}
+        metadata_failure_error = _metadata_failure_error(meta)
+        if metadata_failure_error or _looks_like_provider_failure(content):
+            self._queue.mark(request_id, "failed", error=metadata_failure_error or "provider_failed")
             return SendResult(success=True, message_id=request_id)
 
-        meta = metadata or {}
         attachments = _attachments_from_media_files(media_files)
         if meta.get("expect_edits"):
             if meta.get("notify"):
@@ -548,7 +549,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
                 )
             return SendResult(success=True, message_id=request_id)
 
-        if _is_runtime_only_content(content):
+        if _metadata_marks_runtime_only(meta) or _is_runtime_only_content(content):
             self._streaming_answers[request_id] = {
                 "content": str(content),
                 "metadata": dict(meta),
@@ -1510,6 +1511,26 @@ def _usage_log_label(usage: dict | None) -> str:
 
 def _truthy(value: Any) -> bool:
     return str(value or "").strip().lower() in TRUE_VALUES
+
+
+def _metadata_marks_runtime_only(metadata: Any) -> bool:
+    if not isinstance(metadata, dict):
+        return False
+    return bool(
+        metadata.get("non_conversational")
+        or metadata.get("runtime_update")
+        or metadata.get("progress")
+        or metadata.get("status_update")
+    )
+
+
+def _metadata_failure_error(metadata: Any) -> str:
+    if not isinstance(metadata, dict):
+        return ""
+    if not metadata.get("failed"):
+        return ""
+    error_type = str(metadata.get("error_type") or metadata.get("error") or "agent_failed").strip()
+    return error_type or "agent_failed"
 
 
 def _looks_like_tool_trace(content: Any) -> bool:
