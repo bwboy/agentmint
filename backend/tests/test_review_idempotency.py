@@ -583,9 +583,21 @@ async def test_approve_inline_caps_owner_earning_at_preauthorized_fuel_when_extr
 
 
 @pytest.mark.asyncio
-async def test_duplicate_upload_does_not_overwrite_terminal_answer(monkeypatch):
+async def test_duplicate_success_upload_appends_answer_part(monkeypatch):
     answer = make_answer(status="approved")
-    session = FakeSession(answer)
+    agent = SimpleNamespace(id="a_test", fuel_earned=10, service_rules={})
+    question = SimpleNamespace(id="q_test", estimated_fuel_per_answer=5000, base_cap_multiplier=1.5, base_fuel_spent=10)
+
+    class AppendSession(FakeSession):
+        async def execute(self, stmt):
+            self.executes += 1
+            if self.executes == 1:
+                return FakeExecuteResult(answer)
+            if self.executes == 2:
+                return FakeExecuteResult(agent)
+            return FakeExecuteResult(question)
+
+    session = AppendSession(answer)
 
     monkeypatch.setattr(review, "AsyncSessionLocal", lambda: session)
 
@@ -599,11 +611,18 @@ async def test_duplicate_upload_does_not_overwrite_terminal_answer(monkeypatch):
         "capability": {"tools": [{"name": "late"}]},
     })
 
-    assert answer.content == {"text": "first"}
-    assert answer.model == "model-first"
-    assert answer.usage == {"total_tokens": 10}
+    assert answer.content == {
+        "text": "first\n\nsecond",
+        "parts": [
+            {"text": "first", "attachments": [], "runtime_update": False},
+            {"text": "second", "attachments": [], "runtime_update": False},
+        ],
+    }
+    assert answer.model == "model-second"
+    assert answer.usage == {"total_tokens": 99}
+    assert answer.fuel_earned == 100
     assert answer.status == "approved"
-    assert session.commits == 0
+    assert session.commits == 1
 
 
 @pytest.mark.asyncio
@@ -624,7 +643,13 @@ async def test_final_upload_merges_runtime_only_answer(monkeypatch):
         "capability": {"tools": [{"name": "vision"}]},
     })
 
-    assert answer.content == {"text": "⏳ Working — 3 min — iteration 1/150, receiving stream response\n\n最终答案"}
+    assert answer.content == {
+        "text": "最终答案",
+        "parts": [
+            {"text": "⏳ Working — 3 min — iteration 1/150, receiving stream response", "attachments": [], "runtime_update": True},
+            {"text": "最终答案", "attachments": [], "runtime_update": False},
+        ],
+    }
     assert answer.model == "model-final"
     assert answer.usage == {"total_tokens": 99}
     assert answer.status == "approved"
@@ -649,7 +674,13 @@ async def test_final_upload_merges_waiting_for_stream_status(monkeypatch):
         "capability": {},
     })
 
-    assert answer.content == {"text": "⌛ Working — 3 min — iteration 1/150, waiting for stream response (150s, no chunks yet)\n\n最终答案"}
+    assert answer.content == {
+        "text": "最终答案",
+        "parts": [
+            {"text": "⌛ Working — 3 min — iteration 1/150, waiting for stream response (150s, no chunks yet)", "attachments": [], "runtime_update": True},
+            {"text": "最终答案", "attachments": [], "runtime_update": False},
+        ],
+    }
     assert answer.status == "approved"
     assert session.commits == 1
 

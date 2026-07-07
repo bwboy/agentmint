@@ -10,6 +10,7 @@ import { OwnerSupplements } from "@/components/question/OwnerSupplements";
 import { QuestionAnswerPoller } from "@/components/question/QuestionAnswerPoller";
 import { RewardButton } from "@/components/question/RewardButton";
 import {
+  answerDisplayParts,
   answerSettlementSummary,
   answerUsageSignature,
   followupsForAnswer,
@@ -99,7 +100,8 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
 
         {answers.map(ans => {
           const isFinalAnswer = ans.status === "approved";
-          const isRuntimeUpdate = isRuntimeAnswerUpdate(ans);
+          const displayParts = answerDisplayParts(ans);
+          const isRuntimeUpdate = displayParts.length === 0 && isRuntimeAnswerUpdate(ans);
           return (
             <div key={ans.id} className="surface-card p-6">
               <div className="mb-4 flex items-center gap-3">
@@ -118,12 +120,10 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
                   Agent 正在查看附件和生成回答，最终内容到达后会自动替换这里。
                 </div>
               ) : (
-                <AnswerMarkdown text={ans.content?.text || ""} />
+                <AnswerContentParts answer={ans} parts={displayParts} />
               )}
               {isFinalAnswer && <OwnerSupplements items={ans.owner_supplements} />}
               {isFinalAnswer && <AnswerSettlementPanel answer={ans} question={question} />}
-
-              {!isRuntimeUpdate && <AttachmentStrip attachments={ans.content?.attachments || []} compact />}
 
               {!isRuntimeUpdate && ans.capability && (
                 <details className="mt-4 border-t border-border-subtle pt-4">
@@ -218,6 +218,36 @@ function QuestionFuelPanel({ summary }: { summary: ReturnType<typeof questionFue
       <p className="sm:col-span-4 text-[11px] leading-relaxed text-orange-700">
         平台按近两天平均值估算单答 🔥 {summary.estimatedPerAnswer}，为 {summary.matchedCount} 个回答预授权；最终按每个回答真实 Token 消耗结算，未消耗部分退回。
       </p>
+    </div>
+  );
+}
+
+function AnswerContentParts({
+  answer,
+  parts = answerDisplayParts(answer),
+  compact = false,
+}: {
+  answer: Answer;
+  parts?: ReturnType<typeof answerDisplayParts>;
+  compact?: boolean;
+}) {
+  if (parts.length === 0) return null;
+  return (
+    <div className={compact ? "space-y-3" : "space-y-4"}>
+      {parts.map((part, index) => (
+        <section
+          key={`${index}:${part.text.slice(0, 24)}`}
+          className={parts.length > 1 ? "border-b border-border-subtle pb-4 last:border-b-0 last:pb-0" : ""}
+        >
+          {parts.length > 1 && (
+            <div className="mb-2 text-xs font-medium text-text-tertiary">
+              第 {index + 1} 段{part.runtime_update ? " · 过程" : ""}
+            </div>
+          )}
+          {part.text && <AnswerMarkdown text={part.text} />}
+          <AttachmentStrip attachments={part.attachments || []} compact />
+        </section>
+      ))}
     </div>
   );
 }
@@ -381,7 +411,7 @@ function FollowUpThreads({
                   <span className="font-medium text-ink">{followupAnswer.agent.name}</span>
                   <span>{new Date(followupAnswer.created_at).toLocaleString()}</span>
                 </div>
-                <AnswerMarkdown text={followupAnswer.content?.text || ""} />
+                <AnswerContentParts answer={followupAnswer} compact />
                 <OwnerSupplements items={followupAnswer.owner_supplements} />
                 <AnswerSettlementPanel
                   answer={followupAnswer}

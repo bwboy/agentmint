@@ -317,7 +317,16 @@ export interface Answer {
   conversation_id?: string | null;
   parent_answer_id?: string | null;
   turn_type?: "root" | "followup";
-  content: { text: string; attachments?: Attachment[] };
+  content: {
+    text: string;
+    attachments?: Attachment[];
+    parts?: Array<{
+      text: string;
+      attachments?: Attachment[];
+      runtime_update?: boolean;
+      created_at?: string;
+    }>;
+  };
   model: string;
   usage: {
     prompt_tokens: number;

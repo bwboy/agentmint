@@ -44,6 +44,8 @@ export function answerUsageSignature(answers: Question["answers"] = []) {
       answer.usage?.estimated ? "estimated" : "provider",
       answer.fuel_earned ?? 0,
       answer.settlement?.base_fuel_charged ?? 0,
+      answer.content?.parts?.length ?? 0,
+      answer.content?.text?.length ?? 0,
     ].join(":"))
     .join("|");
 }
@@ -61,6 +63,29 @@ export function isRuntimeAnswerUpdate(answer: Pick<Answer, "usage" | "content">)
   if (!text) return false;
 
   return RUNTIME_ANSWER_PATTERNS.some(pattern => pattern.test(text));
+}
+
+export function answerDisplayParts(answer: Pick<Answer, "usage" | "content">) {
+  const parts = Array.isArray(answer.content?.parts) ? answer.content.parts : [];
+  const displayParts = parts
+    .filter(part => {
+      const text = String(part?.text || "").trim();
+      if (!text && !(part?.attachments || []).length) return false;
+      return true;
+    })
+    .map(part => ({
+      text: String(part.text || "").trim(),
+      attachments: part.attachments || [],
+      runtime_update: Boolean(part.runtime_update),
+    }));
+
+  if (displayParts.length > 0) {
+    return displayParts;
+  }
+
+  const text = String(answer.content?.text || "").trim();
+  if (!text) return [];
+  return [{ text, attachments: answer.content?.attachments || [], runtime_update: false }];
 }
 
 export function questionAnswersForPolling(question: Pick<Question, "answers" | "followups">) {

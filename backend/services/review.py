@@ -88,7 +88,21 @@ async def handle_uploaded_answer(agent_id: str, msg: dict):
                 await _apply_usage_correction(db, answer, msg)
                 print(f"[review] usage corrected for request_id={request_id}, status={answer.status}")
                 return
-            if success and answer.status in {"draft", "approved"} and _can_merge_upload(answer, msg):
+            if success and answer.status in {"draft", "approved"}:
+                if _merge_terminal_success_upload(answer, msg, update_usage=not runtime_only_upload and answer.status != "approved"):
+                    if answer.status == "approved":
+                        answer.reviewed_at = datetime.utcnow()
+                        if not runtime_only_upload and msg.get("usage"):
+                            await _apply_usage_correction(db, answer, msg)
+                        else:
+                            await db.commit()
+                    else:
+                        await db.commit()
+                    print(f"[review] answer part appended for request_id={request_id}, status={answer.status}")
+                else:
+                    print(f"[review] duplicate answer ignored for request_id={request_id}, status={answer.status}")
+                return
+            if success and _can_merge_upload(answer, msg):
                 _merge_answer_upload(answer, msg, keep_status=runtime_only_upload)
                 if answer.status == "approved" and not runtime_only_upload:
                     answer.reviewed_at = datetime.utcnow()
@@ -170,6 +184,31 @@ def _merge_answer_upload(answer: Answer, msg: dict, *, keep_status: bool = False
         answer.status = "draft"
 
 
+def _merge_terminal_success_upload(answer: Answer, msg: dict, *, update_usage: bool = True) -> bool:
+    previous = {
+        "content": getattr(answer, "content", None) or {},
+        "model": getattr(answer, "model", "") or "",
+        "usage": getattr(answer, "usage", None) or {},
+        "capability": getattr(answer, "capability", None) or {},
+    }
+    next_content = _append_upload_to_content(previous["content"], msg.get("content", {}) or {})
+    next_model = msg.get("model", "") or previous["model"]
+    next_usage = (msg.get("usage", {}) or previous["usage"]) if update_usage else previous["usage"]
+    next_capability = msg.get("capability", {}) or previous["capability"]
+    if (
+        next_content == previous["content"]
+        and next_model == previous["model"]
+        and next_usage == previous["usage"]
+        and next_capability == previous["capability"]
+    ):
+        return False
+    answer.content = next_content
+    answer.model = next_model
+    answer.usage = next_usage
+    answer.capability = next_capability
+    return True
+
+
 def _append_upload_to_content(existing: dict, incoming: dict) -> dict:
     existing = existing if isinstance(existing, dict) else {}
     incoming = incoming if isinstance(incoming, dict) else {"text": str(incoming or "")}
@@ -195,10 +234,91 @@ def _append_upload_to_content(existing: dict, incoming: dict) -> dict:
             if isinstance(item, dict) and item not in attachments:
                 attachments.append(item)
 
+    parts = _append_content_part(_content_parts(existing), {
+        "text": incoming_text,
+        "attachments": _content_attachments(incoming),
+        "runtime_update": incoming_runtime,
+    })
+    if parts:
+        text = _answer_text_from_parts(parts)
     out = {**existing, **incoming, "text": text}
     if attachments:
         out["attachments"] = attachments[:10]
+    if parts:
+        out["parts"] = parts
     return out
+
+
+def _answer_text_from_parts(parts: list[dict]) -> str:
+    final_texts = [
+        str(part.get("text") or "").strip()
+        for part in parts
+        if not part.get("runtime_update") and str(part.get("text") or "").strip()
+    ]
+    if final_texts:
+        return "\n\n".join(final_texts)
+    return "\n\n".join(
+        str(part.get("text") or "").strip()
+        for part in parts
+        if str(part.get("text") or "").strip()
+    )
+
+
+def _content_attachments(content: dict) -> list[dict]:
+    attachments = content.get("attachments") if isinstance(content, dict) else []
+    return [item for item in (attachments or []) if isinstance(item, dict)]
+
+
+def _content_parts(content: dict) -> list[dict]:
+    if not isinstance(content, dict):
+        return []
+    raw_parts = content.get("parts")
+    if isinstance(raw_parts, list):
+        parts = []
+        for item in raw_parts:
+            if not isinstance(item, dict):
+                continue
+            text = str(item.get("text") or "").strip()
+            attachments = _content_attachments(item)
+            if not text and not attachments:
+                continue
+            parts.append({
+                "text": text,
+                "attachments": attachments,
+                "runtime_update": bool(item.get("runtime_update")),
+            })
+        if parts:
+            return parts
+    text = str(content.get("text") or "").strip()
+    attachments = _content_attachments(content)
+    if not text and not attachments:
+        return []
+    return [{
+        "text": text,
+        "attachments": attachments,
+        "runtime_update": _text_is_runtime_only(text),
+    }]
+
+
+def _append_content_part(parts: list[dict], incoming: dict) -> list[dict]:
+    text = str(incoming.get("text") or "").strip()
+    attachments = _content_attachments(incoming)
+    if not text and not attachments:
+        return parts
+    part = {
+        "text": text,
+        "attachments": attachments,
+        "runtime_update": bool(incoming.get("runtime_update")),
+    }
+    if parts:
+        last = parts[-1]
+        if (
+            str(last.get("text") or "").strip() == part["text"]
+            and _content_attachments(last) == part["attachments"]
+            and bool(last.get("runtime_update")) == part["runtime_update"]
+        ):
+            return parts
+    return [*parts, part]
 
 
 def _text_is_runtime_only(text: str) -> bool:

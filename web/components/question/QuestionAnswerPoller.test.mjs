@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   answerSettlementSummary,
   answerUsageSignature,
+  answerDisplayParts,
   followupsForAnswer,
   isRuntimeAnswerUpdate,
   questionPollingDeadline,
@@ -44,6 +45,33 @@ test("does not treat normal image answers as runtime updates", () => {
   );
 });
 
+test("returns all answer display parts including runtime updates", () => {
+  assert.deepEqual(
+    answerDisplayParts({
+      content: {
+        text: "处理中\n\n最终第一段\n\n最终第二段",
+        parts: [
+          { text: "⏳ Working — 1 min — iteration 1/10, waiting for stream response", runtime_update: true },
+          { text: "最终第一段", runtime_update: false },
+          { text: "最终第二段", runtime_update: false },
+        ],
+      },
+      usage: { total_tokens: 100 },
+    }).map(part => part.text),
+    ["⏳ Working — 1 min — iteration 1/10, waiting for stream response", "最终第一段", "最终第二段"],
+  );
+});
+
+test("falls back to content text when answer has no parts", () => {
+  assert.deepEqual(
+    answerDisplayParts({
+      content: { text: "单段回答" },
+      usage: { total_tokens: 20 },
+    }).map(part => part.text),
+    ["单段回答"],
+  );
+});
+
 test("refreshes while the question can still receive answers and a new answer appears", () => {
   assert.equal(
     shouldRefreshQuestionAnswers({
@@ -73,8 +101,8 @@ test("refreshes when answer usage changes before the deadline", () => {
     shouldRefreshQuestionAnswers({
       currentAnswerCount: 1,
       latestAnswerCount: 1,
-      currentUsageSignature: "ans_1:75:990:1065:estimated:0:0",
-      latestUsageSignature: "ans_1:70:816:886:provider:0:0",
+      currentUsageSignature: "ans_1:75:990:1065:estimated:0:0:0:0",
+      latestUsageSignature: "ans_1:70:816:886:provider:0:0:0:0",
       deadlineAt: "2026-06-21T12:01:00.000Z",
       now: new Date("2026-06-21T12:00:00.000Z"),
     }),
@@ -120,7 +148,7 @@ test("builds an answer usage signature from token counts and estimate state", ()
         settlement: { base_fuel_charged: 1702 },
       },
     ]),
-    "ans_1:75:990:1065:estimated:50:50|ans_2:70:816:886:provider:1702:1702",
+    "ans_1:75:990:1065:estimated:50:50:0:0|ans_2:70:816:886:provider:1702:1702:0:0",
   );
 });
 
@@ -129,8 +157,8 @@ test("refreshes when answer settlement changes before the deadline", () => {
     shouldRefreshQuestionAnswers({
       currentAnswerCount: 1,
       latestAnswerCount: 1,
-      currentUsageSignature: "ans_1:70:816:886:provider:0:0",
-      latestUsageSignature: "ans_1:70:816:886:provider:1702:1702",
+      currentUsageSignature: "ans_1:70:816:886:provider:0:0:0:0",
+      latestUsageSignature: "ans_1:70:816:886:provider:1702:1702:0:0",
       deadlineAt: "2026-06-21T12:01:00.000Z",
       now: new Date("2026-06-21T12:00:00.000Z"),
     }),
@@ -166,7 +194,7 @@ test("includes follow-up answers when provided in the combined answer array", ()
         settlement: { base_fuel_charged: 220 },
       },
     ]),
-    "ans_root:40:120:160:provider:400:400|ans_followup:30:90:120:estimated:220:220",
+    "ans_root:40:120:160:provider:400:400:0:0|ans_followup:30:90:120:estimated:220:220:0:0",
   );
 });
 
