@@ -680,6 +680,31 @@ async def test_runtime_upload_is_stored_as_processing_without_settlement(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_runtime_upload_uses_usage_flag_without_text_matching(monkeypatch):
+    answer = make_answer(status="pushed")
+    answer.content = {}
+    answer.fuel_earned = 0
+    session = FakeSession(answer)
+
+    monkeypatch.setattr(review, "AsyncSessionLocal", lambda: session)
+
+    await review.handle_uploaded_answer("a_test", {
+        "type": "answer",
+        "request_id": "req_test",
+        "status": "success",
+        "content": {"text": "Some future Hermes progress text"},
+        "model": "hermes",
+        "usage": {"total_tokens": 0, "runtime_update": True},
+        "capability": {},
+    })
+
+    assert answer.status == "processing"
+    assert answer.content["text"] == "Some future Hermes progress text"
+    assert answer.fuel_earned == 0
+    assert session.commits == 1
+
+
+@pytest.mark.asyncio
 async def test_usage_correction_updates_terminal_answer_without_overwriting_content(monkeypatch):
     answer = make_answer(status="approved")
     agent = SimpleNamespace(id="a_test", fuel_earned=10, service_rules={})

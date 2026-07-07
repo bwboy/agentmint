@@ -149,6 +149,9 @@ def _is_runtime_only_answer(answer: Answer) -> bool:
 
 
 def _is_runtime_only_message(msg: dict) -> bool:
+    usage = msg.get("usage", {}) or {}
+    if isinstance(usage, dict) and usage.get("runtime_update"):
+        return True
     content = msg.get("content", {}) or {}
     text = str(content.get("text") if isinstance(content, dict) else content or "").strip()
     return bool(text) and any(pattern.search(text) for pattern in RUNTIME_ONLY_PATTERNS)

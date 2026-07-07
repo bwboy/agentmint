@@ -15,6 +15,7 @@ from services.followups import (
     build_followup_payload,
     build_root_payload,
     ensure_followup_targets,
+    serialize_answer,
     serialize_followup_thread,
 )
 from services.schema_migrations import FOLLOWUP_SCHEMA_SQL
@@ -22,6 +23,33 @@ from services.schema_migrations import FOLLOWUP_SCHEMA_SQL
 
 def test_build_conversation_id_is_stable_per_root_and_agent():
     assert build_conversation_id("q_root", "a_1") == "conv_q_root_a_1"
+
+
+def test_serialize_answer_marks_runtime_updates():
+    answer = SimpleNamespace(
+        id="ans_runtime",
+        question_id="q_root",
+        agent_id="a_1",
+        request_id="req_runtime",
+        conversation_id="conv_q_root_a_1",
+        parent_answer_id=None,
+        turn_type="root",
+        content={"text": "Some progress"},
+        model="hermes",
+        usage={"total_tokens": 0, "runtime_update": True},
+        capability={},
+        status="processing",
+        review_method="auto",
+        fuel_earned=0,
+        view_count=0,
+        asker_viewed_at=None,
+        created_at=datetime.utcnow(),
+    )
+
+    data = serialize_answer(answer, "Agent", "hermes", 2.0)
+
+    assert data["runtime_update"] is True
+    assert data["status"] == "processing"
 
 
 def test_build_followup_payload_contains_quote_context():

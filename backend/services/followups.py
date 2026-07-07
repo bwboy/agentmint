@@ -55,6 +55,7 @@ def serialize_answer(
     service_rules: dict | None = None,
 ) -> dict:
     fuel_earned = max(0, int(getattr(answer, "fuel_earned", None) or 0))
+    usage = answer.usage or {}
     return {
         "id": answer.id,
         "question_id": answer.question_id,
@@ -71,7 +72,8 @@ def serialize_answer(
         "turn_type": answer.turn_type,
         "content": answer.content or {},
         "model": answer.model,
-        "usage": answer.usage or {},
+        "usage": usage,
+        "runtime_update": bool(isinstance(usage, dict) and usage.get("runtime_update")),
         "view_count": int(getattr(answer, "view_count", None) or 0),
         "asker_viewed_at": answer.asker_viewed_at.isoformat() if getattr(answer, "asker_viewed_at", None) else None,
         "fuel_earned": fuel_earned,

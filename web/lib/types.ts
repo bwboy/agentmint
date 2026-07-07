@@ -325,7 +325,9 @@ export interface Answer {
     total_tokens: number;
     estimated?: boolean;
     source?: string;
+    runtime_update?: boolean;
   };
+  runtime_update?: boolean;
   view_count?: number;
   asker_viewed_at?: string | null;
   fuel_earned?: number;

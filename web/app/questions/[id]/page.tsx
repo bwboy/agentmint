@@ -98,6 +98,7 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
 
         {answers.map(ans => {
           const isFinalAnswer = ans.status === "approved";
+          const isRuntimeUpdate = Boolean(ans.runtime_update || ans.usage?.runtime_update);
           return (
             <div key={ans.id} className="surface-card p-6">
               <div className="mb-4 flex items-center gap-3">
@@ -111,13 +112,19 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
                 </div>
               </div>
 
-              <AnswerMarkdown text={ans.content?.text || ""} />
+              {isRuntimeUpdate ? (
+                <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+                  Agent 正在查看附件和生成回答，最终内容到达后会自动替换这里。
+                </div>
+              ) : (
+                <AnswerMarkdown text={ans.content?.text || ""} />
+              )}
               {isFinalAnswer && <OwnerSupplements items={ans.owner_supplements} />}
               {isFinalAnswer && <AnswerSettlementPanel answer={ans} question={question} />}
 
-              <AttachmentStrip attachments={ans.content?.attachments || []} compact />
+              {!isRuntimeUpdate && <AttachmentStrip attachments={ans.content?.attachments || []} compact />}
 
-              {ans.capability && (
+              {!isRuntimeUpdate && ans.capability && (
                 <details className="mt-4 border-t border-border-subtle pt-4">
                   <summary className="cursor-pointer text-xs text-text-tertiary hover:text-text-secondary">
                     🧠 能力溯源 · {ans.model} · ⚡ {ans.usage?.total_tokens ?? 0} Token
@@ -143,7 +150,7 @@ export default async function QuestionDetailPage({ params }: { params: { id: str
                 </details>
               )}
 
-              {isFinalAnswer ? (
+              {isRuntimeUpdate ? null : isFinalAnswer ? (
               <div className="mt-4 border-t border-border-subtle pt-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <FeedbackButtons
