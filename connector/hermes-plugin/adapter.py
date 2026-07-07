@@ -88,6 +88,15 @@ INTERRUPTING_STATUS_RE = re.compile(
     r"\(.+\biteration\s+\d+/\d+,\s+running:\s+[a-z0-9_:-]+.*\)",
     re.IGNORECASE,
 )
+RUNTIME_PROGRESS_RE = re.compile(
+    r"^\s*(?:[^\w\s]+\s*)?(?:looking\s+at\s+the\s+image|analyz(?:e|ing)\s+(?:the\s+)?image)\b",
+    re.IGNORECASE,
+)
+PROVIDER_FAILURE_RE = re.compile(
+    r"^\s*(?:[^\w\s]+\s*)?the\s+model\s+provider\s+(?:failed\s+after\s+retries|rejected\s+the\s+request|is\s+rate-limiting\s+requests)\b"
+    r"|^\s*(?:[^\w\s]+\s*)?provider\s+authentication\s+failed\b",
+    re.IGNORECASE,
+)
 PAIRING_CODE_RE = re.compile(r"pairing code:\s*([A-Z0-9-]+)", re.IGNORECASE)
 PAIRING_COMMAND_RE = re.compile(r"(hermes\s+pairing\s+approve\s+agentmint\s+[A-Z0-9-]+)", re.IGNORECASE)
 
@@ -506,6 +515,10 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
             self._queue.mark(request_id, "failed", error="pairing_required")
             return SendResult(success=True, message_id=request_id)
 
+        if _looks_like_provider_failure(content):
+            self._queue.mark(request_id, "failed", error="provider_failed")
+            return SendResult(success=True, message_id=request_id)
+
         meta = metadata or {}
         attachments = _attachments_from_media_files(media_files)
         if meta.get("expect_edits"):
@@ -535,7 +548,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
                 )
             return SendResult(success=True, message_id=request_id)
 
-        if _looks_like_tool_trace(content) or _looks_like_working_status(content):
+        if _is_runtime_only_content(content):
             self._streaming_answers[request_id] = {
                 "content": str(content),
                 "metadata": dict(meta),
@@ -1522,9 +1535,23 @@ def _looks_like_working_status(content: Any) -> bool:
     return bool(WORKING_STATUS_RE.search(text) or INTERRUPTING_STATUS_RE.search(text))
 
 
+def _looks_like_runtime_progress(content: Any) -> bool:
+    text = str(content or "").strip()
+    return bool(RUNTIME_PROGRESS_RE.search(text))
+
+
+def _looks_like_provider_failure(content: Any) -> bool:
+    text = str(content or "").strip()
+    return bool(PROVIDER_FAILURE_RE.search(text))
+
+
 def _is_runtime_only_content(content: Any) -> bool:
     text = str(content or "").strip()
-    return bool(text) and (_looks_like_tool_trace(text) or _looks_like_working_status(text))
+    return bool(text) and (
+        _looks_like_tool_trace(text)
+        or _looks_like_working_status(text)
+        or _looks_like_runtime_progress(text)
+    )
 
 
 def _metadata_debug_summary(value: Any) -> str:

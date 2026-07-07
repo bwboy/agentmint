@@ -255,6 +255,84 @@ class UsageExtractionTests(unittest.TestCase):
             "⌛ Working — 3 min — iteration 1/150, waiting for stream response (150s, no chunks yet)"
         ))
 
+    def test_vision_progress_message_is_runtime_only(self):
+        self.assertTrue(self.adapter._looks_like_runtime_progress(
+            "👁️ Looking at the image 这是《荒野大镖客：救赎2》（Red Dead Redemption 2）的..."
+        ))
+        self.assertTrue(self.adapter._is_runtime_only_content(
+            "👁️ Looking at the image 这是《荒野大镖客：救赎2》（Red Dead Redemption 2）的..."
+        ))
+
+    def test_provider_failure_message_is_not_final_answer(self):
+        self.assertTrue(self.adapter._looks_like_provider_failure(
+            "⚠️ The model provider failed after retries. I kept raw provider details out of chat; check gateway logs for diagnostics."
+        ))
+        self.assertFalse(self.adapter._is_runtime_only_content(
+            "⚠️ The model provider failed after retries. I kept raw provider details out of chat; check gateway logs for diagnostics."
+        ))
+
+    def test_send_marks_provider_failure_without_uploading_approved_answer(self):
+        adapter_mod = self.adapter
+
+        class FakeQueue:
+            def __init__(self):
+                self.marked = []
+
+            def by_request_id(self, request_id):
+                return {
+                    "request_id": request_id,
+                    "chat_id": "conv_provider_fail",
+                    "status": "pending",
+                    "question": {"title": "Question", "body": "", "tags": []},
+                    "answer": None,
+                }
+
+            def mark(self, request_id, status, **kwargs):
+                self.marked.append((request_id, status, kwargs))
+                return True
+
+        class FakeClient:
+            def __init__(self):
+                self.sent = []
+
+            async def send_answer(self, *args, **kwargs):
+                self.sent.append((args, kwargs))
+                return True
+
+        class TestAdapter(adapter_mod.ArenaAdapter):
+            def __init__(self):
+                self._active_request_by_chat = {"conv_provider_fail": "req_provider_fail"}
+                self._last_turn_metadata = {}
+                self._turn_metadata_events = {}
+                self._pending_answer_uploads = set()
+                self._background_upload_tasks = set()
+                self._streaming_answers = {}
+                self._prompt_text_by_request = {"req_provider_fail": "Prompt"}
+                self._job_started_at = {}
+                self.debug_usage = False
+                self.usage_wait_seconds = 0
+                self._queue = FakeQueue()
+                self._client = FakeClient()
+
+        async def run_case():
+            adapter = TestAdapter()
+            original_send_result = adapter_mod.SendResult
+            adapter_mod.SendResult = lambda **kwargs: SimpleNamespace(**kwargs)
+            try:
+                result = await adapter.send(
+                    "conv_provider_fail",
+                    "⚠️ The model provider failed after retries. I kept raw provider details out of chat; check gateway logs for diagnostics.",
+                )
+            finally:
+                adapter_mod.SendResult = original_send_result
+            return result, adapter._queue.marked, adapter._client.sent
+
+        result, marked, sent = asyncio.run(run_case())
+
+        self.assertTrue(result.success)
+        self.assertEqual(marked, [("req_provider_fail", "failed", {"error": "provider_failed"})])
+        self.assertEqual(sent, [])
+
     def test_on_question_uses_stable_agentmint_identity_for_pairing(self):
         adapter_mod = self.adapter
 
