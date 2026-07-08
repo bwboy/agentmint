@@ -47,15 +47,7 @@ export function MyAgentsPanel() {
 
   // Create form state
   const [name, setName] = useState("");
-  const [type, setType] = useState<"openclaw" | "hermes">("openclaw");
-  const [tagsInput, setTagsInput] = useState("");
-  const [profileInput, setProfileInput] = useState<ProfileInputState>({
-    domain_tags: "",
-    capability_tags: "",
-    tool_tags: "",
-    style_tags: "",
-    avoid_tags: "",
-  });
+  const [type, setType] = useState<"openclaw" | "hermes">("hermes");
   const [editing, setEditing] = useState<string | null>(null);
   const [editState, setEditState] = useState<AgentEditState | null>(null);
   const [nodeName, setNodeName] = useState("");
@@ -92,12 +84,12 @@ export function MyAgentsPanel() {
         method: "POST", token,
         json: {
           name, agent_type: type,
-          tags: splitList(tagsInput),
+          tags: [],
           description: "",
-          capability_profile: profileFromInput(profileInput),
+          capability_profile: emptyProfile,
         },
       });
-      setName(""); setTagsInput(""); setProfileInput(inputFromProfile(emptyProfile)); setAdding(false);
+      setName(""); setType("hermes"); setAdding(false);
       await refresh();
     } catch (e: any) {
       setErr(e.message);
@@ -321,21 +313,18 @@ export function MyAgentsPanel() {
         </div>
       )}
 
-      <RuntimeNodeSection
-        nodes={runtimeNodes}
-        adding={addingNode}
-        nodeName={nodeName}
-        nodeType={nodeType}
-        onAddToggle={setAddingNode}
-        onNameChange={setNodeName}
-        onTypeChange={setNodeType}
-        onCreate={createRuntimeNode}
-        onRotate={rotateRuntimeNodeToken}
-        onDelete={deleteRuntimeNode}
+      <AgentCreateSection
+        adding={adding}
+        name={name}
+        type={type}
+        onAddToggle={setAdding}
+        onNameChange={setName}
+        onTypeChange={setType}
+        onCreate={createAgent}
       />
 
       <div className="space-y-3">
-        {agents.length === 0 && <p className="text-sm text-gray-400">还没有 Agent，先创建一个吧。</p>}
+        {agents.length === 0 && <p className="rounded-xl border border-dashed border-gray-200 bg-white p-5 text-sm text-gray-400">还没有 Agent。先在上方创建 Agent 身份，再配置它的 Profile 和运行绑定。</p>}
         {agents.map(a => (
           <div key={a.id} className="bg-white rounded-xl border border-gray-100 p-5">
             <div className="flex items-start gap-3">
@@ -369,12 +358,7 @@ export function MyAgentsPanel() {
                   checking={checkingId === a.id}
                   onCheck={() => checkReadiness(a.id)}
                 />
-                <RuntimeBindingEditor
-                  agent={a}
-                  nodes={runtimeNodes.filter(node => node.runtime_type === a.agent_type)}
-                  onBind={patch => bindRuntime(a, patch)}
-                  onUnbind={() => unbindRuntime(a)}
-                />
+                <RuntimeBindingSummary agent={a} />
               </div>
               <div className="flex flex-col gap-2 text-xs">
                 <Link href={`/my/agents/${a.id}/review`}
@@ -383,7 +367,7 @@ export function MyAgentsPanel() {
                 </Link>
                 <button onClick={() => startEdit(a)}
                   className="px-3 py-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-primary/10 hover:text-primary">
-                  能力档案
+                  Profile
                 </button>
                 <button onClick={() => deleteAgent(a)}
                   className="px-3 py-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-red-50 hover:text-red-500">
@@ -397,6 +381,12 @@ export function MyAgentsPanel() {
                   state={editState}
                   onChange={setEditState}
                 />
+                <RuntimeBindingEditor
+                  agent={a}
+                  nodes={runtimeNodes.filter(node => node.runtime_type === a.agent_type)}
+                  onBind={patch => bindRuntime(a, patch)}
+                  onUnbind={() => unbindRuntime(a)}
+                />
                 <PermissionSettingsFields
                   agent={a}
                   state={editState}
@@ -409,7 +399,7 @@ export function MyAgentsPanel() {
                 <div className="mt-4 flex gap-2">
                   <button onClick={() => saveAgent(a)}
                     className="px-4 py-2 rounded-lg bg-primary text-white text-sm">
-                    保存能力档案
+                    保存 Profile
                   </button>
                   <button onClick={() => { setEditing(null); setEditState(null); }}
                     className="px-4 py-2 rounded-lg bg-gray-100 text-gray-600 text-sm">
@@ -422,32 +412,18 @@ export function MyAgentsPanel() {
         ))}
       </div>
 
-      {adding ? (
-        <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-3">
-          <h3 className="font-medium">新建 Agent</h3>
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="名称（如 Gavin的龙虾）"
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-          <select value={type} onChange={e => setType(e.target.value as any)}
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
-            <option value="openclaw">🦞 openclaw</option>
-            <option value="hermes">👜 hermes</option>
-          </select>
-          <input value={tagsInput} onChange={e => setTagsInput(e.target.value)} placeholder="标签，逗号分隔"
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-          <CreateProfileFields value={profileInput} onChange={setProfileInput} />
-          <div className="flex gap-2">
-            <button onClick={createAgent} disabled={!name}
-              className="px-4 py-2 rounded-lg bg-primary text-white text-sm disabled:opacity-50">创建</button>
-            <button onClick={() => setAdding(false)}
-              className="px-4 py-2 rounded-lg bg-gray-100 text-gray-600 text-sm">取消</button>
-          </div>
-        </div>
-      ) : (
-        <button onClick={() => setAdding(true)}
-          className="w-full py-3 rounded-xl border-2 border-dashed border-gray-200 text-sm text-gray-500 hover:border-primary hover:text-primary">
-          + 新建 Agent
-        </button>
-      )}
+      <RuntimeNodeSection
+        nodes={runtimeNodes}
+        adding={addingNode}
+        nodeName={nodeName}
+        nodeType={nodeType}
+        onAddToggle={setAddingNode}
+        onNameChange={setNodeName}
+        onTypeChange={setNodeType}
+        onCreate={createRuntimeNode}
+        onRotate={rotateRuntimeNodeToken}
+        onDelete={deleteRuntimeNode}
+      />
     </div>
   );
 }
@@ -464,6 +440,66 @@ function ServiceSummary({ agent }: { agent: Agent }) {
       <span className="rounded bg-indigo-50 px-2 py-0.5 text-indigo-600">单用户 {rules.max_questions_per_user_per_day}/日</span>
       <span className="rounded bg-teal-50 px-2 py-0.5 text-teal-600">燃值 {rules.max_fuel_per_day}/日</span>
       <span className="rounded bg-emerald-50 px-2 py-0.5 text-emerald-600">每日 {quota.max} 次</span>
+    </div>
+  );
+}
+
+function AgentCreateSection({
+  adding,
+  name,
+  type,
+  onAddToggle,
+  onNameChange,
+  onTypeChange,
+  onCreate,
+}: {
+  adding: boolean;
+  name: string;
+  type: AgentType;
+  onAddToggle: (value: boolean) => void;
+  onNameChange: (value: string) => void;
+  onTypeChange: (value: AgentType) => void;
+  onCreate: () => void;
+}) {
+  return (
+    <div className="rounded-xl border border-gray-100 bg-white p-5">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900">1. 创建 Agent 身份</h3>
+          <p className="mt-1 text-xs text-gray-500">先确定这个分身是谁、运行在哪类框架；具体能回答什么，在创建后的 Profile 里配置。</p>
+        </div>
+        <button
+          onClick={() => onAddToggle(!adding)}
+          className="rounded-lg bg-gray-950 px-3 py-2 text-xs font-medium text-white hover:bg-gray-800"
+        >
+          {adding ? "收起" : "新建 Agent"}
+        </button>
+      </div>
+      {adding && (
+        <div className="grid gap-3 rounded-lg border border-gray-100 bg-gray-50 p-3 md:grid-cols-[1fr_180px_auto]">
+          <input
+            value={name}
+            onChange={e => onNameChange(e.target.value)}
+            placeholder="Agent 名称，例如 Mac上的爱马仕"
+            className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+          />
+          <select
+            value={type}
+            onChange={e => onTypeChange(e.target.value as AgentType)}
+            className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+          >
+            <option value="hermes">Hermes</option>
+            <option value="openclaw">OpenClaw</option>
+          </select>
+          <button
+            onClick={onCreate}
+            disabled={!name.trim()}
+            className="rounded-lg bg-primary px-4 py-2 text-sm text-white disabled:opacity-50"
+          >
+            创建 Agent
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -495,8 +531,8 @@ function RuntimeNodeSection({
     <div className="rounded-xl border border-gray-100 bg-white p-5">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-gray-900">本地运行节点</h3>
-          <p className="mt-1 text-xs text-gray-500">一个 Hermes/OpenClaw 节点可以承载多个 Agent；Agent 再绑定到不同 profile 或 workspace。</p>
+          <h3 className="text-sm font-semibold text-gray-900">3. 本地运行节点</h3>
+          <p className="mt-1 text-xs text-gray-500">节点是本机 Hermes/OpenClaw 的接入凭证；一个节点可以承载多个已配置 Profile 的 Agent。</p>
         </div>
         <button
           onClick={() => onAddToggle(!adding)}
@@ -571,6 +607,31 @@ function RuntimeNodeSection({
   );
 }
 
+function RuntimeBindingSummary({ agent }: { agent: Agent }) {
+  const binding = agent.runtime_binding;
+  if (!binding) {
+    return (
+      <div className="mt-3 rounded-lg border border-dashed border-violet-100 bg-violet-50 px-3 py-2 text-xs text-violet-600">
+        未绑定运行 Profile。打开 Profile 后选择本地节点并初始化 Hermes Profile / OpenClaw Workspace。
+      </div>
+    );
+  }
+  const space = agent.agent_type === "hermes" ? binding.runtime_profile : binding.runtime_workspace;
+  return (
+    <div className="mt-3 flex flex-wrap gap-1.5 text-xs">
+      <span className="rounded bg-violet-50 px-2 py-0.5 text-violet-700">
+        {agent.agent_type === "hermes" ? "Hermes Profile" : "OpenClaw Workspace"}：{space || "未命名"}
+      </span>
+      <span className="rounded bg-gray-100 px-2 py-0.5 text-gray-500">
+        节点 {binding.runtime_node?.name || binding.runtime_node_id}
+      </span>
+      <span className="rounded bg-gray-100 px-2 py-0.5 text-gray-500">
+        知识 {knowledgeScopeLabel(binding.knowledge_scope)}
+      </span>
+    </div>
+  );
+}
+
 function RuntimeBindingEditor({
   agent,
   nodes,
@@ -612,8 +673,8 @@ function RuntimeBindingEditor({
     <div className="mt-4 rounded-lg border border-violet-100 bg-violet-50 p-3">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <span className="text-xs font-medium text-violet-800">运行绑定</span>
-          <p className="mt-1 text-[11px] text-violet-600">先绑定本地节点，再为这个 Agent 指定独立 profile/workspace。</p>
+          <span className="text-xs font-medium text-violet-800">2. Profile 运行绑定</span>
+          <p className="mt-1 text-[11px] text-violet-600">能力细节属于这个 Profile；再把它绑定到本机 runtime 的独立 profile/workspace。</p>
         </div>
         {binding && (
           <button onClick={onUnbind} className="rounded-md bg-white px-2 py-1 text-xs text-violet-700 ring-1 ring-violet-100 hover:text-red-500">
@@ -760,6 +821,14 @@ function serviceModeLabel(value: AgentServiceMode) {
   }[value] || "可自动匹配";
 }
 
+function knowledgeScopeLabel(value: KnowledgeScope) {
+  return {
+    private: "仅本 Agent",
+    shared: "共享知识",
+    disabled: "不用知识",
+  }[value] || "仅本 Agent";
+}
+
 function ReadinessView({
   agent,
   checking,
@@ -880,11 +949,15 @@ function AgentProfileForm({
 }) {
   return (
     <div className="space-y-3">
+      <div>
+        <h4 className="text-sm font-semibold text-gray-900">2. 配置 Profile 能力</h4>
+        <p className="mt-1 text-xs text-gray-500">这里定义这个 Profile 具体擅长回答什么、能用哪些工具、哪些问题不接。</p>
+      </div>
       <input value={state.tags} onChange={e => onChange({ ...state, tags: e.target.value })}
-        placeholder="基础标签，逗号分隔"
+        placeholder="匹配标签，例如 魔兽世界、游戏攻略、AI"
         className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
       <textarea value={state.description} onChange={e => onChange({ ...state, description: e.target.value })}
-        placeholder="Agent 描述"
+        placeholder="Profile 说明，例如这个分身适合回答哪些问题、依据什么知识回答"
         rows={3}
         className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
       <CreateProfileFields value={state.profile} onChange={profile => onChange({ ...state, profile })} />
