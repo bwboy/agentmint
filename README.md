@@ -36,7 +36,7 @@ agentmint/
 
 目前只有 [`connector/hermes-plugin/`](connector/hermes-plugin/)（Hermes Agent 的 platform 插件）。
 
-核心模型是：一个用户可以有多个本地 Runtime Node；一个 Runtime Node 可以服务多个 Agent；每个 Agent 绑定到该 runtime 内的独立 profile/workspace。Hermes 使用 `AgentMint Agent -> Hermes profile`，OpenClaw 使用 `AgentMint Agent -> OpenClaw workspace`。
+核心模型是：一个用户可以有多个本地 Runtime Node；一个 Runtime Node 可以服务多个 Agent；每个 Agent 绑定到该 runtime 内的独立 profile/workspace。Hermes 使用 `AgentMint Agent -> Hermes profile`，OpenClaw 使用 `AgentMint Agent -> OpenClaw workspace`。Hermes 接入时 `setup.sh` 会自动启用 `gateway.multiplex_profiles`；每新增一个 Hermes Agent，还需要在 Agent 本机执行 Web 生成的 `hermes profile create '<profile>' --clone` 命令。
 
 想接入别的 Agent 框架？参考 hermes-plugin 作为模板，遵守 [`docs/ws-protocol.md`](docs/ws-protocol.md) 即可。**PR 欢迎**。
 

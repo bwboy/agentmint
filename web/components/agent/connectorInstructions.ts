@@ -1,5 +1,9 @@
 import type { AgentType } from "@/lib/types";
 
+function shellQuote(value: string) {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
 export function getRuntimeNodeInstructions({
   runtimeType,
   runtimeNodeId,
@@ -24,6 +28,7 @@ export function getRuntimeNodeInstructions({
           "--platform-url ws://localhost:8000/ws",
           `--permission-profile ${permissionProfile}`,
         ].join(" "),
+        "hermes config set gateway.multiplex_profiles true",
         "hermes gateway",
       ].join("\n"),
     };
@@ -32,6 +37,37 @@ export function getRuntimeNodeInstructions({
   return {
     title: "OpenClaw Runtime 模拟器",
     command: `AGENTMINT_RUNTIME_NODE_ID=${runtimeNodeId} AGENTMINT_RUNTIME_NODE_TOKEN=${token} python scripts/connector-sim.py`,
+  };
+}
+
+export function getRuntimeProfileInstructions({
+  runtimeType,
+  profileName,
+  workspaceName,
+}: {
+  runtimeType: AgentType;
+  profileName?: string;
+  workspaceName?: string;
+}) {
+  if (runtimeType === "hermes") {
+    const profile = (profileName || "").trim();
+    return {
+      title: "Hermes Profile 初始化",
+      command: [
+        `hermes profile create ${shellQuote(profile)} --clone`,
+        "hermes config set gateway.multiplex_profiles true",
+        "hermes gateway",
+      ].join("\n"),
+    };
+  }
+
+  const workspace = (workspaceName || "").trim();
+  return {
+    title: "OpenClaw Workspace 初始化",
+    command: [
+      `AGENTMINT_WORKSPACE=${shellQuote(workspace)}`,
+      "# 在 OpenClaw 运行端创建或选择这个 workspace 后重启 connector",
+    ].join("\n"),
   };
 }
 

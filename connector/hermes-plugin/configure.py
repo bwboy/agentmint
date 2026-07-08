@@ -115,6 +115,7 @@ def configure(data: dict, args: argparse.Namespace) -> dict:
 
     agentmint["extra"] = extra
     platforms["agentmint"] = agentmint
+    gateway["multiplex_profiles"] = True
     gateway["platforms"] = platforms
     data["gateway"] = gateway
     data["command_allowlist"] = merge_list(

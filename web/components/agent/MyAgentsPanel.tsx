@@ -6,7 +6,7 @@ import { api, ApiError } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import type { Agent, AgentCapabilityProfile, AgentLearnedProfile, AgentPermissionProfile, AgentProfileTagField, AgentReadinessState, AgentServiceMode, AgentServiceRules, AgentType, AgentVisibility, KnowledgeScope, RuntimeNode } from "@/lib/types";
 import { OwnerSupplementSignal } from "./OwnerSupplementSignal";
-import { getRuntimeNodeInstructions } from "./connectorInstructions";
+import { getRuntimeNodeInstructions, getRuntimeProfileInstructions } from "./connectorInstructions";
 
 const emptyProfile: AgentCapabilityProfile = {
   domain_tags: [],
@@ -92,7 +92,7 @@ export function MyAgentsPanel() {
         method: "POST", token,
         json: {
           name, agent_type: type,
-          tags: tagsInput.split(/[,，]\s*/).filter(Boolean),
+          tags: splitList(tagsInput),
           description: "",
           capability_profile: profileFromInput(profileInput),
         },
@@ -587,13 +587,33 @@ function RuntimeBindingEditor({
   const selectedNode = nodes.find(node => node.id === selectedNodeId);
   const profileLabel = agent.agent_type === "hermes" ? "Hermes Profile" : "OpenClaw Workspace";
   const spaceValue = agent.agent_type === "hermes" ? binding?.runtime_profile || "" : binding?.runtime_workspace || "";
+  const defaultSpace = defaultRuntimeSpaceName(agent.name, agent.id);
+  const trimmedSpace = spaceValue.trim();
+  const setupInstructions = trimmedSpace
+    ? getRuntimeProfileInstructions({
+        runtimeType: agent.agent_type,
+        profileName: trimmedSpace,
+        workspaceName: trimmedSpace,
+      })
+    : null;
+  const [copied, setCopied] = useState(false);
+
+  async function copyCommand(command: string) {
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setCopied(false);
+    }
+  }
 
   return (
     <div className="mt-4 rounded-lg border border-violet-100 bg-violet-50 p-3">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
           <span className="text-xs font-medium text-violet-800">运行绑定</span>
-          <p className="mt-1 text-[11px] text-violet-600">把这个 Agent 映射到本机 runtime 的独立 profile/workspace，实现多 Agent 隔离。</p>
+          <p className="mt-1 text-[11px] text-violet-600">先绑定本地节点，再为这个 Agent 指定独立 profile/workspace。</p>
         </div>
         {binding && (
           <button onClick={onUnbind} className="rounded-md bg-white px-2 py-1 text-xs text-violet-700 ring-1 ring-violet-100 hover:text-red-500">
@@ -623,7 +643,7 @@ function RuntimeBindingEditor({
             onChange={e => agent.agent_type === "hermes"
               ? onBind({ runtime_profile: e.target.value })
               : onBind({ runtime_workspace: e.target.value })}
-            placeholder={agent.name.toLowerCase().replace(/\s+/g, "-")}
+            placeholder={defaultSpace}
             className="w-full rounded-lg border border-violet-100 bg-white px-3 py-2 text-sm disabled:bg-gray-100"
           />
         </label>
@@ -642,10 +662,51 @@ function RuntimeBindingEditor({
         </label>
       </div>
       {selectedNodeId && (
+        <div className="mt-3 grid gap-2 text-[11px] text-violet-700 md:grid-cols-4">
+          <SetupStep active done label="Agent 已创建" />
+          <SetupStep active done={Boolean(selectedNode)} label={selectedNode?.status === "online" ? "节点在线" : "节点已绑定"} />
+          <SetupStep active={Boolean(trimmedSpace)} done={Boolean(trimmedSpace)} label={agent.agent_type === "hermes" ? "Profile 已命名" : "Workspace 已命名"} />
+          <SetupStep active={Boolean(trimmedSpace)} done={agent.readiness?.state === "ready"} label={agent.readiness?.state === "ready" ? "检测通过" : "等待检测"} />
+        </div>
+      )}
+      {selectedNodeId && setupInstructions && (
+        <div className="mt-3 rounded-md bg-white p-2 ring-1 ring-violet-100">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <span className="text-[11px] font-medium text-violet-800">{setupInstructions.title}</span>
+              <p className="mt-0.5 text-[11px] text-violet-500">
+                {agent.agent_type === "hermes"
+                  ? "Hermes 已确认支持 profile；在 Agent 本机创建后，平台会按该 profile 路由问题。"
+                  : "在 OpenClaw 运行端使用这个 workspace 隔离知识和会话。"}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => copyCommand(setupInstructions.command)}
+              className="rounded-md bg-violet-50 px-2 py-1 text-[11px] font-medium text-violet-700 hover:bg-violet-100"
+            >
+              {copied ? "已复制" : "复制命令"}
+            </button>
+          </div>
+          <code className="block max-w-full overflow-x-auto whitespace-pre rounded bg-gray-950 px-3 py-2 font-mono text-[12px] leading-5 text-white">
+            {setupInstructions.command}
+          </code>
+        </div>
+      )}
+      {selectedNodeId && !setupInstructions && (
         <p className="mt-2 text-[11px] text-violet-600">
-          当前节点：{selectedNode?.name || selectedNodeId}。Hermes 会把该值写入 `source.profile`，OpenClaw 使用 workspace 路由。
+          当前节点：{selectedNode?.name || selectedNodeId}。填写 {profileLabel} 后会生成本机初始化命令。
         </p>
       )}
+    </div>
+  );
+}
+
+function SetupStep({ label, active, done }: { label: string; active: boolean; done: boolean }) {
+  return (
+    <div className={`rounded-md border px-2 py-1 ${done ? "border-emerald-100 bg-emerald-50 text-emerald-700" : active ? "border-violet-100 bg-white text-violet-700" : "border-gray-100 bg-white/60 text-gray-400"}`}>
+      <span className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${done ? "bg-emerald-500" : active ? "bg-violet-500" : "bg-gray-300"}`} />
+      {label}
     </div>
   );
 }
@@ -1226,7 +1287,12 @@ function ReviewTagRow({ label, values, className }: { label: string; values: str
 }
 
 function splitList(value: string) {
-  return value.split(/[,，]\s*/).map(item => item.trim()).filter(Boolean);
+  return value.split(/[,\n;；，、]+/).map(item => item.trim()).filter(Boolean);
+}
+
+function defaultRuntimeSpaceName(name: string, fallbackId: string) {
+  const cleaned = (name || "").trim().replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").toLowerCase();
+  return cleaned.slice(0, 48) || fallbackId;
 }
 
 function profileFromInput(input: ProfileInputState): AgentCapabilityProfile {

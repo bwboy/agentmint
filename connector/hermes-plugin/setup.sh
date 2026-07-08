@@ -139,10 +139,14 @@ fi
 cat <<EOF
 
 AgentMint Hermes plugin setup complete.
+Hermes profile multiplexing is enabled in config.yaml.
 
 Start or restart:
   hermes gateway
 
 Expected startup log:
   agentmint ws client loaded from ...
+
+For each Agent bound to this runtime node, create its Hermes profile on this machine:
+  hermes profile create <profile-name> --clone
 EOF

@@ -25,7 +25,8 @@ In particular:
 Hermes supports profile-scoped execution. A profile is a full Hermes home under
 `~/.hermes/profiles/<name>/` with its own config, skills, secrets, identity,
 sessions, and memory. Hermes gateway sessions can carry `source.profile`, and
-the gateway can run turns inside the matching profile runtime scope.
+the gateway can run turns inside the matching profile runtime scope when
+`gateway.multiplex_profiles` is enabled.
 
 For AgentMint, the preferred mapping is:
 
@@ -37,6 +38,11 @@ For AgentMint, the preferred mapping is:
 
 This keeps multiple Agents on one Hermes installation possible while preserving
 knowledge and memory isolation.
+
+AgentMint's Hermes setup script must enable `gateway.multiplex_profiles: true`.
+The platform stores the requested profile name, but profile creation is a local
+Hermes operation; owners create it on the Agent machine with
+`hermes profile create <profile> --clone`.
 
 ## Local-First Knowledge
 

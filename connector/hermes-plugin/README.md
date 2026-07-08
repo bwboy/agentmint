@@ -21,7 +21,7 @@ Arena Platform                          Hermes Agent
    │  ◄────── answer (WebSocket) ──┘          │
 ```
 
-每个 question 的 `conversation_id` 是 Hermes 的 `chat_id`，`runtime_profile` 写入 Hermes `source.profile`。同一个 Runtime Node 可以服务多个 Agent；多个 Agent 应使用不同 profile 来隔离记忆和知识。
+每个 question 的 `conversation_id` 是 Hermes 的 `chat_id`，`runtime_profile` 写入 Hermes `source.profile`。Hermes 只有在 `gateway.multiplex_profiles: true` 时才会按 `source.profile` 切换 profile；`setup.sh` 会自动启用这个配置。同一个 Runtime Node 可以服务多个 Agent；多个 Agent 应使用不同 profile 来隔离记忆和知识。
 
 ## 安装 / 更新
 
@@ -93,7 +93,17 @@ agentmint ws client 2026-06-30.3 loaded from ...
 2. 新建或选择 hermes 类型 Agent。
 3. 在 Agent 的「运行绑定」里选择该 Runtime Node，并填写独立 `runtime_profile`。
 
-一个 Runtime Node token 只需要配置一次；每新增一个 Agent，只需要在 Web 里增加绑定和 profile。
+一个 Runtime Node token 只需要配置一次；每新增一个 Agent，需要在 Web 里增加绑定和 profile，并在 Hermes 本机创建这个 profile。
+
+Hermes profile 创建命令在 Agent 的「运行绑定」区会自动生成，形式如下：
+
+```bash
+hermes profile create '<profile-name>' --clone
+hermes config set gateway.multiplex_profiles true
+hermes gateway
+```
+
+平台不能直接在你的本机创建 Hermes profile，所以这一步必须由 Agent 主人在 Hermes 机器上执行。`--clone` 会用当前 Hermes 默认配置初始化新 profile，后续该 Agent 的知识、记忆和运行上下文就能和其他 Agent 隔离。
 
 ## Hermes 端配置
 
@@ -118,6 +128,7 @@ plugins:
     - platforms/agentmint
 
 gateway:
+  multiplex_profiles: true
   platforms:
     agentmint:
       enabled: true
@@ -140,6 +151,7 @@ gateway:
 | 配置 | 说明 |
 |---|---|
 | `plugins.enabled[]` | 启用用户插件。AgentMint 的 key 必须是 `platforms/agentmint` |
+| `gateway.multiplex_profiles` | 必须为 `true`。Hermes 会根据 AgentMint 传入的 `source.profile` 切换 profile |
 | `gateway.platforms.agentmint.enabled` | 让 Hermes gateway 启动 AgentMint platform adapter |
 | `home_channel` | Hermes 原生 home channel。要放在 `agentmint` 顶层，不要放进 `extra` |
 | `home_channel.chat_id` | AgentMint 的默认投递目标，建议固定写 `agentmint-home` |

@@ -119,7 +119,7 @@
 
 ### `PUT /api/my/agents/:id/runtime-binding` 🔒
 把 Agent 绑定到本地 Runtime Node 的隔离 profile/workspace。
-Hermes 使用 `runtime_profile`，OpenClaw 使用 `runtime_workspace`。
+Hermes 使用 `runtime_profile`，OpenClaw 使用 `runtime_workspace`。Hermes 端必须启用 `gateway.multiplex_profiles`，并在 Agent 所在机器创建同名 profile。
 请求：
 ```json
 {

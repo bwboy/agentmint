@@ -49,6 +49,7 @@ class ConfigureTests(unittest.TestCase):
         updated = self.configure_mod.configure(data, args)
 
         self.assertEqual(updated["plugins"]["enabled"], ["platforms/lark", "platforms/agentmint"])
+        self.assertTrue(updated["gateway"]["multiplex_profiles"])
         self.assertTrue(updated["gateway"]["platforms"]["lark"]["enabled"])
         agentmint = updated["gateway"]["platforms"]["agentmint"]
         self.assertTrue(agentmint["enabled"])
@@ -83,6 +84,7 @@ class ConfigureTests(unittest.TestCase):
         self.assertIn("python3", updated["command_allowlist"])
         agentmint = updated["gateway"]["platforms"]["agentmint"]
         self.assertEqual(agentmint["extra"]["permission_profile"], "expanded")
+        self.assertTrue(updated["gateway"]["multiplex_profiles"])
 
     def test_backup_creates_timestamped_copy(self):
         with tempfile.TemporaryDirectory() as tmp:
