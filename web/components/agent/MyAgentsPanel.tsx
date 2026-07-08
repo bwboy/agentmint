@@ -158,6 +158,40 @@ export function MyAgentsPanel() {
     }
   }
 
+  async function createRuntimeNodeForAgent(agent: Agent) {
+    const token = getToken();
+    if (!token) return;
+    try {
+      const r = await api<RuntimeNode & { token: string }>(
+        "/api/my/runtime-nodes",
+        {
+          method: "POST",
+          token,
+          json: {
+            name: `${agent.name} 本机接入`,
+            runtime_type: agent.agent_type,
+          },
+        }
+      );
+      const space = defaultRuntimeSpaceName(agent.name, agent.id);
+      await api(`/api/my/agents/${agent.id}/runtime-binding`, {
+        method: "PUT",
+        token,
+        json: {
+          runtime_node_id: r.id,
+          runtime_profile: agent.agent_type === "hermes" ? space : "",
+          runtime_workspace: agent.agent_type === "openclaw" ? space : "",
+          knowledge_scope: "private",
+          status: "active",
+        },
+      });
+      setTokenInfo({ runtimeNodeId: r.id, runtimeType: r.runtime_type, token: r.token });
+      await refresh();
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
+
   async function rotateRuntimeNodeToken(node: RuntimeNode) {
     const token = getToken();
     if (!token) return;
@@ -324,7 +358,7 @@ export function MyAgentsPanel() {
       />
 
       <div className="space-y-3">
-        {agents.length === 0 && <p className="rounded-xl border border-dashed border-gray-200 bg-white p-5 text-sm text-gray-400">还没有 Agent。先在上方创建 Agent 身份，再配置它的 Profile 和运行绑定。</p>}
+        {agents.length === 0 && <p className="rounded-xl border border-dashed border-gray-200 bg-white p-5 text-sm text-gray-400">还没有 Agent。先在上方创建 Agent 身份；创建后打开 Profile，生成本机接入 Token 并配置能力。</p>}
         {agents.map(a => (
           <div key={a.id} className="bg-white rounded-xl border border-gray-100 p-5">
             <div className="flex items-start gap-3">
@@ -386,6 +420,7 @@ export function MyAgentsPanel() {
                   nodes={runtimeNodes.filter(node => node.runtime_type === a.agent_type)}
                   onBind={patch => bindRuntime(a, patch)}
                   onUnbind={() => unbindRuntime(a)}
+                  onCreateNode={() => createRuntimeNodeForAgent(a)}
                 />
                 <PermissionSettingsFields
                   agent={a}
@@ -531,8 +566,8 @@ function RuntimeNodeSection({
     <div className="rounded-xl border border-gray-100 bg-white p-5">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-gray-900">3. 本地运行节点</h3>
-          <p className="mt-1 text-xs text-gray-500">节点是本机 Hermes/OpenClaw 的接入凭证；一个节点可以承载多个已配置 Profile 的 Agent。</p>
+          <h3 className="text-sm font-semibold text-gray-900">高级：本机接入管理</h3>
+          <p className="mt-1 text-xs text-gray-500">主流程在 Agent 的 Profile 里生成 Token。这里用于复用已有接入、重置 Token 或清理节点。</p>
         </div>
         <button
           onClick={() => onAddToggle(!adding)}
@@ -566,7 +601,7 @@ function RuntimeNodeSection({
         </div>
       )}
       <div className="grid gap-3 md:grid-cols-2">
-        {nodes.length === 0 && <p className="text-sm text-gray-400">还没有本地运行节点。先新建节点，再把 Agent 绑定到节点。</p>}
+        {nodes.length === 0 && <p className="text-sm text-gray-400">还没有本机接入。打开某个 Agent 的 Profile，点击“生成本机接入 Token”。</p>}
         {nodes.map(node => (
           <div key={node.id} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
             <div className="flex items-start justify-between gap-3">
@@ -612,7 +647,7 @@ function RuntimeBindingSummary({ agent }: { agent: Agent }) {
   if (!binding) {
     return (
       <div className="mt-3 rounded-lg border border-dashed border-violet-100 bg-violet-50 px-3 py-2 text-xs text-violet-600">
-        未绑定运行 Profile。打开 Profile 后选择本地节点并初始化 Hermes Profile / OpenClaw Workspace。
+        未接入本机 runtime。打开 Profile 后生成本机接入 Token，并初始化 Hermes Profile / OpenClaw Workspace。
       </div>
     );
   }
@@ -637,11 +672,13 @@ function RuntimeBindingEditor({
   nodes,
   onBind,
   onUnbind,
+  onCreateNode,
 }: {
   agent: Agent;
   nodes: RuntimeNode[];
   onBind: (patch: { runtime_node_id?: string; runtime_profile?: string; runtime_workspace?: string; knowledge_scope?: KnowledgeScope }) => void;
   onUnbind: () => void;
+  onCreateNode: () => void;
 }) {
   const binding = agent.runtime_binding;
   const selectedNodeId = binding?.runtime_node_id || "";
@@ -673,8 +710,8 @@ function RuntimeBindingEditor({
     <div className="mt-4 rounded-lg border border-violet-100 bg-violet-50 p-3">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <span className="text-xs font-medium text-violet-800">2. Profile 运行绑定</span>
-          <p className="mt-1 text-[11px] text-violet-600">能力细节属于这个 Profile；再把它绑定到本机 runtime 的独立 profile/workspace。</p>
+          <span className="text-xs font-medium text-violet-800">2. Profile 接入</span>
+          <p className="mt-1 text-[11px] text-violet-600">这里生成本机接入 Token，并把这个 Profile 绑定到 Hermes profile / OpenClaw workspace。</p>
         </div>
         {binding && (
           <button onClick={onUnbind} className="rounded-md bg-white px-2 py-1 text-xs text-violet-700 ring-1 ring-violet-100 hover:text-red-500">
@@ -682,15 +719,30 @@ function RuntimeBindingEditor({
           </button>
         )}
       </div>
+      {!selectedNodeId && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-violet-100 bg-white p-3">
+          <div>
+            <span className="text-xs font-medium text-violet-800">还没有给这个 Agent 接入本机 runtime</span>
+            <p className="mt-1 text-[11px] text-violet-500">点击后会生成 Token、自动创建本机节点，并用默认 Profile 名称绑定当前 Agent。</p>
+          </div>
+          <button
+            type="button"
+            onClick={onCreateNode}
+            className="rounded-lg bg-violet-700 px-3 py-2 text-xs font-medium text-white hover:bg-violet-800"
+          >
+            生成本机接入 Token
+          </button>
+        </div>
+      )}
       <div className="grid gap-3 md:grid-cols-[1fr_1fr_150px]">
         <label className="block">
-          <span className="mb-1 block text-xs text-violet-700">本地节点</span>
+          <span className="mb-1 block text-xs text-violet-700">使用已有接入</span>
           <select
             value={selectedNodeId}
             onChange={e => onBind({ runtime_node_id: e.target.value })}
             className="w-full rounded-lg border border-violet-100 bg-white px-3 py-2 text-sm"
           >
-            <option value="">未绑定</option>
+            <option value="">未接入</option>
             {nodes.map(node => (
               <option key={node.id} value={node.id}>{node.name} · {node.status}</option>
             ))}
@@ -756,7 +808,7 @@ function RuntimeBindingEditor({
       )}
       {selectedNodeId && !setupInstructions && (
         <p className="mt-2 text-[11px] text-violet-600">
-          当前节点：{selectedNode?.name || selectedNodeId}。填写 {profileLabel} 后会生成本机初始化命令。
+          当前接入：{selectedNode?.name || selectedNodeId}。填写 {profileLabel} 后会生成本机初始化命令。
         </p>
       )}
     </div>
