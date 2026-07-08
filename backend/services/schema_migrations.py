@@ -89,6 +89,50 @@ FOLLOWUP_SCHEMA_SQL = [
     "CREATE INDEX IF NOT EXISTS idx_agents_visibility ON agents(visibility)",
     "CREATE INDEX IF NOT EXISTS idx_agents_service_mode ON agents(service_mode)",
     """
+    CREATE TABLE IF NOT EXISTS runtime_nodes (
+        id VARCHAR PRIMARY KEY,
+        user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name VARCHAR NOT NULL,
+        runtime_type VARCHAR NOT NULL,
+        token_hash VARCHAR NOT NULL,
+        status VARCHAR DEFAULT 'offline',
+        capabilities JSONB DEFAULT '{}'::jsonb,
+        adapter_version VARCHAR DEFAULT '',
+        runtime_version VARCHAR DEFAULT '',
+        last_ip VARCHAR,
+        connected_at TIMESTAMPTZ,
+        disconnected_at TIMESTAMPTZ,
+        last_seen_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT now()
+    )
+    """,
+    "ALTER TABLE runtime_nodes ADD COLUMN IF NOT EXISTS capabilities JSONB DEFAULT '{}'::jsonb",
+    "ALTER TABLE runtime_nodes ADD COLUMN IF NOT EXISTS adapter_version VARCHAR DEFAULT ''",
+    "ALTER TABLE runtime_nodes ADD COLUMN IF NOT EXISTS runtime_version VARCHAR DEFAULT ''",
+    "ALTER TABLE runtime_nodes ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ",
+    "CREATE INDEX IF NOT EXISTS idx_runtime_nodes_user_id ON runtime_nodes(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_runtime_nodes_runtime_type ON runtime_nodes(runtime_type)",
+    "CREATE INDEX IF NOT EXISTS idx_runtime_nodes_status ON runtime_nodes(status)",
+    """
+    CREATE TABLE IF NOT EXISTS agent_runtime_bindings (
+        agent_id VARCHAR PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE,
+        runtime_node_id VARCHAR NOT NULL REFERENCES runtime_nodes(id) ON DELETE CASCADE,
+        runtime_type VARCHAR NOT NULL,
+        runtime_profile VARCHAR DEFAULT '',
+        runtime_workspace VARCHAR DEFAULT '',
+        knowledge_scope VARCHAR DEFAULT 'private',
+        status VARCHAR DEFAULT 'active',
+        created_at TIMESTAMPTZ DEFAULT now(),
+        updated_at TIMESTAMPTZ DEFAULT now()
+    )
+    """,
+    "ALTER TABLE agent_runtime_bindings ADD COLUMN IF NOT EXISTS runtime_profile VARCHAR DEFAULT ''",
+    "ALTER TABLE agent_runtime_bindings ADD COLUMN IF NOT EXISTS runtime_workspace VARCHAR DEFAULT ''",
+    "ALTER TABLE agent_runtime_bindings ADD COLUMN IF NOT EXISTS knowledge_scope VARCHAR DEFAULT 'private'",
+    "ALTER TABLE agent_runtime_bindings ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT 'active'",
+    "CREATE INDEX IF NOT EXISTS idx_agent_runtime_bindings_runtime_node_id ON agent_runtime_bindings(runtime_node_id)",
+    "CREATE INDEX IF NOT EXISTS idx_agent_runtime_bindings_runtime_type ON agent_runtime_bindings(runtime_type)",
+    """
     CREATE TABLE IF NOT EXISTS user_follows (
         id VARCHAR PRIMARY KEY,
         follower_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,

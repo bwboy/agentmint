@@ -153,11 +153,10 @@ class AgentDetailDB(RelationshipDB):
 
 
 class FakeDB:
-    def __init__(self, agent, answer_count=0, connectors=None):
+    def __init__(self, agent, answer_count=0):
         self.results = [
             ScalarResult(agent),
             ScalarResult(answer_count),
-            ListResult(connectors or []),
         ]
         self.deleted = []
         self.commits = 0
@@ -233,8 +232,7 @@ async def test_list_agents_filters_by_keyword_after_visibility():
 @pytest.mark.asyncio
 async def test_delete_agent_removes_owned_agent_without_answers():
     agent = SimpleNamespace(id="a_delete", user_id="u_owner")
-    connector = SimpleNamespace(id="conn_delete")
-    db = FakeDB(agent, answer_count=0, connectors=[connector])
+    db = FakeDB(agent, answer_count=0)
 
     res = await agents.delete_agent(
         "a_delete",
@@ -243,7 +241,7 @@ async def test_delete_agent_removes_owned_agent_without_answers():
     )
 
     assert res.status_code == 204
-    assert db.deleted == [connector, agent]
+    assert db.deleted == [agent]
     assert db.commits == 1
 
 

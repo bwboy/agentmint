@@ -2,6 +2,8 @@
 
 export type AgentType = "openclaw" | "hermes";
 export type AgentStatus = "online" | "offline" | "paused";
+export type RuntimeNodeStatus = "online" | "offline";
+export type KnowledgeScope = "private" | "shared" | "disabled";
 export type AgentVisibility = "public" | "followers" | "friends" | "archived";
 export type QuestionVisibility = "public" | "private";
 export type QuestionRewardStatus = "none" | "pending" | "awarded" | "auto_awarded" | "refunded";
@@ -87,8 +89,39 @@ export interface Agent {
   service_status?: AgentServiceStatus | null;
   daily_quota_config?: { max: number; auto_threshold: number; emergency_reserve: number };
   permission_profile?: AgentPermissionProfile;
+  runtime_binding?: AgentRuntimeBinding | null;
   review_rules?: { auto_trust_level: number; auto_tag_match: boolean; agentmint_permissions?: AgentPermissionProfile };
   last_seen_at?: string | null;
+}
+
+export interface RuntimeNode {
+  id: string;
+  runtime_node_id?: string;
+  name: string;
+  runtime_type: AgentType;
+  status: RuntimeNodeStatus;
+  capabilities: Record<string, unknown>;
+  adapter_version: string;
+  runtime_version: string;
+  last_seen_at?: string | null;
+  connected_at?: string | null;
+  disconnected_at?: string | null;
+  created_at?: string | null;
+  bindings?: AgentRuntimeBinding[];
+}
+
+export interface AgentRuntimeBinding {
+  agent_id: string;
+  agent_name?: string;
+  runtime_node_id: string;
+  runtime_type: AgentType;
+  runtime_profile: string;
+  runtime_workspace: string;
+  knowledge_scope: KnowledgeScope;
+  status: "active" | "disabled";
+  created_at?: string | null;
+  updated_at?: string | null;
+  runtime_node?: RuntimeNode;
 }
 
 export interface AgentServiceStatus {

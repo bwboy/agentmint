@@ -31,8 +31,8 @@ class ReconnectTests(unittest.TestCase):
         async def run_case():
             client = ws_client.ArenaWSClient(
                 platform_url="ws://arena.test/ws",
-                connector_id="conn_test",
-                connector_token="conn_sk_test",
+                runtime_node_id="rn_test",
+                runtime_node_token="rn_sk_test",
                 on_question=lambda msg: None,
             )
             attempts = 0
@@ -70,8 +70,8 @@ class ReconnectTests(unittest.TestCase):
         async def run_case():
             client = ws_client.ArenaWSClient(
                 platform_url="ws://arena.test/ws",
-                connector_id="conn_test",
-                connector_token="conn_sk_test",
+                runtime_node_id="rn_test",
+                runtime_node_token="rn_sk_test",
                 on_question=lambda msg: None,
             )
             attempts = 0
@@ -120,8 +120,8 @@ class ReconnectTests(unittest.TestCase):
         async def run_case():
             client = ws_client.ArenaWSClient(
                 platform_url="ws://arena.test/ws",
-                connector_id="conn_test",
-                connector_token="conn_sk_test",
+                runtime_node_id="rn_test",
+                runtime_node_token="rn_sk_test",
                 on_question=lambda msg: None,
             )
             original_timeout = getattr(ws_client, "SERVER_IDLE_TIMEOUT_SECONDS", None)
@@ -158,8 +158,8 @@ class ReconnectTests(unittest.TestCase):
         async def run_case():
             client = ws_client.ArenaWSClient(
                 platform_url="ws://arena.test/ws",
-                connector_id="conn_test",
-                connector_token="conn_sk_test",
+                runtime_node_id="rn_test",
+                runtime_node_token="rn_sk_test",
                 on_question=lambda msg: None,
             )
             sent = []
@@ -173,6 +173,7 @@ class ReconnectTests(unittest.TestCase):
                 "probe_a_test_123",
                 code="KJ5S6H25",
                 command="hermes pairing approve agentmint KJ5S6H25",
+                agent_id="a_test",
             )
             return ok, sent
 
@@ -182,6 +183,7 @@ class ReconnectTests(unittest.TestCase):
         self.assertEqual(sent, [{
             "type": "pairing_required",
             "request_id": "probe_a_test_123",
+            "agent_id": "a_test",
             "code": "KJ5S6H25",
             "command": "hermes pairing approve agentmint KJ5S6H25",
         }])

@@ -28,8 +28,8 @@ class ConfigureTests(unittest.TestCase):
 
     def test_configure_merges_agentmint_without_dropping_existing_platforms(self):
         args = Namespace(
-            connector_id="conn_test",
-            connector_token="conn_sk_test",
+            runtime_node_id="rn_test",
+            runtime_node_token="rn_sk_test",
             platform_url="ws://arena.test/ws",
             max_concurrent=5,
             usage_wait_seconds=2.5,
@@ -53,8 +53,10 @@ class ConfigureTests(unittest.TestCase):
         agentmint = updated["gateway"]["platforms"]["agentmint"]
         self.assertTrue(agentmint["enabled"])
         self.assertEqual(agentmint["home_channel"]["chat_id"], "agentmint-home")
-        self.assertEqual(agentmint["extra"]["connector_id"], "conn_test")
-        self.assertEqual(agentmint["extra"]["connector_token"], "conn_sk_test")
+        self.assertEqual(agentmint["extra"]["runtime_node_id"], "rn_test")
+        self.assertEqual(agentmint["extra"]["runtime_node_token"], "rn_sk_test")
+        self.assertNotIn("connector_id", agentmint["extra"])
+        self.assertNotIn("connector_token", agentmint["extra"])
         self.assertEqual(agentmint["extra"]["platform_url"], "ws://arena.test/ws")
         self.assertEqual(agentmint["extra"]["max_concurrent"], 5)
         self.assertEqual(agentmint["extra"]["usage_wait_seconds"], 2.5)
@@ -64,8 +66,8 @@ class ConfigureTests(unittest.TestCase):
 
     def test_configure_writes_safe_permission_profile_without_disabling_approvals(self):
         args = Namespace(
-            connector_id="conn_test",
-            connector_token="conn_sk_test",
+            runtime_node_id="rn_test",
+            runtime_node_token="rn_sk_test",
             platform_url="ws://192.168.1.88:8000/ws",
             max_concurrent=3,
             usage_wait_seconds=1.0,

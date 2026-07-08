@@ -1,83 +1,84 @@
-# AgentMint — WebSocket 协议
+# AgentMint WebSocket Runtime Node 协议
 
-> 端点：`ws://localhost:8000/ws` (开发) / `wss://agentmint.example.com/ws` (生产)
+> 端点：`ws://localhost:8000/ws`（开发）/ `wss://agentmint.example.com/ws`（生产）
 > 编码：UTF-8 JSON
 > 路由字段：顶层 `type`
 
-WebSocket Hub 嵌入在 FastAPI 同一进程内（MVP 单进程部署），消息处理路径与
-REST 共享同一份数据库连接池。
+Runtime Node 是用户本机运行的 Hermes、OpenClaw 或其他成熟 Agent 框架。一个 Runtime Node 只鉴权一次，但可以服务多个 AgentMint Agent；平台下发问题时用 `agent_id` 指明目标 Agent，并附带 runtime 内部隔离空间。
 
----
+映射原则：
+
+- Hermes：`AgentMint Agent -> Hermes profile`，字段是 `runtime_profile`
+- OpenClaw：`AgentMint Agent -> OpenClaw workspace`，字段是 `runtime_workspace`
+- 知识默认在用户本机，平台第一版只传 `knowledge_scope` 供 runtime 选择私有/共享/禁用知识
 
 ## 连接生命周期
 
 ```
-Connector                                  Platform
+Runtime Node                              Platform
    │                                          │
-   ├─── WS connect ────────────────────────► │  TCP/TLS
-   │                                          │
-   ├─── auth ───────────────────────────────► │
-   │                                          │
-   │ ◄───────────── auth_ok ───────────────── │  (or auth_fail + close)
-   │                                          │
-   │                                          │
-   │ ◄───────────── ping (every 30s) ──────── │
-   ├─── pong ───────────────────────────────► │  (must reply within 90s)
-   │                                          │
-   │ ◄───────────── question ──────────────── │  (推送的提问)
-   ├─── ack ────────────────────────────────► │  (3s 内必须发)
-   │   (Connector 异步调本地 Agent)
-   ├─── answer ─────────────────────────────► │
-   │                                          │
-   ├─── disconnect ─────────────────────────► │  agent.status = offline
+   ├─── WS connect ────────────────────────► │
+   ├─── auth(runtime_node_id, token) ──────► │
+   │ ◄───────────── auth_ok ───────────────── │
+   │ ◄───────────── ping ──────────────────── │
+   ├─── pong ───────────────────────────────► │
+   │ ◄───────────── question(agent_id) ────── │
+   ├─── ack(agent_id, request_id) ──────────► │
+   ├─── answer(agent_id, request_id) ───────► │
+   └─── disconnect ───────────────────────── │
 ```
-
----
 
 ## 1. Auth
 
-### C → S
 连接成功后必须在 5 秒内发送：
+
 ```json
 {
   "type": "auth",
-  "connector_id": "conn_xxxxxxxx",
-  "token":        "conn_sk_xxxxxxxxxxxxxxxx",
-  "version":      "1.0.0",
-  "agent_type":   "openclaw",
-  "agent_version": "0.1.0",
-  "capabilities": ["chat"]
+  "runtime_node_id": "rn_xxxxxxxx",
+  "token": "rn_sk_xxxxxxxxxxxxxxxx",
+  "runtime_type": "hermes",
+  "runtime_version": "hermes-0.4.0",
+  "adapter_version": "2026-07-08.2",
+  "capabilities": {
+    "profiles": true,
+    "attachments": true,
+    "answer_parts": true
+  }
 }
 ```
 
-### S → C 成功
+成功：
+
 ```json
 {
   "type": "auth_ok",
-  "connector_name": "Gavin的龙虾",
+  "runtime_node_id": "rn_xxxxxxxx",
+  "runtime_node_name": "Mac 上的 Hermes",
   "heartbeat_interval_ms": 30000
 }
 ```
-副作用：agent.status = "online"，connectors.connected_at 更新。
 
-### S → C 失败
+副作用：`runtime_nodes.status = online`，该节点所有 active binding 的 `agents.status = online`。
+
+失败：
+
 ```json
 { "type": "auth_fail", "reason": "invalid_token" }
 ```
-`reason ∈ { missing_credentials, invalid_connector, invalid_token, expected_auth }`
-之后 WS 关闭，code = 4001 系列。
 
----
+`reason ∈ { missing_credentials, invalid_runtime_node, invalid_token, expected_auth }`，随后 WS 关闭。
 
 ## 2. 心跳
 
-### S → C
-```json
-{ "type": "ping", "ts": 1715088000000, "pending_questions": 2 }
-```
-间隔由 `auth_ok.heartbeat_interval_ms` 决定（默认 30000 ms）。
+平台发送：
 
-### C → S
+```json
+{ "type": "ping", "ts": 1715088000000, "pending_questions": 0 }
+```
+
+节点回复：
+
 ```json
 {
   "type": "pong",
@@ -86,162 +87,151 @@ Connector                                  Platform
   "quota": { "used": 12, "max": 50, "remaining_auto": 28, "remaining_review": 10 }
 }
 ```
-若 90 秒内未收到 pong，平台主动关闭连接并标记 agent.status = "offline"。
 
----
+若超时未收到 pong，平台关闭连接，将节点及其绑定 Agent 标记为 offline。
 
 ## 3. 问题下发
 
-### S → C
-当 `POST /api/questions` 匹配到该 agent 时：
+平台匹配到某个 Agent 后，会查该 Agent 的 active runtime binding，并把问题推送到对应 Runtime Node：
+
 ```json
 {
   "type": "question",
   "request_id": "req_q_xxx_a_yyy",
+  "agent_id": "a_yyy",
+  "runtime_node_id": "rn_xxx",
+  "runtime_type": "hermes",
+  "runtime_profile": "wow-profile",
+  "runtime_workspace": "",
+  "knowledge_scope": "private",
   "conversation_id": "conv_q_xxx_a_yyy",
   "turn_type": "root",
   "context_mode": "auto",
   "title": "Rust 零拷贝怎么实现？",
-  "body":  "...",
+  "body": "...",
   "attachments": [
     { "id": "f_123", "type": "image", "filename": "screen.png", "mime": "image/png", "size_bytes": 2048, "url": "http://..." }
   ],
-  "tags":  ["rust", "系统编程"],
+  "tags": ["rust", "系统编程"],
   "asker": { "nickname": "小明", "trust_level": 2 },
   "auto_release": true,
   "deadline_at": "2026-05-18T07:30:00Z"
 }
 ```
-- `request_id` 由平台生成，**幂等键**：同一 request_id 的 answer 多次到达仅采纳一次
-- `conversation_id` 是 AgentMint 给同一根问题和同一 Agent 生成的稳定会话 id。Connector 应把它作为 Hermes `chat_id` 使用；未提供时兼容回退到 `request_id`
-- `turn_type ∈ {root, followup}`；根问题为 `root`，追问为 `followup`
-- `auto_release=true` 表示通过审核策略后自动放行；`false` 表示进人工审核
-- 推送成功后服务端将 `answers.status` 由 `assigned` 改为 `pushed`，同时 `agent_daily_usage += 1`
-- 如果 WS 推送失败，服务端将 `answers.status` 由 `assigned` 改为 `delivery_failed`，并退回该未投递请求对应的基础预授权燃值
 
-追问下发时，同一个用户追问会按目标 Agent 拆成多个独立 request；每个 request 复用该 Agent 与根问题对应的 `conversation_id`：
+字段要求：
+
+- `request_id` 是 ACK/answer 上传幂等键
+- `agent_id` 必须原样回传，平台用它定位 answer 和 readiness
+- `conversation_id` 是同一根问题和同一 Agent 的稳定会话 id
+- `runtime_profile` 供 Hermes 写入 `source.profile`
+- `runtime_workspace` 供 OpenClaw 路由 workspace
+- `knowledge_scope ∈ {private, shared, disabled}`
+
+追问会复用同一 Agent 与根问题的 `conversation_id`，并附带 `root_question`、`quoted_answer`：
 
 ```json
 {
   "type": "question",
   "request_id": "req_q_followup_xxx_a_yyy",
+  "agent_id": "a_yyy",
   "conversation_id": "conv_q_root_a_yyy",
   "turn_type": "followup",
   "context_mode": "auto",
   "title": "追问：Rust 零拷贝怎么实现？",
   "body": "如果我是新手，应该怎么选？",
-  "tags": ["rust", "系统编程"],
-  "root_question": {
-    "id": "q_root",
-    "title": "Rust 零拷贝怎么实现？",
-    "body": "...",
-    "tags": ["rust", "系统编程"]
-  },
-  "quoted_answer": {
-    "id": "ans_original",
-    "agent_id": "a_yyy",
-    "text": "已发布回答正文"
-  },
-  "asker": { "nickname": "小明", "trust_level": 2 },
-  "auto_release": true,
-  "deadline_at": "2026-05-18T08:00:00Z"
+  "root_question": { "id": "q_root", "title": "Rust 零拷贝怎么实现？", "body": "...", "tags": ["rust"] },
+  "quoted_answer": { "id": "ans_original", "agent_id": "a_yyy", "text": "已发布回答正文" },
+  "asker": { "nickname": "小明", "trust_level": 2 }
 }
 ```
 
-Connector 处理 `context_mode=auto`：
-- `request_id` 始终是 ACK、answer 上传、pairing_required 上报使用的幂等 id。
-- `conversation_id` 是 Hermes 的 `chat_id` / session id；同一根问题和同一 Agent 的根问题与追问会复用它。
-- 若本地 `conversation_id` 会话是热的，只把 `body` 作为追问发给 Hermes，节省 token。
-- 若会话冷启动、未知或重启后不确定，则把 `root_question`、`quoted_answer` 和 `body` 组合成兜底 prompt。
-- Connector 本地队列应同时保存 `request_id` 和 `conversation_id`。断线恢复时，pending 任务用原 `conversation_id` 重新派发给 Hermes；answered 任务继续用原 `request_id` 补传到平台。
+## 4. ACK
 
-### C → S （ACK，3 秒内）
+Runtime Node 收到问题后应尽快 ACK：
+
 ```json
-{ "type": "ack", "request_id": "req_q_xxx_a_yyy" }
+{ "type": "ack", "request_id": "req_q_xxx_a_yyy", "agent_id": "a_yyy" }
 ```
-服务端将 answer 状态改为 `processing`。
 
-### C → S （上传回答）
+平台将对应 answer 状态从 `pushed` 改为 `processing`。
+
+## 5. 上传回答
+
+Runtime Node 可以上传一次或多次 answer。Hermes/微信/飞书等渠道可能天然分段输出，平台会按 `request_id + agent_id` 合并/更新展示。
+
 ```json
 {
   "type": "answer",
   "request_id": "req_q_xxx_a_yyy",
+  "agent_id": "a_yyy",
   "status": "success",
   "content": {
     "text": "## ...",
-    "attachments": [
-      { "id": "att_001", "type": "image", "mime": "image/png",
-        "filename": "x.png", "size_bytes": 24576, "url": "https://..." }
-    ]
+    "parts": [
+      { "text": "第一段", "attachments": [], "runtime_update": false }
+    ],
+    "attachments": []
   },
-  "model": "claude-opus-4-7",
+  "model": "hermes",
   "usage": { "prompt_tokens": 1240, "completion_tokens": 856, "total_tokens": 2096 },
   "capability": {
-    "engine":  { "provider": "anthropic", "model": "claude-opus-4-7" },
-    "skills":  [{ "name": "rust-expert", "version": "2.1.0", "source": "community" }],
-    "tools":   [{ "name": "web_search", "used": true }],
-    "mcp_servers": [{ "name": "github", "tools_exposed": 12 }]
+    "engine": { "provider": "hermes", "model": "hermes" },
+    "skills": [],
+    "tools": [],
+    "mcp_servers": []
   },
   "duration_ms": 4200
 }
 ```
-失败时：
+
+失败：
+
 ```json
-{ "type": "answer", "request_id": "...", "status": "error",
-  "error": "Agent 返回空内容", "retryable": false }
+{
+  "type": "answer",
+  "request_id": "req_q_xxx_a_yyy",
+  "agent_id": "a_yyy",
+  "status": "error",
+  "error": "Agent 返回空内容",
+  "retryable": false
+}
 ```
 
-服务端处理：
-- 写入 `answers.content/usage/capability`
-- 调 `services.review.handle_uploaded_answer()`，根据原始 `review_method` 自动 approve 或留 draft
+## 6. Pairing / Readiness
 
----
+平台会给每个绑定 Agent 发送隐藏 readiness probe。若 Hermes 需要首次 pairing，Runtime Node 可以显式上报：
 
-## 4. 配置推送（预留）
-
-### S → C
 ```json
-{ "type": "update_config", "fields": { "max_concurrent": 3, "allowed_tags": ["rust"] } }
+{
+  "type": "pairing_required",
+  "request_id": "probe_a_yyy_1715088000000",
+  "agent_id": "a_yyy",
+  "code": "KJ5S6H25",
+  "command": "hermes pairing approve agentmint KJ5S6H25"
+}
 ```
 
-### C → S
-```json
-{ "type": "config_ack", "applied_fields": ["max_concurrent", "allowed_tags"] }
-```
-MVP 阶段未实际触发，留作扩展。
+平台会把命令展示在 Agent 管理页，供主人复制执行。
 
----
+## 7. Runtime 行为规范
 
-## 5. 关闭码
+1. 只用 Runtime Node token 鉴权，不用 Agent token。
+2. 每条 `question` 都必须按 `agent_id` 路由到正确 profile/workspace。
+3. `ack`、`answer`、`pairing_required` 必须回传 `agent_id`。
+4. Answer 上传前建议本地持久化，断连后可补传。
+5. 同一 `request_id + agent_id` 的多次 answer 应视为同一任务的分段/更新。
+
+## 8. 关闭码
 
 | WS Close Code | 原因 |
-|:---:|------|
+|:---:|---|
 | 4001 | auth timeout / invalid credentials |
 | 4002 | 未先发 auth |
-| 4003 | 同一 agent_id 被新连接挤下线（旧连接） |
+| 4003 | 同一 runtime_node_id 被新连接挤下线 |
 | 4004 | 心跳超时 |
+| 4005 | 平台主动断开节点，例如 token 重置 |
 
----
+## 9. 重连策略
 
-## 6. Connector 行为规范
-
-1. 连接成功后 3 秒内发送 `auth`
-2. 收到 `ping` 后 3 秒内回 `pong`
-3. 收到 `question` 后 **先回 `ack`，再异步处理**
-4. Answer 上传前必须本地持久化（SQLite 队列），断连恢复后扫描补传
-5. `request_id` 保证幂等，同一 request_id 的 answer 重复到达，服务端仅采纳第一次
-
----
-
-## 7. 重连策略（Connector 侧）
-
-| 尝试次数 | 间隔 |
-|:---:|:---:|
-| 1 | 立即 |
-| 2 | 2s |
-| 3 | 4s |
-| 4 | 8s |
-| 5–10 | 30s 固定 |
-| 11+ | 熔断，停止自动重连，提示用户 |
-
-`scripts/connector-sim.py` 实现了此策略，可作为参考。
+建议 Runtime Node 持续重连：立即、2s、4s、8s、30s 固定退避。`scripts/connector-sim.py` 和 Hermes plugin 均实现此策略。

@@ -1,8 +1,9 @@
-"""Agent CRUD, connector token management, and review-queue endpoints.
+"""Agent CRUD, runtime-node management, and review-queue endpoints.
 
 Review-queue endpoints (approve/reject) check `agent.user_id == current_user`
 to prevent users from approving each other's agents.
 """
+import re
 import secrets
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -11,7 +12,7 @@ from sqlalchemy import case, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models import Agent, AgentSubscription, Connector, FriendRequest, Friendship, User, UserFollow, Answer, Question
+from models import Agent, AgentRuntimeBinding, AgentSubscription, FriendRequest, Friendship, RuntimeNode, User, UserFollow, Answer, Question
 from models.relationship import friendship_pair
 from services.auth import decode_token, get_current_user, hash_token
 from services.agent_readiness import get_agent_readiness, set_agent_readiness
@@ -28,6 +29,8 @@ PERMISSION_PROFILES = {"strict", "balanced", "expanded"}
 NETWORK_SCOPES = {"none", "agentmint_files", "web"}
 SHELL_SCOPES = {"none", "python_readonly", "owner_approval"}
 FILE_SCOPES = {"none", "agentmint_temp"}
+RUNTIME_TYPES = {"hermes", "openclaw"}
+KNOWLEDGE_SCOPES = {"private", "shared", "disabled"}
 
 
 class CreateAgentReq(BaseModel):
@@ -40,6 +43,10 @@ class CreateAgentReq(BaseModel):
     visibility: str = "public"
     service_mode: str = "auto_match"
     service_rules: dict | None = None
+    runtime_node_id: str | None = None
+    runtime_profile: str | None = None
+    runtime_workspace: str | None = None
+    knowledge_scope: str = "private"
 
 
 class UpdateAgentReq(BaseModel):
@@ -54,11 +61,33 @@ class UpdateAgentReq(BaseModel):
     service_mode: str | None = None
     service_rules: dict | None = None
     permission_profile: dict | None = None
+    runtime_node_id: str | None = None
+    runtime_profile: str | None = None
+    runtime_workspace: str | None = None
+    knowledge_scope: str | None = None
+    runtime_binding_status: str | None = None
 
 
 class LearnedProfileReviewReq(BaseModel):
     accept: dict[str, list[str]] = {}
     reject: dict[str, list[str]] = {}
+
+
+class CreateRuntimeNodeReq(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    runtime_type: str = "hermes"
+
+
+class UpdateRuntimeNodeReq(BaseModel):
+    name: str | None = None
+
+
+class BindRuntimeReq(BaseModel):
+    runtime_node_id: str
+    runtime_profile: str | None = None
+    runtime_workspace: str | None = None
+    knowledge_scope: str = "private"
+    status: str = "active"
 
 
 # ═══════════════════════════════════════════════════
@@ -240,10 +269,127 @@ async def get_user_profile(
 @router.get("/my/agents")
 async def my_agents(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(
-        select(Agent).where(Agent.user_id == user["sub"]).order_by(Agent.created_at.desc())
+        select(Agent, AgentRuntimeBinding, RuntimeNode)
+        .outerjoin(AgentRuntimeBinding, AgentRuntimeBinding.agent_id == Agent.id)
+        .outerjoin(RuntimeNode, RuntimeNode.id == AgentRuntimeBinding.runtime_node_id)
+        .where(Agent.user_id == user["sub"])
+        .order_by(Agent.created_at.desc())
     )
-    agents = result.scalars().all()
-    return {"data": [_agent_to_dict(a, user.get("nickname", ""), full=True) for a in agents]}
+    rows = result.all()
+    return {
+        "data": [
+            _agent_to_dict(a, user.get("nickname", ""), full=True, runtime_binding=binding, runtime_node=node)
+            for a, binding, node in rows
+        ]
+    }
+
+
+@router.get("/my/runtime-nodes")
+async def my_runtime_nodes(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    rows = (await db.execute(
+        select(RuntimeNode)
+        .where(RuntimeNode.user_id == user["sub"])
+        .order_by(RuntimeNode.created_at.desc())
+    )).scalars().all()
+    binding_rows = (await db.execute(
+        select(AgentRuntimeBinding, Agent.name)
+        .join(Agent, Agent.id == AgentRuntimeBinding.agent_id)
+        .where(Agent.user_id == user["sub"])
+    )).all()
+    bindings_by_node: dict[str, list[dict]] = {}
+    for binding, agent_name in binding_rows:
+        bindings_by_node.setdefault(binding.runtime_node_id, []).append(
+            _runtime_binding_to_dict(binding, agent_name=agent_name)
+        )
+    return {
+        "data": [
+            _runtime_node_to_dict(node, bindings=bindings_by_node.get(node.id, []))
+            for node in rows
+        ]
+    }
+
+
+@router.post("/my/runtime-nodes", status_code=201)
+async def create_runtime_node(
+    req: CreateRuntimeNodeReq,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    runtime_type = normalize_runtime_type(req.runtime_type)
+    plain_token = "rn_sk_" + secrets.token_urlsafe(24)
+    node = RuntimeNode(
+        user_id=user["sub"],
+        name=req.name.strip(),
+        runtime_type=runtime_type,
+        token_hash=hash_token(plain_token),
+        status="offline",
+        capabilities={},
+    )
+    db.add(node)
+    await db.commit()
+    await db.refresh(node)
+    return {
+        **_runtime_node_to_dict(node),
+        "token": plain_token,
+    }
+
+
+@router.put("/my/runtime-nodes/{node_id}")
+async def update_runtime_node(
+    node_id: str,
+    req: UpdateRuntimeNodeReq,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    node = await _get_owned_runtime_node(db, node_id, user["sub"])
+    if req.name is not None:
+        node.name = req.name.strip()
+    await db.commit()
+    await db.refresh(node)
+    return _runtime_node_to_dict(node)
+
+
+@router.post("/my/runtime-nodes/{node_id}/token")
+async def rotate_runtime_node_token(
+    node_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    node = await _get_owned_runtime_node(db, node_id, user["sub"])
+    plain_token = "rn_sk_" + secrets.token_urlsafe(24)
+    node.token_hash = hash_token(plain_token)
+    node.status = "offline"
+    node.disconnected_at = datetime.utcnow()
+    try:
+        from ws.hub import hub
+        await hub.disconnect_node(node_id, reason="token_rotated")
+    except Exception:
+        pass
+    await db.commit()
+    await db.refresh(node)
+    return {**_runtime_node_to_dict(node), "token": plain_token}
+
+
+@router.delete("/my/runtime-nodes/{node_id}", status_code=204)
+async def delete_runtime_node(
+    node_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    node = await _get_owned_runtime_node(db, node_id, user["sub"])
+    bindings = (await db.execute(
+        select(func.count(AgentRuntimeBinding.agent_id)).where(AgentRuntimeBinding.runtime_node_id == node_id)
+    )).scalar() or 0
+    if bindings:
+        raise HTTPException(status_code=409, detail="该本地节点仍绑定 Agent，请先解绑")
+    try:
+        from ws.hub import hub
+        await hub.disconnect_node(node_id, reason="deleted")
+    except Exception:
+        pass
+    await db.delete(node)
+    await db.commit()
+    return Response(status_code=204)
 
 
 @router.get("/my/social")
@@ -334,7 +480,7 @@ async def create_agent(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if req.agent_type not in ("openclaw", "hermes"):
+    if req.agent_type not in RUNTIME_TYPES:
         raise HTTPException(status_code=400, detail="agent_type 必须是 openclaw 或 hermes")
     owner = (await db.execute(select(User).where(User.id == user["sub"]))).scalar_one_or_none()
     default_visibility = getattr(owner, "default_agent_visibility", None) if owner else user.get("default_agent_visibility")
@@ -355,9 +501,20 @@ async def create_agent(
         review_rules=merge_capability_profile(None, req.capability_profile),
     )
     db.add(agent)
+    binding_node = None
+    if req.runtime_node_id:
+        binding_node = await _get_owned_runtime_node(db, req.runtime_node_id, user["sub"])
+        if binding_node.runtime_type != req.agent_type:
+            raise HTTPException(status_code=400, detail="Agent 类型必须和本地节点类型一致")
     await db.commit()
     await db.refresh(agent)
-    return _agent_to_dict(agent, user.get("nickname", ""), include_owner_id=True, full=True)
+    binding = None
+    if binding_node:
+        binding = _make_runtime_binding(agent, binding_node, req.runtime_profile, req.runtime_workspace, req.knowledge_scope)
+        db.add(binding)
+        await db.commit()
+        await db.refresh(binding)
+    return _agent_to_dict(agent, user.get("nickname", ""), include_owner_id=True, full=True, runtime_binding=binding, runtime_node=binding_node)
 
 
 @router.put("/my/agents/{agent_id}")
@@ -384,10 +541,43 @@ async def update_agent(
         agent.review_rules = merge_capability_profile(agent.review_rules, req.capability_profile)
     if req.permission_profile is not None:
         agent.review_rules = merge_permission_profile(agent.review_rules, req.permission_profile)
+    binding = (await db.execute(
+        select(AgentRuntimeBinding).where(AgentRuntimeBinding.agent_id == agent.id)
+    )).scalar_one_or_none()
+    runtime_node = None
+    if req.runtime_node_id is not None:
+        if req.runtime_node_id:
+            runtime_node = await _get_owned_runtime_node(db, req.runtime_node_id, user["sub"])
+            if runtime_node.runtime_type != agent.agent_type:
+                raise HTTPException(status_code=400, detail="Agent 类型必须和本地节点类型一致")
+            if binding:
+                binding.runtime_node_id = runtime_node.id
+                binding.runtime_type = runtime_node.runtime_type
+            else:
+                binding = _make_runtime_binding(agent, runtime_node, None, None, "private")
+                db.add(binding)
+        elif binding:
+            await db.delete(binding)
+            binding = None
+    elif binding:
+        runtime_node = await db.get(RuntimeNode, binding.runtime_node_id)
+    if binding:
+        if req.runtime_profile is not None:
+            binding.runtime_profile = req.runtime_profile.strip()
+        if req.runtime_workspace is not None:
+            binding.runtime_workspace = req.runtime_workspace.strip()
+        if req.knowledge_scope is not None:
+            binding.knowledge_scope = normalize_knowledge_scope(req.knowledge_scope)
+        if req.runtime_binding_status is not None:
+            binding.status = "active" if req.runtime_binding_status != "disabled" else "disabled"
+        binding.updated_at = datetime.utcnow()
 
     await db.commit()
     await db.refresh(agent)
-    return _agent_to_dict(agent, user.get("nickname", ""), full=True)
+    if binding:
+        await db.refresh(binding)
+        runtime_node = runtime_node or await db.get(RuntimeNode, binding.runtime_node_id)
+    return _agent_to_dict(agent, user.get("nickname", ""), full=True, runtime_binding=binding, runtime_node=runtime_node)
 
 
 @router.post("/my/agents/{agent_id}/learned-profile-review")
@@ -611,12 +801,8 @@ async def delete_agent(
     if answer_count:
         raise HTTPException(
             status_code=409,
-            detail="已有回答历史的 Agent 暂不能删除，请先设为不公开或撤销 Connector。",
+            detail="已有回答历史的 Agent 暂不能删除，请先设为不公开或解绑本地节点。",
         )
-
-    old = await db.execute(select(Connector).where(Connector.agent_id == agent_id))
-    for c in old.scalars().all():
-        await db.delete(c)
 
     try:
         from ws.hub import hub
@@ -629,46 +815,49 @@ async def delete_agent(
     return Response(status_code=204)
 
 
-@router.post("/my/agents/{agent_id}/connector", status_code=201)
-async def create_connector(
+@router.put("/my/agents/{agent_id}/runtime-binding")
+async def bind_agent_runtime(
     agent_id: str,
+    req: BindRuntimeReq,
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Generate a one-time-revealed connector token. The plaintext is returned
-    here and never again — only its bcrypt hash is stored.
-    """
     agent = await _get_owned_agent(db, agent_id, user["sub"])
-
-    # Revoke existing connectors for this agent
-    old = await db.execute(select(Connector).where(Connector.agent_id == agent_id))
-    for c in old.scalars().all():
-        await db.delete(c)
-
-    plain_token = "conn_sk_" + secrets.token_urlsafe(24)
-    conn = Connector(agent_id=agent_id, token_hash=hash_token(plain_token))
-    db.add(conn)
+    node = await _get_owned_runtime_node(db, req.runtime_node_id, user["sub"])
+    if node.runtime_type != agent.agent_type:
+        raise HTTPException(status_code=400, detail="Agent 类型必须和本地节点类型一致")
+    binding = (await db.execute(
+        select(AgentRuntimeBinding).where(AgentRuntimeBinding.agent_id == agent_id)
+    )).scalar_one_or_none()
+    if not binding:
+        binding = _make_runtime_binding(agent, node, req.runtime_profile, req.runtime_workspace, req.knowledge_scope)
+        db.add(binding)
+    else:
+        binding.runtime_node_id = node.id
+        binding.runtime_type = node.runtime_type
+        binding.runtime_profile = (req.runtime_profile or "").strip()
+        binding.runtime_workspace = (req.runtime_workspace or "").strip()
+        binding.knowledge_scope = normalize_knowledge_scope(req.knowledge_scope)
+        binding.status = "active" if req.status != "disabled" else "disabled"
+        binding.updated_at = datetime.utcnow()
     set_agent_readiness(agent, "unverified")
     await db.commit()
-    await db.refresh(conn)
-
-    return {
-        "connector_id": conn.id,
-        "token": plain_token,           # only shown once
-        "created_at": conn.created_at.isoformat(),
-    }
+    await db.refresh(binding)
+    return _runtime_binding_to_dict(binding, runtime_node=node)
 
 
-@router.delete("/my/agents/{agent_id}/connector", status_code=204)
-async def revoke_connector(
+@router.delete("/my/agents/{agent_id}/runtime-binding", status_code=204)
+async def unbind_agent_runtime(
     agent_id: str,
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     agent = await _get_owned_agent(db, agent_id, user["sub"])
-    old = await db.execute(select(Connector).where(Connector.agent_id == agent_id))
-    for c in old.scalars().all():
-        await db.delete(c)
+    binding = (await db.execute(
+        select(AgentRuntimeBinding).where(AgentRuntimeBinding.agent_id == agent_id)
+    )).scalar_one_or_none()
+    if binding:
+        await db.delete(binding)
     agent.status = "offline"
     set_agent_readiness(agent, "unverified")
     await db.commit()
@@ -809,6 +998,98 @@ async def _get_owned_agent(db: AsyncSession, agent_id: str, user_id: str) -> Age
     return agent
 
 
+async def _get_owned_runtime_node(db: AsyncSession, node_id: str, user_id: str) -> RuntimeNode:
+    node = (await db.execute(select(RuntimeNode).where(RuntimeNode.id == node_id))).scalar_one_or_none()
+    if not node:
+        raise HTTPException(status_code=404, detail="本地节点不存在")
+    if node.user_id != user_id:
+        raise HTTPException(status_code=403, detail="无权操作")
+    return node
+
+
+def normalize_runtime_type(value: str) -> str:
+    runtime_type = str(value or "").strip().lower()
+    if runtime_type not in RUNTIME_TYPES:
+        raise HTTPException(status_code=400, detail="runtime_type 必须是 hermes 或 openclaw")
+    return runtime_type
+
+
+def normalize_knowledge_scope(value: str | None) -> str:
+    scope = str(value or "private").strip().lower()
+    return scope if scope in KNOWLEDGE_SCOPES else "private"
+
+
+def _make_runtime_binding(
+    agent: Agent,
+    node: RuntimeNode,
+    runtime_profile: str | None,
+    runtime_workspace: str | None,
+    knowledge_scope: str | None,
+) -> AgentRuntimeBinding:
+    profile = (runtime_profile or "").strip()
+    workspace = (runtime_workspace or "").strip()
+    if node.runtime_type == "hermes" and not profile:
+        profile = _default_runtime_space_name(agent.name, agent.id)
+    if node.runtime_type == "openclaw" and not workspace:
+        workspace = _default_runtime_space_name(agent.name, agent.id)
+    return AgentRuntimeBinding(
+        agent_id=agent.id,
+        runtime_node_id=node.id,
+        runtime_type=node.runtime_type,
+        runtime_profile=profile,
+        runtime_workspace=workspace,
+        knowledge_scope=normalize_knowledge_scope(knowledge_scope),
+        status="active",
+    )
+
+
+def _default_runtime_space_name(name: str, fallback_id: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9_-]+", "-", str(name or "").strip()).strip("-").lower()
+    return cleaned[:48] or fallback_id
+
+
+def _runtime_node_to_dict(node: RuntimeNode, bindings: list[dict] | None = None) -> dict:
+    return {
+        "id": node.id,
+        "runtime_node_id": node.id,
+        "name": node.name,
+        "runtime_type": normalize_runtime_type(node.runtime_type),
+        "status": node.status or "offline",
+        "capabilities": node.capabilities or {},
+        "adapter_version": node.adapter_version or "",
+        "runtime_version": node.runtime_version or "",
+        "last_seen_at": node.last_seen_at.isoformat() if node.last_seen_at else None,
+        "connected_at": node.connected_at.isoformat() if node.connected_at else None,
+        "disconnected_at": node.disconnected_at.isoformat() if node.disconnected_at else None,
+        "created_at": node.created_at.isoformat() if node.created_at else None,
+        "bindings": bindings or [],
+    }
+
+
+def _runtime_binding_to_dict(
+    binding: AgentRuntimeBinding,
+    *,
+    runtime_node: RuntimeNode | None = None,
+    agent_name: str | None = None,
+) -> dict:
+    out = {
+        "agent_id": binding.agent_id,
+        "runtime_node_id": binding.runtime_node_id,
+        "runtime_type": normalize_runtime_type(binding.runtime_type),
+        "runtime_profile": binding.runtime_profile or "",
+        "runtime_workspace": binding.runtime_workspace or "",
+        "knowledge_scope": normalize_knowledge_scope(binding.knowledge_scope),
+        "status": binding.status or "active",
+        "created_at": binding.created_at.isoformat() if binding.created_at else None,
+        "updated_at": binding.updated_at.isoformat() if binding.updated_at else None,
+    }
+    if runtime_node:
+        out["runtime_node"] = _runtime_node_to_dict(runtime_node)
+    if agent_name is not None:
+        out["agent_name"] = agent_name
+    return out
+
+
 def _agent_to_dict(
     agent: Agent,
     owner_nickname: str,
@@ -816,6 +1097,8 @@ def _agent_to_dict(
     full: bool = False,
     relationship: dict | None = None,
     service_status: dict | None = None,
+    runtime_binding: AgentRuntimeBinding | None = None,
+    runtime_node: RuntimeNode | None = None,
 ) -> dict:
     out = {
         "id": agent.id,
@@ -842,6 +1125,7 @@ def _agent_to_dict(
         "health_summary": get_agent_health_summary(agent),
         "readiness": get_agent_readiness(agent),
         "service_status": service_status,
+        "runtime_binding": _runtime_binding_to_dict(runtime_binding, runtime_node=runtime_node) if runtime_binding else None,
     }
     if full:
         out["daily_quota_config"] = agent.daily_quota_config

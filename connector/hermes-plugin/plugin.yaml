@@ -13,8 +13,8 @@ description: |
 
 # These three are surfaced in `hermes config` and prompted during install.
 requires_env:
-  - AGENTMINT_CONNECTOR_ID
-  - AGENTMINT_CONNECTOR_TOKEN
+  - AGENTMINT_RUNTIME_NODE_ID
+  - AGENTMINT_RUNTIME_NODE_TOKEN
 
 optional_env:
   - AGENTMINT_PLATFORM_URL        # default ws://localhost:8000/ws

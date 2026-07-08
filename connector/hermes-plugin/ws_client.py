@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 
 BACKOFF_SCHEDULE = [0, 2, 4, 8, 30, 30, 30, 30, 30, 30]
 SERVER_IDLE_TIMEOUT_SECONDS = 75
-AGENTMINT_WS_CLIENT_VERSION = "2026-07-08.1"
+AGENTMINT_WS_CLIENT_VERSION = "2026-07-08.2"
 
 
 class ArenaAuthError(Exception):
@@ -43,17 +43,17 @@ class ArenaWSClient:
     def __init__(
         self,
         platform_url: str,
-        connector_id: str,
-        connector_token: str,
         on_question: QuestionHandler,
+        runtime_node_id: str = "",
+        runtime_node_token: str = "",
         on_reconnected: Callable[[], Awaitable[None]] | None = None,
         quota_provider: QuotaProvider | None = None,
         agent_type: str = "hermes",
         agent_version: str = "0.1.0",
     ):
         self.platform_url = platform_url
-        self.connector_id = connector_id
-        self.connector_token = connector_token
+        self.runtime_node_id = runtime_node_id
+        self.runtime_node_token = runtime_node_token
         self.on_question = on_question
         self.on_reconnected = on_reconnected
         self.quota_provider = quota_provider or (lambda: {"used": 0, "max": 50, "remaining_auto": 40, "remaining_review": 10})
@@ -108,14 +108,18 @@ class ArenaWSClient:
                 log.warning("ws send failed: %s", e)
                 return False
 
-    async def send_ack(self, request_id: str) -> bool:
-        return await self.send({"type": "ack", "request_id": request_id})
+    async def send_ack(self, request_id: str, *, agent_id: str = "") -> bool:
+        payload = {"type": "ack", "request_id": request_id}
+        if agent_id:
+            payload["agent_id"] = agent_id
+        return await self.send(payload)
 
     async def send_answer(self, request_id: str, *, text: str, model: str,
                           usage: dict, capability: dict | None = None,
                           attachments: list[dict] | None = None,
                           duration_ms: int = 0,
-                          usage_correction: bool = False) -> bool:
+                          usage_correction: bool = False,
+                          agent_id: str = "") -> bool:
         payload = {
             "type": "answer",
             "request_id": request_id,
@@ -126,26 +130,34 @@ class ArenaWSClient:
             "capability": capability or {},
             "duration_ms": duration_ms,
         }
+        if agent_id:
+            payload["agent_id"] = agent_id
         if usage_correction:
             payload["usage_correction"] = True
         return await self.send(payload)
 
-    async def send_error(self, request_id: str, error: str, retryable: bool = False) -> bool:
-        return await self.send({
+    async def send_error(self, request_id: str, error: str, retryable: bool = False, *, agent_id: str = "") -> bool:
+        payload = {
             "type": "answer",
             "request_id": request_id,
             "status": "error",
             "error": error,
             "retryable": retryable,
-        })
+        }
+        if agent_id:
+            payload["agent_id"] = agent_id
+        return await self.send(payload)
 
-    async def send_pairing_required(self, request_id: str, *, code: str, command: str) -> bool:
-        return await self.send({
+    async def send_pairing_required(self, request_id: str, *, code: str, command: str, agent_id: str = "") -> bool:
+        payload = {
             "type": "pairing_required",
             "request_id": request_id,
             "code": code,
             "command": command,
-        })
+        }
+        if agent_id:
+            payload["agent_id"] = agent_id
+        return await self.send(payload)
 
     # ─── Internal: connect + auth ───
 
@@ -154,12 +166,18 @@ class ArenaWSClient:
         ws = await websockets.connect(self.platform_url, open_timeout=10, ping_interval=None)
         await ws.send(json.dumps({
             "type": "auth",
-            "connector_id": self.connector_id,
-            "token": self.connector_token,
-            "version": self.agent_version,
-            "agent_type": self.agent_type,
+            "runtime_node_id": self.runtime_node_id,
+            "token": self.runtime_node_token,
+            "runtime_type": self.agent_type,
+            "runtime_version": self.agent_version,
+            "adapter_version": AGENTMINT_WS_CLIENT_VERSION,
             "agent_version": self.agent_version,
-            "capabilities": ["chat"],
+            "capabilities": {
+                "multi_agent": True,
+                "profiles": True,
+                "local_knowledge": True,
+                "runtime_profiles": self.agent_type == "hermes",
+            },
         }))
         raw = await asyncio.wait_for(ws.recv(), timeout=10)
         msg = json.loads(raw)
@@ -167,7 +185,7 @@ class ArenaWSClient:
             reason = msg.get("reason") or "unknown"
             await ws.close()
             raise ArenaAuthError(reason)
-        log.info("auth_ok as \"%s\"", msg.get("connector_name"))
+        log.info("auth_ok as \"%s\"", msg.get("runtime_node_name"))
         return ws
 
     async def _connect_with_backoff(self) -> websockets.WebSocketClientProtocol | None:

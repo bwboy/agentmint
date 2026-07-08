@@ -5,16 +5,16 @@ usage() {
   cat <<'EOF'
 Usage:
   connector/hermes-plugin/setup.sh \
-    --connector-id conn_xxxxxxxx \
-    --connector-token conn_sk_xxx \
+    --runtime-node-id rn_xxxxxxxx \
+    --runtime-node-token rn_sk_xxx \
     --platform-url ws://SERVER:8000/ws \
     [--mode link|copy] [--hermes-home PATH]
 
 Options:
   --mode MODE                  Install mode. Default: link.
   --hermes-home PATH           Hermes home directory. Default: $HERMES_HOME or ~/.hermes.
-  --connector-id ID            AgentMint connector id.
-  --connector-token TOKEN      AgentMint connector token.
+  --runtime-node-id ID         AgentMint runtime node id.
+  --runtime-node-token TOKEN   AgentMint runtime node token.
   --platform-url URL           AgentMint backend WebSocket URL.
   --queue-db PATH              Optional queue database path.
   --max-concurrent N           Default: 3.
@@ -28,8 +28,8 @@ EOF
 
 MODE="link"
 HERMES_HOME_DIR="${HERMES_HOME:-$HOME/.hermes}"
-CONNECTOR_ID=""
-CONNECTOR_TOKEN=""
+RUNTIME_NODE_ID=""
+RUNTIME_NODE_TOKEN=""
 PLATFORM_URL=""
 QUEUE_DB=""
 MAX_CONCURRENT="3"
@@ -44,10 +44,10 @@ while [[ $# -gt 0 ]]; do
     --mode=*) MODE="${1#*=}"; shift ;;
     --hermes-home) HERMES_HOME_DIR="${2:-}"; shift 2 ;;
     --hermes-home=*) HERMES_HOME_DIR="${1#*=}"; shift ;;
-    --connector-id) CONNECTOR_ID="${2:-}"; shift 2 ;;
-    --connector-id=*) CONNECTOR_ID="${1#*=}"; shift ;;
-    --connector-token) CONNECTOR_TOKEN="${2:-}"; shift 2 ;;
-    --connector-token=*) CONNECTOR_TOKEN="${1#*=}"; shift ;;
+    --runtime-node-id) RUNTIME_NODE_ID="${2:-}"; shift 2 ;;
+    --runtime-node-id=*) RUNTIME_NODE_ID="${1#*=}"; shift ;;
+    --runtime-node-token) RUNTIME_NODE_TOKEN="${2:-}"; shift 2 ;;
+    --runtime-node-token=*) RUNTIME_NODE_TOKEN="${1#*=}"; shift ;;
     --platform-url) PLATFORM_URL="${2:-}"; shift 2 ;;
     --platform-url=*) PLATFORM_URL="${1#*=}"; shift ;;
     --queue-db) QUEUE_DB="${2:-}"; shift 2 ;;
@@ -69,8 +69,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "$CONNECTOR_ID" || -z "$CONNECTOR_TOKEN" || -z "$PLATFORM_URL" ]]; then
-  echo "--connector-id, --connector-token, and --platform-url are required" >&2
+if [[ -z "$RUNTIME_NODE_ID" || -z "$RUNTIME_NODE_TOKEN" || -z "$PLATFORM_URL" ]]; then
+  echo "--runtime-node-id, --runtime-node-token, and --platform-url are required" >&2
   usage >&2
   exit 2
 fi
@@ -115,8 +115,8 @@ fi
 
 configure_args=(
   "$SCRIPT_DIR/configure.py"
-  --connector-id "$CONNECTOR_ID"
-  --connector-token "$CONNECTOR_TOKEN"
+  --runtime-node-id "$RUNTIME_NODE_ID"
+  --runtime-node-token "$RUNTIME_NODE_TOKEN"
   --platform-url "$PLATFORM_URL"
   --hermes-home "$HERMES_HOME_DIR"
   --max-concurrent "$MAX_CONCURRENT"
@@ -144,5 +144,5 @@ Start or restart:
   hermes gateway
 
 Expected startup log:
-  agentmint ws client 2026-06-30.3 loaded from ...
+  agentmint ws client loaded from ...
 EOF

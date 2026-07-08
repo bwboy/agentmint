@@ -20,6 +20,27 @@ class FakeWebSocket:
         self.sent.append(text)
 
 
+def make_node(node_id="rn_test", user_id="u_test"):
+    return SimpleNamespace(
+        id=node_id,
+        user_id=user_id,
+        runtime_type="hermes",
+        name="Test runtime",
+    )
+
+
+def make_binding(agent_id="a_test", node_id="rn_test"):
+    return SimpleNamespace(
+        agent_id=agent_id,
+        runtime_node_id=node_id,
+        runtime_type="hermes",
+        runtime_profile="wow-profile",
+        runtime_workspace="",
+        knowledge_scope="private",
+        status="active",
+    )
+
+
 def test_is_readiness_probe_matches_probe_requests_only():
     assert is_readiness_probe({"request_id": "probe_a_test_123"})
     assert is_readiness_probe({"request_id": "req_q_1_a_1"}) is False
@@ -28,11 +49,15 @@ def test_is_readiness_probe_matches_probe_requests_only():
 @pytest.mark.asyncio
 async def test_push_readiness_probe_marks_checking_and_sends_hidden_question(monkeypatch):
     agent = SimpleNamespace(id="a_test", review_rules={})
+    binding = make_binding()
     commits = []
 
     class ScalarResult:
+        def __init__(self, value):
+            self.value = value
+
         def scalar_one_or_none(self):
-            return agent
+            return self.value
 
     class FakeSession:
         async def __aenter__(self):
@@ -42,7 +67,10 @@ async def test_push_readiness_probe_marks_checking_and_sends_hidden_question(mon
             return None
 
         async def execute(self, stmt):
-            return ScalarResult()
+            statement = str(stmt)
+            if "agent_runtime_bindings" in statement:
+                return ScalarResult(binding)
+            return ScalarResult(agent)
 
         async def commit(self):
             commits.append(True)
@@ -50,10 +78,10 @@ async def test_push_readiness_probe_marks_checking_and_sends_hidden_question(mon
     monkeypatch.setattr(hub_module, "AsyncSessionLocal", lambda: FakeSession())
 
     ws = FakeWebSocket()
-    client = WSClient(ws, "conn_test", "a_test", "u_test", "Agent")
+    client = WSClient(ws, make_node())
     hub = Hub()
-    hub.clients["conn_test"] = client
-    hub.agent_to_conn["a_test"] = "conn_test"
+    hub.clients["rn_test"] = client
+    hub.agent_to_node["a_test"] = "rn_test"
 
     delivered = await hub.push_readiness_probe("a_test")
 
@@ -63,15 +91,21 @@ async def test_push_readiness_probe_marks_checking_and_sends_hidden_question(mon
     assert len(ws.sent) == 1
     assert '"type": "question"' in ws.sent[0]
     assert '"probe": true' in ws.sent[0]
+    assert '"agent_id": "a_test"' in ws.sent[0]
+    assert '"runtime_profile": "wow-profile"' in ws.sent[0]
 
 
 @pytest.mark.asyncio
 async def test_push_readiness_probe_marks_error_when_send_fails(monkeypatch):
     agent = SimpleNamespace(id="a_test", review_rules={})
+    binding = make_binding()
 
     class ScalarResult:
+        def __init__(self, value):
+            self.value = value
+
         def scalar_one_or_none(self):
-            return agent
+            return self.value
 
     class FakeSession:
         async def __aenter__(self):
@@ -81,17 +115,20 @@ async def test_push_readiness_probe_marks_error_when_send_fails(monkeypatch):
             return None
 
         async def execute(self, stmt):
-            return ScalarResult()
+            statement = str(stmt)
+            if "agent_runtime_bindings" in statement:
+                return ScalarResult(binding)
+            return ScalarResult(agent)
 
         async def commit(self):
             pass
 
     monkeypatch.setattr(hub_module, "AsyncSessionLocal", lambda: FakeSession())
 
-    client = WSClient(FakeWebSocket(fail_send=True), "conn_test", "a_test", "u_test", "Agent")
+    client = WSClient(FakeWebSocket(fail_send=True), make_node())
     hub = Hub()
-    hub.clients["conn_test"] = client
-    hub.agent_to_conn["a_test"] = "conn_test"
+    hub.clients["rn_test"] = client
+    hub.agent_to_node["a_test"] = "rn_test"
 
     delivered = await hub.push_readiness_probe("a_test")
 
@@ -130,11 +167,12 @@ async def test_probe_answer_marks_agent_ready_without_review(monkeypatch):
     monkeypatch.setattr("services.review.handle_uploaded_answer", fake_review)
 
     hub = Hub()
-    client = WSClient(FakeWebSocket(), "conn_test", "a_test", "u_test", "Agent")
+    client = WSClient(FakeWebSocket(), make_node())
 
     await hub._dispatch(client, {
         "type": "answer",
         "request_id": "probe_a_test_123",
+        "agent_id": "a_test",
         "status": "success",
         "content": {"text": "OK"},
     })
@@ -167,11 +205,12 @@ async def test_probe_answer_with_pairing_text_marks_pairing_required(monkeypatch
     monkeypatch.setattr(hub_module, "AsyncSessionLocal", lambda: FakeSession())
 
     hub = Hub()
-    client = WSClient(FakeWebSocket(), "conn_test", "a_test", "u_test", "Agent")
+    client = WSClient(FakeWebSocket(), make_node())
 
     await hub._dispatch(client, {
         "type": "answer",
         "request_id": "probe_a_test_123",
+        "agent_id": "a_test",
         "status": "success",
         "content": {
             "text": "Hi~ I don't recognize you yet!\n\nHere's your pairing code: KJ5S6H25\n\n"
@@ -209,11 +248,12 @@ async def test_pairing_required_marks_agent_with_command(monkeypatch):
     monkeypatch.setattr(hub_module, "AsyncSessionLocal", lambda: FakeSession())
 
     hub = Hub()
-    client = WSClient(FakeWebSocket(), "conn_test", "a_test", "u_test", "Agent")
+    client = WSClient(FakeWebSocket(), make_node())
 
     await hub._dispatch(client, {
         "type": "pairing_required",
         "request_id": "probe_a_test_123",
+        "agent_id": "a_test",
         "code": "KJ5S6H25",
         "command": "hermes pairing approve agentmint KJ5S6H25",
     })

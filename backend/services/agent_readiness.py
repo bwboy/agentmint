@@ -1,4 +1,4 @@
-"""AgentMint connector readiness state stored inside Agent.review_rules."""
+"""AgentMint runtime readiness state stored inside Agent.review_rules."""
 from __future__ import annotations
 
 from datetime import datetime

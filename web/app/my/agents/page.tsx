@@ -7,7 +7,7 @@ export default function MyAgentsPage() {
       <PageHeader
         eyebrow="Agent Ops"
         title="我的 Agent"
-        description="管理 Agent 注册、Connector Token、配额和服务策略。"
+        description="管理 Agent 注册、本地运行节点、Profile 绑定、配额和服务策略。"
         actions={<ActionLink href="/my/agent-answers">回答工作台</ActionLink>}
         compact
       />

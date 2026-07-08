@@ -2,7 +2,7 @@
 
 - SMS codes live in Redis under `sms:{phone}` (TTL 5 min), survives multi-process.
 - JWT signing/verification uses HS256.
-- Connector tokens are bcrypt-hashed before storage.
+- Runtime node tokens are bcrypt-hashed before storage.
 """
 import random
 from datetime import datetime, timedelta
@@ -77,7 +77,7 @@ def decode_token(token: str) -> dict | None:
         return None
 
 
-# ─── Connector token hashing ───
+# ─── Runtime node token hashing ───
 
 def hash_token(token: str) -> str:
     return pwd_context.hash(token)

@@ -1,13 +1,9 @@
-"""WebSocket hub — single-process in-memory connector registry.
+"""WebSocket hub for local Agent runtime nodes.
 
-Responsibilities:
-- Authenticate incoming connectors (`connector_id` + token plaintext → bcrypt
-  verify against `connectors.token_hash`).
-- Track live WebSocket clients by `connector_id` and `agent_id`.
-- Heartbeat: send `ping` every 30s; mark agent offline if 90s without `pong`.
-- Push questions to a specific agent (`push_question`) — called from REST.
-- Receive `answer` messages and hand them to `services.review` for the
-  auto/review decision (kept in one place to avoid drift).
+Runtime nodes are owner machines running Hermes, OpenClaw, or another mature
+Agent runtime. A node authenticates once and may serve multiple AgentMint
+Agents through runtime-specific spaces such as Hermes profiles or OpenClaw
+workspaces.
 """
 import asyncio
 import json
@@ -18,13 +14,12 @@ from typing import Any
 
 from fastapi import WebSocket
 from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
 from database import AsyncSessionLocal
-from models import Agent, Connector, Answer
-from services.auth import verify_token_hash
+from models import Agent, AgentRuntimeBinding, Answer, RuntimeNode
 from services.agent_readiness import set_agent_readiness
+from services.auth import verify_token_hash
 
 PROBE_REQUEST_PREFIX = "probe_"
 PAIRING_CODE_RE = re.compile(r"pairing code:\s*([A-Z0-9-]+)", re.IGNORECASE)
@@ -36,14 +31,14 @@ def is_readiness_probe(msg: dict) -> bool:
 
 
 class WSClient:
-    """In-memory record for a live connector connection."""
+    """In-memory record for a live runtime-node connection."""
 
-    def __init__(self, ws: WebSocket, connector_id: str, agent_id: str, user_id: str, agent_name: str):
+    def __init__(self, ws: WebSocket, node: RuntimeNode):
         self.ws = ws
-        self.connector_id = connector_id
-        self.agent_id = agent_id
-        self.user_id = user_id
-        self.agent_name = agent_name
+        self.runtime_node_id = node.id
+        self.user_id = node.user_id
+        self.runtime_type = node.runtime_type
+        self.node_name = node.name
         self.last_pong = time.monotonic()
         self.quota_snapshot: dict[str, Any] = {}
 
@@ -56,27 +51,22 @@ class WSClient:
 
 
 class Hub:
-    """Singleton in-memory connector registry."""
+    """Singleton in-memory runtime-node registry."""
 
     def __init__(self):
-        self.clients: dict[str, WSClient] = {}        # connector_id → client
-        self.agent_to_conn: dict[str, str] = {}       # agent_id → connector_id
+        self.clients: dict[str, WSClient] = {}  # runtime_node_id -> client
+        self.agent_to_node: dict[str, str] = {}  # agent_id -> runtime_node_id, cached for tests/status
         self._lock = asyncio.Lock()
         self._heartbeat_task: asyncio.Task | None = None
-
-    # ─── Lifecycle ───
 
     def start_heartbeat(self):
         if self._heartbeat_task is None or self._heartbeat_task.done():
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
     async def mark_all_offline(self):
-        """Reset DB presence after API process restart.
-
-        Live connector state is in-memory, so a fresh process should consider
-        every agent offline until its connector authenticates again.
-        """
+        """Reset DB presence after API process restart."""
         async with AsyncSessionLocal() as db:
+            await db.execute(update(RuntimeNode).where(RuntimeNode.status == "online").values(status="offline"))
             await db.execute(update(Agent).where(Agent.status == "online").values(status="offline"))
             await db.commit()
 
@@ -88,15 +78,10 @@ class Hub:
             except asyncio.CancelledError:
                 pass
 
-    # ─── Connection handling ───
-
     async def handle(self, ws: WebSocket):
-        """Drive one connector's lifecycle from accept → auth → message loop → cleanup."""
         await ws.accept()
         client: WSClient | None = None
-
         try:
-            # Auth must be the first message and arrive within 5s.
             try:
                 raw = await asyncio.wait_for(ws.receive_text(), timeout=5.0)
             except asyncio.TimeoutError:
@@ -111,23 +96,20 @@ class Hub:
 
             client = await self._authenticate(ws, msg)
             if not client:
-                return  # _authenticate already closed the socket
+                return
 
             async with self._lock:
-                # Evict prior connection for the same agent, if any.
-                prev_conn_id = self.agent_to_conn.get(client.agent_id)
-                if prev_conn_id and prev_conn_id in self.clients:
-                    prev = self.clients.pop(prev_conn_id)
+                prev = self.clients.get(client.runtime_node_id)
+                if prev:
                     try:
                         await prev.ws.close(code=4003, reason="replaced")
                     except Exception:
                         pass
-                self.clients[client.connector_id] = client
-                self.agent_to_conn[client.agent_id] = client.connector_id
+                self.clients[client.runtime_node_id] = client
+                await self._refresh_agent_node_cache(client.runtime_node_id)
 
-            await self.push_readiness_probe(client.agent_id)
+            await self.push_readiness_probes_for_node(client.runtime_node_id)
 
-            # Message loop
             while True:
                 raw = await ws.receive_text()
                 try:
@@ -135,129 +117,122 @@ class Hub:
                 except json.JSONDecodeError:
                     continue
                 await self._dispatch(client, msg)
-
         except Exception:
-            # Including WebSocketDisconnect — fall through to cleanup
             pass
         finally:
             if client:
                 await self._cleanup(client)
 
     async def _authenticate(self, ws: WebSocket, msg: dict) -> WSClient | None:
-        connector_id = (msg.get("connector_id") or "").strip()
+        node_id = (msg.get("runtime_node_id") or msg.get("node_id") or "").strip()
         token = (msg.get("token") or "").strip()
-        if not connector_id or not token:
+        if not node_id or not token:
             await ws.send_text(json.dumps({"type": "auth_fail", "reason": "missing_credentials"}))
             await ws.close(code=4001)
             return None
 
         async with AsyncSessionLocal() as db:
-            result = await db.execute(
-                select(Connector, Agent).join(Agent, Connector.agent_id == Agent.id)
-                .where(Connector.id == connector_id)
-            )
-            row = result.one_or_none()
-            if not row:
-                await ws.send_text(json.dumps({"type": "auth_fail", "reason": "invalid_connector"}))
+            node = (await db.execute(select(RuntimeNode).where(RuntimeNode.id == node_id))).scalar_one_or_none()
+            if not node:
+                await ws.send_text(json.dumps({"type": "auth_fail", "reason": "invalid_runtime_node"}))
                 await ws.close(code=4001)
                 return None
-
-            conn, agent = row
-            if not verify_token_hash(token, conn.token_hash):
+            if not verify_token_hash(token, node.token_hash):
                 await ws.send_text(json.dumps({"type": "auth_fail", "reason": "invalid_token"}))
                 await ws.close(code=4001)
                 return None
 
-            # Mark agent online
-            agent.status = "online"
-            agent.last_seen_at = datetime.utcnow()
-            conn.connected_at = datetime.utcnow()
+            node.status = "online"
+            node.connected_at = datetime.utcnow()
+            node.last_seen_at = datetime.utcnow()
+            node.runtime_type = str(msg.get("runtime_type") or node.runtime_type or "").strip() or node.runtime_type
+            node.runtime_version = str(msg.get("runtime_version") or node.runtime_version or "")
+            node.adapter_version = str(msg.get("adapter_version") or msg.get("agent_version") or node.adapter_version or "")
+            capabilities = msg.get("capabilities")
+            if isinstance(capabilities, dict):
+                node.capabilities = capabilities
+            await self._mark_bound_agents(db, node.id, "online")
             await db.commit()
+            await db.refresh(node)
 
             await ws.send_text(json.dumps({
                 "type": "auth_ok",
-                "connector_name": agent.name,
+                "runtime_node_id": node.id,
+                "runtime_node_name": node.name,
                 "heartbeat_interval_ms": settings.ws_heartbeat_interval_ms,
             }, ensure_ascii=False))
 
-            print(f"[WS] connected: {agent.id} ({agent.name})")
-            return WSClient(ws, connector_id, agent.id, agent.user_id, agent.name)
+            print(f"[WS] runtime node connected: {node.id} ({node.name})")
+            return WSClient(ws, node)
 
     async def _dispatch(self, client: WSClient, msg: dict):
         msg_type = msg.get("type")
-
         if msg_type == "pong":
             client.last_pong = time.monotonic()
             if msg.get("quota"):
                 client.quota_snapshot = msg["quota"]
+            async with AsyncSessionLocal() as db:
+                await db.execute(
+                    update(RuntimeNode)
+                    .where(RuntimeNode.id == client.runtime_node_id)
+                    .values(last_seen_at=datetime.utcnow())
+                )
+                await db.commit()
+            return
 
-        elif msg_type == "ack":
+        agent_id = str(msg.get("agent_id") or "").strip()
+        if msg_type == "ack":
             request_id = msg.get("request_id")
-            if not request_id:
+            if not request_id or not agent_id:
                 return
             async with AsyncSessionLocal() as db:
                 await db.execute(
                     update(Answer)
-                    .where(Answer.request_id == request_id, Answer.agent_id == client.agent_id)
+                    .where(Answer.request_id == request_id, Answer.agent_id == agent_id)
                     .values(status="processing")
                 )
                 await db.commit()
+            return
 
-        elif msg_type == "answer":
+        if msg_type == "answer":
+            if not agent_id:
+                return
             if is_readiness_probe(msg):
                 pairing = extract_pairing_required(msg)
                 if pairing:
-                    await self._set_readiness(
-                        client.agent_id,
-                        "pairing_required",
-                        code=pairing["code"],
-                        command=pairing["command"],
-                    )
+                    await self._set_readiness(agent_id, "pairing_required", code=pairing["code"], command=pairing["command"])
                     return
                 state = "ready" if msg.get("status") == "success" else "error"
-                await self._set_readiness(
-                    client.agent_id,
-                    state,
-                    error=msg.get("error") if state == "error" else None,
-                )
+                await self._set_readiness(agent_id, state, error=msg.get("error") if state == "error" else None)
                 return
-            # Delegated to services.review (introduced in Stage 4) to keep auto
-            # and manual approval paths convergent.
             from services.review import handle_uploaded_answer
-            await handle_uploaded_answer(client.agent_id, msg)
+            await handle_uploaded_answer(agent_id, msg)
+            return
 
-        elif msg_type == "pairing_required":
-            await self._set_readiness(
-                client.agent_id,
-                "pairing_required",
-                code=msg.get("code"),
-                command=msg.get("command"),
-            )
+        if msg_type == "pairing_required":
+            if agent_id:
+                await self._set_readiness(agent_id, "pairing_required", code=msg.get("code"), command=msg.get("command"))
+            return
 
-        else:
-            print(f"[WS] unknown msg type from {client.agent_id}: {msg_type}")
+        print(f"[WS] unknown msg type from {client.runtime_node_id}: {msg_type}")
 
     async def _cleanup(self, client: WSClient):
         async with self._lock:
-            self.clients.pop(client.connector_id, None)
-            # Only remove the mapping if it still points to us.
-            if self.agent_to_conn.get(client.agent_id) == client.connector_id:
-                self.agent_to_conn.pop(client.agent_id, None)
-
+            if self.clients.get(client.runtime_node_id) is client:
+                self.clients.pop(client.runtime_node_id, None)
+            self.agent_to_node = {agent_id: node_id for agent_id, node_id in self.agent_to_node.items() if node_id != client.runtime_node_id}
         async with AsyncSessionLocal() as db:
             await db.execute(
-                update(Agent)
-                .where(Agent.id == client.agent_id)
-                .values(status="offline", last_seen_at=datetime.utcnow())
+                update(RuntimeNode)
+                .where(RuntimeNode.id == client.runtime_node_id)
+                .values(status="offline", disconnected_at=datetime.utcnow(), last_seen_at=datetime.utcnow())
             )
+            await self._mark_bound_agents(db, client.runtime_node_id, "offline")
             await db.commit()
-        print(f"[WS] disconnected: {client.agent_id}")
+        print(f"[WS] runtime node disconnected: {client.runtime_node_id}")
 
-    async def disconnect_agent(self, agent_id: str, reason: str = "disconnected"):
-        conn_id = self.agent_to_conn.get(agent_id)
-        if not conn_id:
-            return
-        client = self.clients.get(conn_id)
+    async def disconnect_node(self, runtime_node_id: str, reason: str = "disconnected"):
+        client = self.clients.get(runtime_node_id)
         if not client:
             return
         try:
@@ -266,7 +241,10 @@ class Hub:
             pass
         await self._cleanup(client)
 
-    # ─── Heartbeat ───
+    async def disconnect_agent(self, agent_id: str, reason: str = "disconnected"):
+        async with self._lock:
+            self.agent_to_node.pop(agent_id, None)
+        await self._set_readiness(agent_id, "offline", error=reason)
 
     async def _heartbeat_loop(self):
         interval = settings.ws_heartbeat_interval_ms / 1000.0
@@ -289,29 +267,49 @@ class Hub:
                     pass
                 await self._cleanup(client)
 
-    # ─── Push to Connector (called from REST after matching) ───
-
     async def push_question(self, agent_id: str, payload: dict) -> bool:
-        """Deliver a question to a connected agent. Returns True if delivered."""
-        conn_id = self.agent_to_conn.get(agent_id)
-        if not conn_id:
+        async with AsyncSessionLocal() as db:
+            binding = await self._binding_for_agent(db, agent_id)
+        if not binding:
+            await self._set_readiness(agent_id, "error", error="Agent 尚未绑定本地节点")
             return False
-        client = self.clients.get(conn_id)
+        client = self.clients.get(binding.runtime_node_id)
         if not client:
+            await self._set_readiness(agent_id, "error", error="绑定的本地节点当前离线")
             return False
-        return await client.send({"type": "question", **payload})
+        routed = {
+            "type": "question",
+            **payload,
+            "agent_id": agent_id,
+            "runtime_node_id": binding.runtime_node_id,
+            "runtime_type": binding.runtime_type,
+            "runtime_profile": binding.runtime_profile or "",
+            "runtime_workspace": binding.runtime_workspace or "",
+            "knowledge_scope": binding.knowledge_scope or "private",
+        }
+        return await client.send(routed)
 
     async def push_readiness_probe(self, agent_id: str) -> bool:
-        conn_id = self.agent_to_conn.get(agent_id)
-        client = self.clients.get(conn_id) if conn_id else None
-        if not client:
-            await self._set_readiness(agent_id, "error", error="Agent 当前没有活动连接")
+        async with AsyncSessionLocal() as db:
+            binding = await self._binding_for_agent(db, agent_id)
+        if not binding:
+            await self._set_readiness(agent_id, "error", error="Agent 尚未绑定本地节点")
             return False
-
+        client = self.clients.get(binding.runtime_node_id)
+        if not client:
+            await self._set_readiness(agent_id, "error", error="绑定的本地节点当前离线")
+            return False
         request_id = f"{PROBE_REQUEST_PREFIX}{agent_id}_{int(time.time() * 1000)}"
         await self._set_readiness(agent_id, "checking")
-        delivered = await client.send({"type": "question", **{
+        delivered = await client.send({
+            "type": "question",
             "request_id": request_id,
+            "agent_id": agent_id,
+            "runtime_node_id": binding.runtime_node_id,
+            "runtime_type": binding.runtime_type,
+            "runtime_profile": binding.runtime_profile or "",
+            "runtime_workspace": binding.runtime_workspace or "",
+            "knowledge_scope": binding.knowledge_scope or "private",
             "title": "AgentMint pairing check",
             "body": "Reply OK. This is a hidden AgentMint readiness check.",
             "tags": ["agentmint_probe"],
@@ -319,20 +317,56 @@ class Hub:
             "auto_release": True,
             "deadline_at": (datetime.utcnow() + timedelta(minutes=5)).isoformat(),
             "probe": True,
-        }})
+        })
         if not delivered:
             await self._set_readiness(agent_id, "error", error="发送检测消息失败")
         return delivered
 
-    async def _set_readiness(
-        self,
-        agent_id: str,
-        state: str,
-        *,
-        code: str | None = None,
-        command: str | None = None,
-        error: str | None = None,
-    ):
+    async def push_readiness_probes_for_node(self, runtime_node_id: str) -> None:
+        async with AsyncSessionLocal() as db:
+            rows = (await db.execute(
+                select(AgentRuntimeBinding.agent_id).where(
+                    AgentRuntimeBinding.runtime_node_id == runtime_node_id,
+                    AgentRuntimeBinding.status == "active",
+                )
+            )).scalars().all()
+        for agent_id in rows:
+            await self.push_readiness_probe(agent_id)
+
+    async def _binding_for_agent(self, db, agent_id: str) -> AgentRuntimeBinding | None:
+        return (await db.execute(
+            select(AgentRuntimeBinding).where(
+                AgentRuntimeBinding.agent_id == agent_id,
+                AgentRuntimeBinding.status == "active",
+            )
+        )).scalar_one_or_none()
+
+    async def _mark_bound_agents(self, db, runtime_node_id: str, status: str) -> None:
+        agent_ids = (await db.execute(
+            select(AgentRuntimeBinding.agent_id).where(
+                AgentRuntimeBinding.runtime_node_id == runtime_node_id,
+                AgentRuntimeBinding.status == "active",
+            )
+        )).scalars().all()
+        if agent_ids:
+            await db.execute(
+                update(Agent)
+                .where(Agent.id.in_(agent_ids))
+                .values(status=status, last_seen_at=datetime.utcnow())
+            )
+
+    async def _refresh_agent_node_cache(self, runtime_node_id: str) -> None:
+        async with AsyncSessionLocal() as db:
+            agent_ids = (await db.execute(
+                select(AgentRuntimeBinding.agent_id).where(
+                    AgentRuntimeBinding.runtime_node_id == runtime_node_id,
+                    AgentRuntimeBinding.status == "active",
+                )
+            )).scalars().all()
+        for agent_id in agent_ids:
+            self.agent_to_node[agent_id] = runtime_node_id
+
+    async def _set_readiness(self, agent_id: str, state: str, *, code: str | None = None, command: str | None = None, error: str | None = None):
         async with AsyncSessionLocal() as db:
             agent = (await db.execute(select(Agent).where(Agent.id == agent_id))).scalar_one_or_none()
             if not agent:
@@ -341,10 +375,10 @@ class Hub:
             await db.commit()
 
     def is_online(self, agent_id: str) -> bool:
-        return agent_id in self.agent_to_conn
+        node_id = self.agent_to_node.get(agent_id)
+        return bool(node_id and node_id in self.clients)
 
 
-# Module-level singleton — imported by REST routers and the WS endpoint.
 hub = Hub()
 
 

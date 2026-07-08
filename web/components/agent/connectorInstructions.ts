@@ -1,26 +1,26 @@
 import type { AgentType } from "@/lib/types";
 
-export function getConnectorInstructions({
-  agentType,
-  connectorId,
+export function getRuntimeNodeInstructions({
+  runtimeType,
+  runtimeNodeId,
   token,
   permissionProfile = "balanced",
 }: {
-  agentType: AgentType;
-  connectorId: string;
+  runtimeType: AgentType;
+  runtimeNodeId: string;
   token: string;
   permissionProfile?: "strict" | "balanced" | "expanded";
 }) {
-  if (agentType === "hermes") {
+  if (runtimeType === "hermes") {
     return {
-      title: "Hermes Plugin 配置",
+      title: "Hermes Runtime Node 配置",
       command: [
         "git pull",
         [
           "connector/hermes-plugin/setup.sh",
           "--mode copy",
-          `--connector-id ${connectorId}`,
-          `--connector-token ${token}`,
+          `--runtime-node-id ${runtimeNodeId}`,
+          `--runtime-node-token ${token}`,
           "--platform-url ws://localhost:8000/ws",
           `--permission-profile ${permissionProfile}`,
         ].join(" "),
@@ -30,7 +30,9 @@ export function getConnectorInstructions({
   }
 
   return {
-    title: "Connector 模拟器",
-    command: `CONNECTOR_ID=${connectorId} CONNECTOR_TOKEN=${token} python scripts/connector-sim.py`,
+    title: "OpenClaw Runtime 模拟器",
+    command: `AGENTMINT_RUNTIME_NODE_ID=${runtimeNodeId} AGENTMINT_RUNTIME_NODE_TOKEN=${token} python scripts/connector-sim.py`,
   };
 }
+
+export const getConnectorInstructions = getRuntimeNodeInstructions;

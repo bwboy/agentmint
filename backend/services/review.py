@@ -61,7 +61,7 @@ def decide_review_method(
 
 
 async def handle_uploaded_answer(agent_id: str, msg: dict):
-    """Receive an `answer` message from a connector and store it.
+    """Receive an `answer` message from a runtime node and store it.
 
     Outcome depends on the original answer row's `review_method` (set when the
     question was matched & pushed). If "auto" → approve immediately. Otherwise

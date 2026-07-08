@@ -149,8 +149,8 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         extra = (getattr(config, "extra", None) or {}) if config else {}
 
         # Credentials & endpoint
-        self.connector_id = os.getenv("AGENTMINT_CONNECTOR_ID", extra.get("connector_id", ""))
-        self.connector_token = os.getenv("AGENTMINT_CONNECTOR_TOKEN", extra.get("connector_token", ""))
+        self.runtime_node_id = os.getenv("AGENTMINT_RUNTIME_NODE_ID", extra.get("runtime_node_id", ""))
+        self.runtime_node_token = os.getenv("AGENTMINT_RUNTIME_NODE_TOKEN", extra.get("runtime_node_token", ""))
         self.platform_url = os.getenv("AGENTMINT_PLATFORM_URL", extra.get("platform_url", DEFAULT_PLATFORM_URL))
         self.max_concurrent = int(os.getenv("AGENTMINT_MAX_CONCURRENT", extra.get("max_concurrent", DEFAULT_MAX_CONCURRENT)))
         self.queue_db = os.getenv("AGENTMINT_QUEUE_DB", extra.get("queue_db", DEFAULT_QUEUE_DB))
@@ -180,6 +180,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         self._active_request_by_chat: dict[str, str] = {}
         self._warm_conversations: set[str] = set()
         self._conversation_locks: dict[str, asyncio.Lock] = {}
+        self._agent_id_by_request: dict[str, str] = {}
 
     def set_message_handler(self, handler):  # type: ignore[override]
         async def _wrapped(event):
@@ -277,6 +278,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
             capability=updated_answer.get("capability"),
             duration_ms=updated_answer.get("duration_ms", 0),
             usage_correction=True,
+            agent_id=self._agent_id_for_request(request_id),
         )
         if ok:
             self._queue.mark(request_id, "uploaded", answer=updated_answer)
@@ -295,8 +297,8 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
     # ─── Lifecycle ───
 
     async def connect(self, *args, **kwargs) -> bool:
-        if not self.connector_id or not self.connector_token:
-            log.error("AGENTMINT_CONNECTOR_ID / AGENTMINT_CONNECTOR_TOKEN not set; cannot connect")
+        if not self.runtime_node_id or not self.runtime_node_token:
+            log.error("AGENTMINT_RUNTIME_NODE_ID / AGENTMINT_RUNTIME_NODE_TOKEN not set; cannot connect")
             return False
 
         log.info("connecting to %s (queue=%s, max_concurrent=%d)",
@@ -304,8 +306,8 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
 
         self._client = ArenaWSClient(
             platform_url=self.platform_url,
-            connector_id=self.connector_id,
-            connector_token=self.connector_token,
+            runtime_node_id=self.runtime_node_id,
+            runtime_node_token=self.runtime_node_token,
             on_question=self._on_question,
             on_reconnected=self._on_reconnected,
             quota_provider=self._quota_snapshot,
@@ -347,6 +349,9 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         request_id = str(request_id)
         conversation_id = str(msg.get("conversation_id") or request_id)
         turn_type = str(msg.get("turn_type") or "root")
+        agent_id = str(msg.get("agent_id") or "")
+        runtime_profile = str(msg.get("runtime_profile") or "")
+        runtime_workspace = str(msg.get("runtime_workspace") or "")
 
         title = msg.get("title") or ""
         body = (msg.get("body") or "").strip()
@@ -359,6 +364,11 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
             "title": title, "body": body, "attachments": msg.get("attachments") or [], "tags": tags,
             "asker": asker, "deadline_at": msg.get("deadline_at"),
             "conversation_id": conversation_id,
+            "agent_id": agent_id,
+            "runtime_profile": runtime_profile,
+            "runtime_workspace": runtime_workspace,
+            "runtime_type": msg.get("runtime_type"),
+            "knowledge_scope": msg.get("knowledge_scope"),
             "turn_type": turn_type,
             "root_question": msg.get("root_question"),
             "quoted_answer": msg.get("quoted_answer"),
@@ -367,7 +377,10 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         # Idempotent insert. If the platform redelivers the same question after
         # a reconnect, we still ack but don't double-dispatch to Hermes.
         is_new = self._queue.upsert_pending(request_id, chat_id=conversation_id, question=question_record)
-        await self._client.send_ack(request_id)
+        if not hasattr(self, "_agent_id_by_request"):
+            self._agent_id_by_request = {}
+        self._agent_id_by_request[request_id] = agent_id
+        await self._client.send_ack(request_id, agent_id=agent_id)
         if not is_new:
             log.info("re-ack for known request_id=%s, skipping dispatch", request_id)
             return
@@ -396,6 +409,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         tags = question_record.get("tags") or []
         asker = question_record.get("asker") or {}
         asker_nick = asker.get("nickname", "anonymous")
+        runtime_profile = str(question_record.get("runtime_profile") or "").strip()
 
         self._job_started_at[request_id] = time.monotonic()
 
@@ -425,6 +439,11 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
             user_id="agentmint-platform",
             user_name="AgentMint",
         )
+        if runtime_profile:
+            try:
+                source.profile = runtime_profile
+            except Exception:
+                pass
         event_kwargs = {
             "text": user_text,
             "message_type": message_type,
@@ -469,6 +488,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
                     capability=ans.get("capability"),
                     attachments=ans.get("attachments") or [],
                     duration_ms=ans.get("duration_ms", 0),
+                    agent_id=_agent_id_from_job(job),
                 )
                 if ok:
                     self._queue.mark(job["request_id"], "uploaded")
@@ -481,7 +501,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
                 q = job["question"]
                 request_id = str(job["request_id"])
                 conversation_id = str(q.get("conversation_id") or job.get("chat_id") or request_id)
-                await self._client.send_ack(request_id)
+                await self._client.send_ack(request_id, agent_id=str(q.get("agent_id") or ""))
                 await self._dispatch_question_record(
                     request_id=request_id,
                     conversation_id=conversation_id,
@@ -519,6 +539,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
                     request_id,
                     code=pairing["code"],
                     command=pairing["command"],
+                    agent_id=self._agent_id_for_request(request_id),
                 )
             self._queue.mark(request_id, "failed", error="pairing_required")
             return SendResult(success=True, message_id=request_id)
@@ -785,6 +806,7 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
         ok = await self._client.send_answer(
             request_id, text=answer_payload["text"], model=model,
             usage=usage, capability=capability, attachments=answer_payload["attachments"], duration_ms=duration_ms,
+            agent_id=self._agent_id_for_request(request_id),
         )
         if ok:
             self._queue.mark(request_id, "uploaded")
@@ -821,8 +843,21 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
             capability=capability,
             attachments=attachments or [],
             duration_ms=0,
+            agent_id=self._agent_id_for_request(request_id),
         )
         return SendResult(success=ok, message_id=request_id)
+
+    def _agent_id_for_request(self, request_id: str) -> str:
+        agent_id = getattr(self, "_agent_id_by_request", {}).get(str(request_id), "")
+        if agent_id:
+            return agent_id
+        queue = getattr(self, "_queue", None)
+        if queue is None:
+            return ""
+        try:
+            return _agent_id_from_job(queue.by_request_id(str(request_id)) or {})
+        except Exception:
+            return ""
 
     def _resolve_request_for_chat(self, chat_id: Any) -> tuple[str, str]:
         conversation_id = str(chat_id)
@@ -870,30 +905,30 @@ class ArenaAdapter(BasePlatformAdapter):  # type: ignore[misc]
 
 def check_requirements() -> bool:
     """`hermes plugins list` uses this to gate the green/red badge."""
-    return bool(_configured_connector_id()) and bool(_configured_connector_token())
+    return bool(_configured_runtime_node_id()) and bool(_configured_runtime_node_token())
 
 
 def validate_config(config) -> bool:
     extra = getattr(config, "extra", {}) or {}
     return bool(
-        (os.getenv("AGENTMINT_CONNECTOR_ID") or extra.get("connector_id"))
-        and (os.getenv("AGENTMINT_CONNECTOR_TOKEN") or extra.get("connector_token"))
+        (os.getenv("AGENTMINT_RUNTIME_NODE_ID") or extra.get("runtime_node_id"))
+        and (os.getenv("AGENTMINT_RUNTIME_NODE_TOKEN") or extra.get("runtime_node_token"))
     )
 
 
 def _env_enablement() -> dict | None:
-    """Auto-enable when at minimum the connector credentials are present.
+    """Auto-enable when at minimum the runtime node credentials are present.
 
     Hermes calls this during gateway startup; returning None keeps the platform
     dormant. Returning a dict seeds `PlatformConfig.extra`.
     """
-    connector_id = _configured_connector_id()
-    connector_token = _configured_connector_token()
-    if not connector_id or not connector_token:
+    runtime_node_id = _configured_runtime_node_id()
+    runtime_node_token = _configured_runtime_node_token()
+    if not runtime_node_id or not runtime_node_token:
         return None
     extra: dict[str, Any] = {
-        "connector_id": connector_id,
-        "connector_token": connector_token,
+        "runtime_node_id": runtime_node_id,
+        "runtime_node_token": runtime_node_token,
         "platform_url": _configured_platform_url(),
     }
     home = os.getenv("AGENTMINT_HOME_CHANNEL", "").strip()
@@ -926,8 +961,8 @@ def _apply_yaml_config(yaml_cfg: dict, platform_cfg: dict) -> dict | None:
 
     out: dict[str, Any] = {}
     for k_yaml, k_extra, env in (
-        ("connector_id", "connector_id", "AGENTMINT_CONNECTOR_ID"),
-        ("connector_token", "connector_token", "AGENTMINT_CONNECTOR_TOKEN"),
+        ("runtime_node_id", "runtime_node_id", "AGENTMINT_RUNTIME_NODE_ID"),
+        ("runtime_node_token", "runtime_node_token", "AGENTMINT_RUNTIME_NODE_TOKEN"),
         ("platform_url", "platform_url", "AGENTMINT_PLATFORM_URL"),
         ("max_concurrent", "max_concurrent", "AGENTMINT_MAX_CONCURRENT"),
         ("queue_db", "queue_db", "AGENTMINT_QUEUE_DB"),
@@ -968,12 +1003,18 @@ def _normalize_home_channel(value: Any) -> dict[str, str]:
     return {"chat_id": chat_id, "name": "AgentMint"}
 
 
-def _configured_connector_id() -> str:
-    return os.getenv("AGENTMINT_CONNECTOR_ID") or _agentmint_config_value("connector_id")
+def _configured_runtime_node_id() -> str:
+    return (
+        os.getenv("AGENTMINT_RUNTIME_NODE_ID")
+        or _agentmint_config_value("runtime_node_id")
+    )
 
 
-def _configured_connector_token() -> str:
-    return os.getenv("AGENTMINT_CONNECTOR_TOKEN") or _agentmint_config_value("connector_token")
+def _configured_runtime_node_token() -> str:
+    return (
+        os.getenv("AGENTMINT_RUNTIME_NODE_TOKEN")
+        or _agentmint_config_value("runtime_node_token")
+    )
 
 
 def _configured_platform_url() -> str:
@@ -1047,8 +1088,8 @@ def _parse_agentmint_config_fallback(text: str) -> dict:
         key = key.strip()
         value = value.strip().strip("\"'")
         if key in {
-            "connector_id",
-            "connector_token",
+            "runtime_node_id",
+            "runtime_node_token",
             "platform_url",
             "max_concurrent",
             "queue_db",
@@ -1070,11 +1111,11 @@ async def _standalone_send(pconfig, chat_id, message, *, thread_id=None,
     means double-delivery is harmless.
     """
     extra = (getattr(pconfig, "extra", None) or {})
-    cid = os.getenv("AGENTMINT_CONNECTOR_ID") or extra.get("connector_id", "")
-    tok = os.getenv("AGENTMINT_CONNECTOR_TOKEN") or extra.get("connector_token", "")
+    cid = os.getenv("AGENTMINT_RUNTIME_NODE_ID") or extra.get("runtime_node_id", "")
+    tok = os.getenv("AGENTMINT_RUNTIME_NODE_TOKEN") or extra.get("runtime_node_token", "")
     url = os.getenv("AGENTMINT_PLATFORM_URL") or extra.get("platform_url", DEFAULT_PLATFORM_URL)
     if not cid or not tok:
-        return {"error": "AGENTMINT_CONNECTOR_ID/TOKEN not configured"}
+        return {"error": "AGENTMINT_RUNTIME_NODE_ID/TOKEN not configured"}
 
     delivered = asyncio.Event()
     result: dict[str, Any] = {}
@@ -1086,7 +1127,7 @@ async def _standalone_send(pconfig, chat_id, message, *, thread_id=None,
         pass
 
     client = ArenaWSClient(
-        platform_url=url, connector_id=cid, connector_token=tok,
+        platform_url=url, runtime_node_id=cid, runtime_node_token=tok,
         on_question=_on_q, on_reconnected=_on_re,
         quota_provider=lambda: {"used": 0, "max": 50, "remaining_auto": 0, "remaining_review": 0},
         agent_type="hermes", agent_version="0.1.0",
@@ -1108,6 +1149,7 @@ async def _standalone_send(pconfig, chat_id, message, *, thread_id=None,
             usage={},
             capability=_capability_hint("hermes"),
             attachments=_attachments_from_media_files(media_files),
+            agent_id=str(chat_id).split("_a_", 1)[-1] if "_a_" in str(chat_id) else "",
         )
         if ok:
             result = {"success": True, "message_id": str(chat_id)}
@@ -1374,6 +1416,15 @@ def _prompt_from_job(job: dict | None) -> str:
         asker.get("nickname", "anonymous"),
         attachments=q.get("attachments") or [],
     )
+
+
+def _agent_id_from_job(job: dict | None) -> str:
+    if not isinstance(job, dict):
+        return ""
+    question = job.get("question") or {}
+    if isinstance(question, dict):
+        return str(question.get("agent_id") or "").strip()
+    return ""
 
 
 def _extract_root_question_parts(root_question: Any) -> tuple[str, str, list[str]]:
@@ -1699,10 +1750,10 @@ def register(ctx):
         env_enablement_fn=_env_enablement,
         apply_yaml_config_fn=_apply_yaml_config,
         standalone_sender_fn=_standalone_send,
-        required_env=["AGENTMINT_CONNECTOR_ID", "AGENTMINT_CONNECTOR_TOKEN"],
+        required_env=["AGENTMINT_RUNTIME_NODE_ID", "AGENTMINT_RUNTIME_NODE_TOKEN"],
         install_hint=(
-            "1. 登录 AgentMint Web → /my/agents → 选 Agent → 生成 Connector Token。\n"
-            "2. 把 connector_id 设为 AGENTMINT_CONNECTOR_ID, token 设为 AGENTMINT_CONNECTOR_TOKEN。\n"
+            "1. 登录 AgentMint Web → 本地节点 → 创建 Runtime Node。\n"
+            "2. 把 runtime_node_id 设为 AGENTMINT_RUNTIME_NODE_ID, token 设为 AGENTMINT_RUNTIME_NODE_TOKEN。\n"
             "3. （可选）设 AGENTMINT_PLATFORM_URL 指向你的部署地址。"
         ),
         cron_deliver_env_var="AGENTMINT_HOME_CHANNEL",

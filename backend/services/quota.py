@@ -1,9 +1,9 @@
 """Daily quota service.
 
 Counts per-agent question deliveries against `agent_daily_usage(agent_id, usage_date)`.
-The counter increments when a question is *pushed* to the connector — receiving
-the push consumes a slot regardless of whether the agent finally answers, to
-prevent gaming via "go offline to skip work".
+The counter increments when a question is *pushed* to the runtime node —
+receiving the push consumes a slot regardless of whether the agent finally
+answers, to prevent gaming via "go offline to skip work".
 
 Three-state classification driven by `agent.daily_quota_config`:
   - "ok"          : auto path allowed (still subject to review_rules)

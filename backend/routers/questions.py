@@ -1,7 +1,7 @@
 """Question endpoints — publish, list, detail, feedback.
 
 The publish flow is the heart of the platform:
-    asker → matching engine → push to live connectors → connector replies →
+    asker → matching engine → push to live runtime nodes → runtime replies →
     review service approves → asker sees the answer.
 
 Fuel cost is debited from the asker's balance up-front based on the matched
@@ -291,7 +291,7 @@ async def create_question(
     user_payload: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Run matching, deduct fuel, write Question + assigned Answers, push to connectors."""
+    """Run matching, deduct fuel, write Question + assigned Answers, push to runtime nodes."""
     user_result = await db.execute(select(User).where(User.id == user_payload["sub"]))
     user = user_result.scalar_one_or_none()
     if not user:
@@ -380,7 +380,7 @@ async def create_question(
     await db.commit()
     await db.refresh(q)
 
-    # Push to live connectors. Each successful push increments usage and flips
+    # Push to live runtime nodes. Each successful push increments usage and flips
     # the answer row to 'pushed'.
     pushed_count = 0
     is_direct_question = bool(req.agent_ids)

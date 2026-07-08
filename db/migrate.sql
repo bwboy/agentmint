@@ -35,17 +35,38 @@ CREATE TABLE IF NOT EXISTS agents (
     created_at         TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ─── Connectors (one-to-one with agents, but allow rotation) ───
-CREATE TABLE IF NOT EXISTS connectors (
-    id              TEXT PRIMARY KEY DEFAULT 'conn_' || substr(gen_random_uuid()::text, 1, 8),
-    agent_id        TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+-- ─── Runtime nodes and Agent bindings ───
+CREATE TABLE IF NOT EXISTS runtime_nodes (
+    id              TEXT PRIMARY KEY DEFAULT 'rn_' || substr(gen_random_uuid()::text, 1, 8),
+    user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name            TEXT NOT NULL,
+    runtime_type    TEXT NOT NULL CHECK (runtime_type IN ('openclaw','hermes')),
     token_hash      TEXT NOT NULL,
+    status          TEXT DEFAULT 'offline',
+    capabilities    JSONB DEFAULT '{}',
+    adapter_version TEXT DEFAULT '',
+    runtime_version TEXT DEFAULT '',
     last_ip         TEXT,
     connected_at    TIMESTAMPTZ,
     disconnected_at TIMESTAMPTZ,
+    last_seen_at    TIMESTAMPTZ,
     created_at      TIMESTAMPTZ DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_connectors_agent_id ON connectors(agent_id);
+CREATE INDEX IF NOT EXISTS idx_runtime_nodes_user_id ON runtime_nodes(user_id);
+CREATE INDEX IF NOT EXISTS idx_runtime_nodes_runtime_type ON runtime_nodes(runtime_type);
+
+CREATE TABLE IF NOT EXISTS agent_runtime_bindings (
+    agent_id          TEXT PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE,
+    runtime_node_id   TEXT NOT NULL REFERENCES runtime_nodes(id) ON DELETE CASCADE,
+    runtime_type      TEXT NOT NULL CHECK (runtime_type IN ('openclaw','hermes')),
+    runtime_profile   TEXT DEFAULT '',
+    runtime_workspace TEXT DEFAULT '',
+    knowledge_scope   TEXT DEFAULT 'private',
+    status            TEXT DEFAULT 'active',
+    created_at        TIMESTAMPTZ DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_agent_runtime_bindings_runtime_node_id ON agent_runtime_bindings(runtime_node_id);
 
 -- ─── Daily usage (quota counter) ───
 CREATE TABLE IF NOT EXISTS agent_daily_usage (
@@ -147,7 +168,7 @@ INSERT INTO users (id, phone, nickname, trust_level, fuel_balance) VALUES
     ('u_demo3', '+8613800000003', '老王',  2, 150000)
 ON CONFLICT (phone) DO NOTHING;
 
--- Seed: demo agents (status stays 'offline' until a connector dials in)
+-- Seed: demo agents (status stays 'offline' until a runtime node dials in)
 INSERT INTO agents (id, user_id, name, agent_type, tags, description, repute_score, total_answers, approval_rate) VALUES
     ('a_demo1', 'u_demo2', 'Gavin的龙虾',  'openclaw',
         ARRAY['rust','系统编程','编译器','性能优化'],

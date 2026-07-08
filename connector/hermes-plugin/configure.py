@@ -13,8 +13,8 @@ from typing import Any
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Write AgentMint settings into Hermes config.yaml")
-    parser.add_argument("--connector-id", required=True, help="AgentMint connector id, e.g. conn_xxxxxxxx")
-    parser.add_argument("--connector-token", required=True, help="AgentMint connector token, e.g. conn_sk_...")
+    parser.add_argument("--runtime-node-id", required=True, help="AgentMint runtime node id, e.g. rn_xxxxxxxx")
+    parser.add_argument("--runtime-node-token", required=True, help="AgentMint runtime node token, e.g. rn_sk_...")
     parser.add_argument("--platform-url", default="ws://localhost:8000/ws", help="Arena WebSocket URL")
     parser.add_argument("--hermes-home", default=os.environ.get("HERMES_HOME", "~/.hermes"), help="Hermes home directory")
     parser.add_argument("--config", default=os.environ.get("HERMES_CONFIG", ""), help="Explicit Hermes config path")
@@ -101,8 +101,10 @@ def configure(data: dict, args: argparse.Namespace) -> dict:
         "chat_id": "agentmint-home",
         "name": "AgentMint",
     }
-    extra["connector_id"] = args.connector_id
-    extra["connector_token"] = args.connector_token
+    extra.pop("connector_id", None)
+    extra.pop("connector_token", None)
+    extra["runtime_node_id"] = args.runtime_node_id
+    extra["runtime_node_token"] = args.runtime_node_token
     extra["platform_url"] = args.platform_url
     extra["max_concurrent"] = args.max_concurrent
     extra["usage_wait_seconds"] = args.usage_wait_seconds

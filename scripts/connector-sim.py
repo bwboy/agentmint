@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """
-AgentMint Connector Simulator
+AgentMint Runtime Node Simulator
 
-Simulates a real OpenClaw / Hermes connector for development. Connects to the
-platform WS, replies to pings, and answers any question with a mock payload.
+Simulates a real OpenClaw / Hermes runtime node for development. Connects to
+the platform WS, replies to pings, and answers any routed Agent question with a
+mock payload.
 
 Usage:
     PLATFORM_URL=ws://localhost:8000/ws \
-    CONNECTOR_ID=conn_xxxxxxxx \
-    CONNECTOR_TOKEN=conn_sk_... \
+    AGENTMINT_RUNTIME_NODE_ID=rn_xxxxxxxx \
+    AGENTMINT_RUNTIME_NODE_TOKEN=rn_sk_... \
     python scripts/connector-sim.py
 
 Or pass via flags:
-    python scripts/connector-sim.py --connector-id conn_xxx --token conn_sk_...
+    python scripts/connector-sim.py --runtime-node-id rn_xxx --token rn_sk_...
 """
 import argparse
 import asyncio
@@ -27,17 +28,17 @@ SERVER_IDLE_TIMEOUT_SECONDS = 75
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="AgentMint Connector Simulator")
+    p = argparse.ArgumentParser(description="AgentMint Runtime Node Simulator")
     p.add_argument("--url", default=os.getenv("PLATFORM_URL", "ws://localhost:8000/ws"))
-    p.add_argument("--connector-id", default=os.getenv("CONNECTOR_ID"))
-    p.add_argument("--token", default=os.getenv("CONNECTOR_TOKEN"))
-    p.add_argument("--agent-type", default=os.getenv("AGENT_TYPE", "openclaw"))
+    p.add_argument("--runtime-node-id", default=os.getenv("AGENTMINT_RUNTIME_NODE_ID"))
+    p.add_argument("--token", default=os.getenv("AGENTMINT_RUNTIME_NODE_TOKEN"))
+    p.add_argument("--runtime-type", default=os.getenv("AGENTMINT_RUNTIME_TYPE", "openclaw"))
     p.add_argument("--think-min", type=float, default=2.0)
     p.add_argument("--think-max", type=float, default=4.0)
     args = p.parse_args()
 
-    if not args.connector_id or not args.token:
-        p.error("--connector-id and --token (or env CONNECTOR_ID/CONNECTOR_TOKEN) are required")
+    if not args.runtime_node_id or not args.token:
+        p.error("--runtime-node-id and --token (or env AGENTMINT_RUNTIME_NODE_ID/AGENTMINT_RUNTIME_NODE_TOKEN) are required")
     return args
 
 
@@ -60,6 +61,7 @@ def mock_answer(question: dict) -> dict:
     return {
         "type": "answer",
         "request_id": question["request_id"],
+        "agent_id": question["agent_id"],
         "status": "success",
         "content": {"text": text, "attachments": []},
         "model": "claude-opus-4-7",
@@ -80,7 +82,7 @@ def mock_answer(question: dict) -> dict:
 
 async def handle_question(ws, question: dict, think_min: float, think_max: float):
     print(f"[sim] question: {question.get('title')} (req={question['request_id']})")
-    await ws.send(json.dumps({"type": "ack", "request_id": question["request_id"]}))
+    await ws.send(json.dumps({"type": "ack", "request_id": question["request_id"], "agent_id": question["agent_id"]}))
     think = random.uniform(think_min, think_max)
     print(f"[sim]   thinking for {think:.1f}s ...")
     await asyncio.sleep(think)
@@ -94,12 +96,12 @@ async def run(args: argparse.Namespace):
     async with websockets.connect(args.url) as ws:
         await ws.send(json.dumps({
             "type": "auth",
-            "connector_id": args.connector_id,
+            "runtime_node_id": args.runtime_node_id,
             "token": args.token,
-            "version": "1.0.0",
-            "agent_type": args.agent_type,
-            "agent_version": "0.1.0",
-            "capabilities": ["chat"],
+            "runtime_type": args.runtime_type,
+            "runtime_version": "sim-0.1.0",
+            "adapter_version": "sim-0.1.0",
+            "capabilities": {"chat": True, "profiles": True, "workspaces": True},
         }))
 
         while True:
@@ -117,7 +119,7 @@ async def run(args: argparse.Namespace):
 
             t = msg.get("type")
             if t == "auth_ok":
-                print(f"[sim] authenticated as \"{msg.get('connector_name')}\", "
+                print(f"[sim] authenticated as \"{msg.get('runtime_node_name')}\", "
                       f"heartbeat={msg.get('heartbeat_interval_ms')}ms")
             elif t == "auth_fail":
                 print(f"[sim] auth failed: {msg.get('reason')}")

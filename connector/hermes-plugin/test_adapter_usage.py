@@ -50,8 +50,8 @@ class UsageExtractionTests(unittest.TestCase):
 
         class TestAdapter(adapter_mod.ArenaAdapter):
             def __init__(self):
-                self.connector_id = "conn_test"
-                self.connector_token = "conn_sk_test"
+                self.runtime_node_id = "rn_test"
+                self.runtime_node_token = "rn_sk_test"
                 self.platform_url = "ws://arena.test/ws"
                 self.queue_db = ":memory:"
                 self.max_concurrent = 1
@@ -477,7 +477,7 @@ class UsageExtractionTests(unittest.TestCase):
             def __init__(self):
                 self.acked = []
 
-            async def send_ack(self, request_id):
+            async def send_ack(self, request_id, **kwargs):
                 self.acked.append(request_id)
                 return True
 
@@ -540,7 +540,7 @@ class UsageExtractionTests(unittest.TestCase):
             def __init__(self):
                 self.acked = []
 
-            async def send_ack(self, request_id):
+            async def send_ack(self, request_id, **kwargs):
                 self.acked.append(request_id)
                 return True
 
@@ -737,7 +737,7 @@ class UsageExtractionTests(unittest.TestCase):
             def __init__(self):
                 self.acked = []
 
-            async def send_ack(self, request_id):
+            async def send_ack(self, request_id, **kwargs):
                 self.acked.append(request_id)
                 return True
 
@@ -814,7 +814,7 @@ class UsageExtractionTests(unittest.TestCase):
             def __init__(self):
                 self.pairing = []
 
-            async def send_pairing_required(self, request_id, *, code, command):
+            async def send_pairing_required(self, request_id, *, code, command, **kwargs):
                 self.pairing.append((request_id, code, command))
                 return True
 
@@ -1674,7 +1674,7 @@ class UsageExtractionTests(unittest.TestCase):
                 self.answers.append((request_id, kwargs))
                 return True
 
-            async def send_pairing_required(self, request_id, *, code, command):
+            async def send_pairing_required(self, request_id, *, code, command, **kwargs):
                 self.pairing.append((request_id, code, command))
                 return True
 
@@ -1910,8 +1910,8 @@ class YamlConfigTests(unittest.TestCase):
 
     def tearDown(self):
         for key in (
-            "AGENTMINT_CONNECTOR_ID",
-            "AGENTMINT_CONNECTOR_TOKEN",
+            "AGENTMINT_RUNTIME_NODE_ID",
+            "AGENTMINT_RUNTIME_NODE_TOKEN",
             "AGENTMINT_PLATFORM_URL",
             "AGENTMINT_MAX_CONCURRENT",
             "AGENTMINT_QUEUE_DB",
@@ -1925,8 +1925,8 @@ class YamlConfigTests(unittest.TestCase):
         out = self.adapter._apply_yaml_config({
             "enabled": True,
             "extra": {
-                "connector_id": "conn_from_yaml",
-                "connector_token": "conn_sk_from_yaml",
+                "runtime_node_id": "rn_from_yaml",
+                "runtime_node_token": "rn_sk_from_yaml",
                 "platform_url": "ws://arena.example/ws",
                 "home_channel": "agentmint-home",
                 "usage_wait_seconds": 2.5,
@@ -1934,8 +1934,8 @@ class YamlConfigTests(unittest.TestCase):
             },
         }, {})
 
-        self.assertEqual(out["connector_id"], "conn_from_yaml")
-        self.assertEqual(out["connector_token"], "conn_sk_from_yaml")
+        self.assertEqual(out["runtime_node_id"], "rn_from_yaml")
+        self.assertEqual(out["runtime_node_token"], "rn_sk_from_yaml")
         self.assertEqual(out["platform_url"], "ws://arena.example/ws")
         self.assertEqual(out["home_channel"], {
             "chat_id": "agentmint-home",
@@ -1943,8 +1943,8 @@ class YamlConfigTests(unittest.TestCase):
         })
         self.assertEqual(out["usage_wait_seconds"], 2.5)
         self.assertEqual(out["debug_usage"], True)
-        self.assertEqual(os.environ["AGENTMINT_CONNECTOR_ID"], "conn_from_yaml")
-        self.assertEqual(os.environ["AGENTMINT_CONNECTOR_TOKEN"], "conn_sk_from_yaml")
+        self.assertEqual(os.environ["AGENTMINT_RUNTIME_NODE_ID"], "rn_from_yaml")
+        self.assertEqual(os.environ["AGENTMINT_RUNTIME_NODE_TOKEN"], "rn_sk_from_yaml")
         self.assertEqual(os.environ["AGENTMINT_HOME_CHANNEL"], "agentmint-home")
         self.assertEqual(os.environ["AGENTMINT_USAGE_WAIT_SECONDS"], "2.5")
         self.assertEqual(os.environ["AGENTMINT_DEBUG_USAGE"], "True")
@@ -1953,8 +1953,8 @@ class YamlConfigTests(unittest.TestCase):
         out = self.adapter._apply_yaml_config({
             "enabled": True,
             "extra": {
-                "connector_id": "conn_from_yaml",
-                "connector_token": "conn_sk_from_yaml",
+                "runtime_node_id": "rn_from_yaml",
+                "runtime_node_token": "rn_sk_from_yaml",
                 "home_channel": {
                     "chat_id": "agentmint-home",
                     "name": "Arena Results",
@@ -1977,8 +1977,8 @@ class YamlConfigTests(unittest.TestCase):
                     "agentmint": {
                         "enabled": True,
                         "extra": {
-                            "connector_id": "conn_from_platform_arg",
-                            "connector_token": "conn_sk_from_platform_arg",
+                            "runtime_node_id": "rn_from_platform_arg",
+                            "runtime_node_token": "rn_sk_from_platform_arg",
                             "platform_url": "ws://arena.example/ws",
                             "home_channel": "agentmint-home",
                         },
@@ -1990,20 +1990,22 @@ class YamlConfigTests(unittest.TestCase):
 
         out = self.adapter._apply_yaml_config(full_yaml_cfg, platform_cfg)
 
-        self.assertEqual(out["connector_id"], "conn_from_platform_arg")
-        self.assertEqual(out["connector_token"], "conn_sk_from_platform_arg")
+        self.assertEqual(out["runtime_node_id"], "rn_from_platform_arg")
+        self.assertEqual(out["runtime_node_token"], "rn_sk_from_platform_arg")
         self.assertEqual(out["home_channel"], {
             "chat_id": "agentmint-home",
             "name": "AgentMint",
         })
 
     def test_env_enablement_returns_home_channel_dict(self):
-        os.environ["AGENTMINT_CONNECTOR_ID"] = "conn_from_env"
-        os.environ["AGENTMINT_CONNECTOR_TOKEN"] = "conn_sk_from_env"
+        os.environ["AGENTMINT_RUNTIME_NODE_ID"] = "rn_from_env"
+        os.environ["AGENTMINT_RUNTIME_NODE_TOKEN"] = "rn_sk_from_env"
         os.environ["AGENTMINT_HOME_CHANNEL"] = "agentmint-home"
 
         out = self.adapter._env_enablement()
 
+        self.assertEqual(out["runtime_node_id"], "rn_from_env")
+        self.assertEqual(out["runtime_node_token"], "rn_sk_from_env")
         self.assertEqual(out["home_channel"], {
             "chat_id": "agentmint-home",
             "name": "AgentMint",
@@ -2023,8 +2025,8 @@ gateway:
     agentmint:
       enabled: true
       extra:
-        connector_id: conn_from_file
-        connector_token: conn_sk_from_file
+        runtime_node_id: rn_from_file
+        runtime_node_token: rn_sk_from_file
         platform_url: ws://arena.example/ws
 """.strip(),
                 encoding="utf-8",
