@@ -501,20 +501,25 @@ async def create_agent(
         review_rules=merge_capability_profile(None, req.capability_profile),
     )
     db.add(agent)
-    binding_node = None
-    if req.runtime_node_id:
-        binding_node = await _get_owned_runtime_node(db, req.runtime_node_id, user["sub"])
-        if binding_node.runtime_type != req.agent_type:
-            raise HTTPException(status_code=400, detail="Agent 类型必须和本地节点类型一致")
+    runtime_token = secrets.token_urlsafe(32)
+    binding_node = RuntimeNode(
+        user_id=user["sub"],
+        name=f"{req.name} 本机接入",
+        runtime_type=req.agent_type,
+        token_hash=hash_token(runtime_token),
+    )
+    db.add(binding_node)
     await db.commit()
     await db.refresh(agent)
-    binding = None
-    if binding_node:
-        binding = _make_runtime_binding(agent, binding_node, req.runtime_profile, req.runtime_workspace, req.knowledge_scope)
-        db.add(binding)
-        await db.commit()
-        await db.refresh(binding)
-    return _agent_to_dict(agent, user.get("nickname", ""), include_owner_id=True, full=True, runtime_binding=binding, runtime_node=binding_node)
+    await db.refresh(binding_node)
+    return _agent_to_dict(
+        agent,
+        user.get("nickname", ""),
+        include_owner_id=True,
+        full=True,
+        runtime_node=binding_node,
+        runtime_node_token=runtime_token,
+    )
 
 
 @router.put("/my/agents/{agent_id}")
@@ -1108,6 +1113,7 @@ def _agent_to_dict(
     service_status: dict | None = None,
     runtime_binding: AgentRuntimeBinding | None = None,
     runtime_node: RuntimeNode | None = None,
+    runtime_node_token: str | None = None,
 ) -> dict:
     out = {
         "id": agent.id,
@@ -1137,6 +1143,10 @@ def _agent_to_dict(
         "service_status": service_status,
         "runtime_binding": _runtime_binding_to_dict(runtime_binding, runtime_node=runtime_node) if runtime_binding else None,
     }
+    if runtime_node and runtime_node_token:
+        runtime_node_dict = _runtime_node_to_dict(runtime_node)
+        runtime_node_dict["token"] = runtime_node_token
+        out["runtime_node"] = runtime_node_dict
     if full:
         out["daily_quota_config"] = agent.daily_quota_config
         out["review_rules"] = agent.review_rules

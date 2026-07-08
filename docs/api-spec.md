@@ -49,7 +49,7 @@
 
 ### `POST /api/my/agents` 🔒
 请求：`{ "name", "agent_type": "openclaw"|"hermes", "tags": [...], "description", "is_public", "visibility?", "service_mode?", "service_rules?" }`
-返回：完整 Agent。
+返回：完整 Agent，并在 `runtime_node` 中带一次性 `token`。创建 Agent 会同时创建默认本机接入 Runtime Node，但不会自动创建能力档案/Profile Binding。
 
 ### `PUT /api/my/agents/:id` 🔒
 请求：`{ "name?", "tags?", "description?", "is_public?", "visibility?", "service_mode?", "service_rules?", "daily_quota_config?", "review_rules?" }`
@@ -118,7 +118,7 @@
 删除未绑定 Agent 的 Runtime Node。仍有绑定时返回 `409`。
 
 ### `PUT /api/my/agents/:id/runtime-binding` 🔒
-把 Agent 绑定到本地 Runtime Node 的隔离 profile/workspace。
+创建或更新 Agent 的能力档案接入，把该档案绑定到本机 Runtime Node 的隔离 profile/workspace。
 Hermes 使用 `runtime_profile`，OpenClaw 使用 `runtime_workspace`。Hermes 端必须启用 `gateway.multiplex_profiles`，并在 Agent 所在机器创建同名 profile。
 请求：
 ```json

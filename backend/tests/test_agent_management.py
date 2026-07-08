@@ -82,6 +82,10 @@ class RefreshableDB:
 
     async def refresh(self, obj):
         self.refreshes += 1
+        if type(obj).__name__ == "Agent" and getattr(obj, "id", None) is None:
+            obj.id = "a_generated"
+        if type(obj).__name__ == "RuntimeNode" and getattr(obj, "id", None) is None:
+            obj.id = "rn_generated"
 
 
 class RelationshipDB:
@@ -117,6 +121,30 @@ class RelationshipDB:
             obj.id = "generated"
 
 
+class CreateAgentDB:
+    def __init__(self, owner=None):
+        self.owner = owner or SimpleNamespace(
+            default_agent_visibility="public",
+            default_agent_service_mode="auto_match",
+            default_agent_service_rules=None,
+        )
+        self.added = []
+        self.commits = 0
+        self.refreshes = 0
+
+    async def execute(self, stmt):
+        return ScalarResult(self.owner)
+
+    def add(self, obj):
+        self.added.append(obj)
+
+    async def commit(self):
+        self.commits += 1
+
+    async def refresh(self, obj):
+        self.refreshes += 1
+
+
 def make_list_agent(agent_id, owner_id, visibility="public"):
     return SimpleNamespace(
         id=agent_id,
@@ -137,6 +165,27 @@ def make_list_agent(agent_id, owner_id, visibility="public"):
         created_at=None,
         review_rules={},
     )
+
+
+@pytest.mark.asyncio
+async def test_create_agent_creates_runtime_node_token_without_profile_binding(monkeypatch):
+    monkeypatch.setattr(agents.secrets, "token_urlsafe", lambda size=32: "runtime-token")
+    monkeypatch.setattr(agents, "hash_token", lambda token: f"hashed:{token}")
+    db = CreateAgentDB()
+
+    out = await agents.create_agent(
+        agents.CreateAgentReq(name="Mac上的爱马仕", agent_type="hermes"),
+        user={"sub": "u_owner", "nickname": "Gavin"},
+        db=db,
+    )
+
+    added_types = [type(obj).__name__ for obj in db.added]
+    assert added_types == ["Agent", "RuntimeNode"]
+    assert out["id"].startswith("a_")
+    assert out["runtime_binding"] is None
+    assert out["runtime_node"]["runtime_type"] == "hermes"
+    assert out["runtime_node"]["token"] == "runtime-token"
+    assert out["runtime_node"]["name"] == "Mac上的爱马仕 本机接入"
 
 
 class AgentDetailDB(RelationshipDB):

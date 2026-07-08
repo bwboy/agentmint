@@ -90,6 +90,7 @@ export interface Agent {
   daily_quota_config?: { max: number; auto_threshold: number; emergency_reserve: number };
   permission_profile?: AgentPermissionProfile;
   runtime_binding?: AgentRuntimeBinding | null;
+  runtime_node?: RuntimeNode & { token?: string };
   review_rules?: { auto_trust_level: number; auto_tag_match: boolean; agentmint_permissions?: AgentPermissionProfile };
   last_seen_at?: string | null;
 }

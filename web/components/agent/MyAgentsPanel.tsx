@@ -80,7 +80,7 @@ export function MyAgentsPanel() {
     const token = getToken();
     if (!token || !name) return;
     try {
-      await api("/api/my/agents", {
+      const created = await api<Agent>("/api/my/agents", {
         method: "POST", token,
         json: {
           name, agent_type: type,
@@ -89,6 +89,13 @@ export function MyAgentsPanel() {
           capability_profile: emptyProfile,
         },
       });
+      if (created.runtime_node?.token) {
+        setTokenInfo({
+          runtimeNodeId: created.runtime_node.id,
+          runtimeType: created.runtime_node.runtime_type,
+          token: created.runtime_node.token,
+        });
+      }
       setName(""); setType("hermes"); setAdding(false);
       await refresh();
     } catch (e: any) {
@@ -152,40 +159,6 @@ export function MyAgentsPanel() {
       setNodeName("");
       setNodeType("hermes");
       setAddingNode(false);
-      await refresh();
-    } catch (e: any) {
-      setErr(e.message);
-    }
-  }
-
-  async function createRuntimeNodeForAgent(agent: Agent) {
-    const token = getToken();
-    if (!token) return;
-    try {
-      const r = await api<RuntimeNode & { token: string }>(
-        "/api/my/runtime-nodes",
-        {
-          method: "POST",
-          token,
-          json: {
-            name: `${agent.name} 本机接入`,
-            runtime_type: agent.agent_type,
-          },
-        }
-      );
-      const space = defaultRuntimeSpaceName(agent.name, agent.id);
-      await api(`/api/my/agents/${agent.id}/runtime-binding`, {
-        method: "PUT",
-        token,
-        json: {
-          runtime_node_id: r.id,
-          runtime_profile: agent.agent_type === "hermes" ? space : "",
-          runtime_workspace: agent.agent_type === "openclaw" ? space : "",
-          knowledge_scope: "private",
-          status: "active",
-        },
-      });
-      setTokenInfo({ runtimeNodeId: r.id, runtimeType: r.runtime_type, token: r.token });
       await refresh();
     } catch (e: any) {
       setErr(e.message);
@@ -358,7 +331,7 @@ export function MyAgentsPanel() {
       />
 
       <div className="space-y-3">
-        {agents.length === 0 && <p className="rounded-xl border border-dashed border-gray-200 bg-white p-5 text-sm text-gray-400">还没有 Agent。先在上方创建 Agent 身份；创建后打开 Profile，生成本机接入 Token 并配置能力。</p>}
+        {agents.length === 0 && <p className="rounded-xl border border-dashed border-gray-200 bg-white p-5 text-sm text-gray-400">还没有 Agent。先在上方创建 Agent，系统会同时生成本机接入 Token；接入成功后再创建能力档案。</p>}
         {agents.map(a => (
           <div key={a.id} className="bg-white rounded-xl border border-gray-100 p-5">
             <div className="flex items-start gap-3">
@@ -420,7 +393,6 @@ export function MyAgentsPanel() {
                   nodes={runtimeNodes.filter(node => node.runtime_type === a.agent_type)}
                   onBind={patch => bindRuntime(a, patch)}
                   onUnbind={() => unbindRuntime(a)}
-                  onCreateNode={() => createRuntimeNodeForAgent(a)}
                 />
                 <PermissionSettingsFields
                   agent={a}
@@ -500,8 +472,8 @@ function AgentCreateSection({
     <div className="rounded-xl border border-gray-100 bg-white p-5">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-gray-900">1. 创建 Agent 身份</h3>
-          <p className="mt-1 text-xs text-gray-500">先确定这个分身是谁、运行在哪类框架；具体能回答什么，在创建后的 Profile 里配置。</p>
+          <h3 className="text-sm font-semibold text-gray-900">1. 创建 Agent 并接入本机</h3>
+          <p className="mt-1 text-xs text-gray-500">创建后系统会生成本机接入 Token；具体能回答什么，在后续能力档案里配置。</p>
         </div>
         <button
           onClick={() => onAddToggle(!adding)}
@@ -567,7 +539,7 @@ function RuntimeNodeSection({
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-gray-900">高级：本机接入管理</h3>
-          <p className="mt-1 text-xs text-gray-500">主流程在 Agent 的 Profile 里生成 Token。这里用于复用已有接入、重置 Token 或清理节点。</p>
+          <p className="mt-1 text-xs text-gray-500">创建 Agent 时会自动生成本机接入 Token。这里用于复用已有接入、重置 Token 或清理节点。</p>
         </div>
         <button
           onClick={() => onAddToggle(!adding)}
@@ -601,7 +573,7 @@ function RuntimeNodeSection({
         </div>
       )}
       <div className="grid gap-3 md:grid-cols-2">
-        {nodes.length === 0 && <p className="text-sm text-gray-400">还没有本机接入。打开某个 Agent 的 Profile，点击“生成本机接入 Token”。</p>}
+        {nodes.length === 0 && <p className="text-sm text-gray-400">还没有本机接入。创建 Agent 后会自动生成接入 Token。</p>}
         {nodes.map(node => (
           <div key={node.id} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
             <div className="flex items-start justify-between gap-3">
@@ -647,7 +619,7 @@ function RuntimeBindingSummary({ agent }: { agent: Agent }) {
   if (!binding) {
     return (
       <div className="mt-3 rounded-lg border border-dashed border-violet-100 bg-violet-50 px-3 py-2 text-xs text-violet-600">
-        未接入本机 runtime。打开 Profile 后生成本机接入 Token，并初始化 Hermes Profile / OpenClaw Workspace。
+        还没有能力档案。打开 Profile 后选择本机接入，并初始化 Hermes Profile / OpenClaw Workspace。
       </div>
     );
   }
@@ -672,13 +644,11 @@ function RuntimeBindingEditor({
   nodes,
   onBind,
   onUnbind,
-  onCreateNode,
 }: {
   agent: Agent;
   nodes: RuntimeNode[];
   onBind: (patch: { runtime_node_id?: string; runtime_profile?: string; runtime_workspace?: string; knowledge_scope?: KnowledgeScope }) => void;
   onUnbind: () => void;
-  onCreateNode: () => void;
 }) {
   const binding = agent.runtime_binding;
   const selectedNodeId = binding?.runtime_node_id || "";
@@ -710,8 +680,8 @@ function RuntimeBindingEditor({
     <div className="mt-4 rounded-lg border border-violet-100 bg-violet-50 p-3">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <span className="text-xs font-medium text-violet-800">2. Profile 接入</span>
-          <p className="mt-1 text-[11px] text-violet-600">这里生成本机接入 Token，并把这个 Profile 绑定到 Hermes profile / OpenClaw workspace。</p>
+          <span className="text-xs font-medium text-violet-800">2. 能力档案接入</span>
+          <p className="mt-1 text-[11px] text-violet-600">能力档案绑定到已接入的 Hermes profile / OpenClaw workspace；一个 Agent 后续可以扩展多个档案。</p>
         </div>
         {binding && (
           <button onClick={onUnbind} className="rounded-md bg-white px-2 py-1 text-xs text-violet-700 ring-1 ring-violet-100 hover:text-red-500">
@@ -719,19 +689,9 @@ function RuntimeBindingEditor({
           </button>
         )}
       </div>
-      {!selectedNodeId && (
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-violet-100 bg-white p-3">
-          <div>
-            <span className="text-xs font-medium text-violet-800">还没有给这个 Agent 接入本机 runtime</span>
-            <p className="mt-1 text-[11px] text-violet-500">点击后会生成 Token、自动创建本机节点，并用默认 Profile 名称绑定当前 Agent。</p>
-          </div>
-          <button
-            type="button"
-            onClick={onCreateNode}
-            className="rounded-lg bg-violet-700 px-3 py-2 text-xs font-medium text-white hover:bg-violet-800"
-          >
-            生成本机接入 Token
-          </button>
+      {!selectedNodeId && nodes.length === 0 && (
+        <div className="mb-3 rounded-lg border border-amber-100 bg-amber-50 p-3 text-xs text-amber-700">
+          还没有在线或已创建的本机接入。先使用创建 Agent 后生成的 Token 在本机执行接入命令。
         </div>
       )}
       <div className="grid gap-3 md:grid-cols-[1fr_1fr_150px]">
