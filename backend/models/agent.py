@@ -42,6 +42,7 @@ class Agent(Base):
         JSONB, default=lambda: {"auto_trust_level": 2, "auto_tag_match": True}
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class RuntimeNode(Base):

@@ -88,6 +88,8 @@ FOLLOWUP_SCHEMA_SQL = [
     """UPDATE agents SET service_rules='{"price_multiplier":1.0,"max_followup_depth":2,"min_fuel_per_answer":0,"max_fuel_per_answer":100000,"max_questions_per_user_per_day":20,"max_fuel_per_day":1000000}'::jsonb WHERE service_rules IS NULL""",
     "CREATE INDEX IF NOT EXISTS idx_agents_visibility ON agents(visibility)",
     "CREATE INDEX IF NOT EXISTS idx_agents_service_mode ON agents(service_mode)",
+    "ALTER TABLE agents ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ",
+    "CREATE INDEX IF NOT EXISTS idx_agents_deleted_at ON agents(deleted_at)",
     """
     CREATE TABLE IF NOT EXISTS runtime_nodes (
         id VARCHAR PRIMARY KEY,

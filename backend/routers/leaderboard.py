@@ -26,13 +26,13 @@ async def get_leaderboard(
     rows = (await db.execute(
         select(Agent, User.id, User.nickname)
         .join(User, Agent.user_id == User.id)
-        .where(Agent.is_public == True)
+        .where(Agent.is_public == True, Agent.deleted_at.is_(None))
         .order_by(order_col, Agent.total_answers.desc())
         .offset(offset).limit(size)
     )).all()
 
     total = (await db.execute(
-        select(func.count(Agent.id)).where(Agent.is_public == True)
+        select(func.count(Agent.id)).where(Agent.is_public == True, Agent.deleted_at.is_(None))
     )).scalar() or 0
 
     return {

@@ -153,16 +153,17 @@ class AgentDetailDB(RelationshipDB):
 
 
 class FakeDB:
-    def __init__(self, agent, answer_count=0):
+    def __init__(self, agent, answer_count=0, binding=None):
         self.results = [
             ScalarResult(agent),
             ScalarResult(answer_count),
+            ScalarResult(binding),
         ]
         self.deleted = []
         self.commits = 0
 
     async def execute(self, stmt):
-        return self.results.pop(0)
+        return self.results.pop(0) if self.results else ScalarResult(None)
 
     async def delete(self, obj):
         self.deleted.append(obj)
@@ -246,21 +247,23 @@ async def test_delete_agent_removes_owned_agent_without_answers():
 
 
 @pytest.mark.asyncio
-async def test_delete_agent_rejects_agents_with_answer_history():
-    agent = SimpleNamespace(id="a_history", user_id="u_owner")
+async def test_delete_agent_soft_deletes_agents_with_answer_history():
+    agent = SimpleNamespace(id="a_history", user_id="u_owner", review_rules={})
     db = FakeDB(agent, answer_count=2)
 
-    with pytest.raises(HTTPException) as exc_info:
-        await agents.delete_agent(
-            "a_history",
-            user={"sub": "u_owner"},
-            db=db,
-        )
+    res = await agents.delete_agent(
+        "a_history",
+        user={"sub": "u_owner"},
+        db=db,
+    )
 
-    assert exc_info.value.status_code == 409
-    assert "已有回答" in exc_info.value.detail
+    assert res.status_code == 204
     assert db.deleted == []
-    assert db.commits == 0
+    assert db.commits == 1
+    assert agent.status == "offline"
+    assert agent.visibility == "archived"
+    assert agent.service_mode == "stopped"
+    assert agent.deleted_at is not None
 
 
 def test_agent_to_dict_includes_readiness():

@@ -259,7 +259,7 @@ export function MyAgentsPanel() {
   async function deleteAgent(agent: Agent) {
     const token = getToken();
     if (!token) return;
-    if (!confirm(`删除 Agent「${agent.name}」？没有回答历史的 Agent 会被永久删除。`)) return;
+    if (!confirm(`删除 Agent「${agent.name}」？有回答历史的 Agent 会从管理列表移除并停止服务，历史回答仍会保留。`)) return;
     try {
       await api(`/api/my/agents/${agent.id}`, { method: "DELETE", token });
       if (editing === agent.id) {

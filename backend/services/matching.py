@@ -370,7 +370,7 @@ async def match_agents(
 
     # Fetch all online agents, then apply relationship-aware service filters.
     result = await db.execute(
-        select(Agent).where(Agent.status == "online")
+        select(Agent).where(Agent.status == "online", Agent.deleted_at.is_(None))
     )
     agents = list(result.scalars().all())
     followed_owner_ids, friend_owner_ids = await _relationship_owner_sets(db, viewer_id)

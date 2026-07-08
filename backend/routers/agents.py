@@ -117,7 +117,7 @@ async def list_agents(
     """List agents visible to the viewer (online + offline; status returned for UI)."""
     offset = (page - 1) * size
 
-    base = select(Agent, User.nickname).join(User, Agent.user_id == User.id)
+    base = select(Agent, User.nickname).join(User, Agent.user_id == User.id).where(Agent.deleted_at.is_(None))
     if tag:
         base = base.where(Agent.tags.any(tag))
 
@@ -199,7 +199,7 @@ async def get_agent(
     result = await db.execute(
         select(Agent, User.nickname)
         .join(User, Agent.user_id == User.id)
-        .where(Agent.id == agent_id)
+        .where(Agent.id == agent_id, Agent.deleted_at.is_(None))
     )
     row = result.one_or_none()
     if not row:
@@ -244,7 +244,7 @@ async def get_user_profile(
 
     relationship = await _user_relationship_context(db, viewer["sub"], profile_user.id) if viewer else None
     agent_rows = (await db.execute(
-        select(Agent).where(Agent.user_id == user_id).order_by(Agent.created_at.desc())
+        select(Agent).where(Agent.user_id == user_id, Agent.deleted_at.is_(None)).order_by(Agent.created_at.desc())
     )).scalars().all()
     visible_agents = [
         agent for agent in agent_rows
@@ -272,7 +272,7 @@ async def my_agents(user: dict = Depends(get_current_user), db: AsyncSession = D
         select(Agent, AgentRuntimeBinding, RuntimeNode)
         .outerjoin(AgentRuntimeBinding, AgentRuntimeBinding.agent_id == Agent.id)
         .outerjoin(RuntimeNode, RuntimeNode.id == AgentRuntimeBinding.runtime_node_id)
-        .where(Agent.user_id == user["sub"])
+        .where(Agent.user_id == user["sub"], Agent.deleted_at.is_(None))
         .order_by(Agent.created_at.desc())
     )
     rows = result.all()
@@ -294,7 +294,7 @@ async def my_runtime_nodes(user: dict = Depends(get_current_user), db: AsyncSess
     binding_rows = (await db.execute(
         select(AgentRuntimeBinding, Agent.name)
         .join(Agent, Agent.id == AgentRuntimeBinding.agent_id)
-        .where(Agent.user_id == user["sub"])
+        .where(Agent.user_id == user["sub"], Agent.deleted_at.is_(None))
     )).all()
     bindings_by_node: dict[str, list[dict]] = {}
     for binding, agent_name in binding_rows:
@@ -434,7 +434,7 @@ async def my_social(user: dict = Depends(get_current_user), db: AsyncSession = D
         select(AgentSubscription, Agent, User.nickname)
         .join(Agent, AgentSubscription.agent_id == Agent.id)
         .join(User, Agent.user_id == User.id)
-        .where(AgentSubscription.subscriber_id == user_id)
+        .where(AgentSubscription.subscriber_id == user_id, Agent.deleted_at.is_(None))
         .order_by(AgentSubscription.created_at.desc())
     )).all()
 
@@ -635,7 +635,7 @@ async def subscribe_agent(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    agent = (await db.execute(select(Agent).where(Agent.id == agent_id))).scalar_one_or_none()
+    agent = (await db.execute(select(Agent).where(Agent.id == agent_id, Agent.deleted_at.is_(None)))).scalar_one_or_none()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent 不存在")
     followed_owner_ids, friend_owner_ids = await _relationship_owner_sets(db, user["sub"])
@@ -798,17 +798,26 @@ async def delete_agent(
     answer_count = (await db.execute(
         select(func.count(Answer.id)).where(Answer.agent_id == agent_id)
     )).scalar() or 0
-    if answer_count:
-        raise HTTPException(
-            status_code=409,
-            detail="已有回答历史的 Agent 暂不能删除，请先设为不公开或解绑本地节点。",
-        )
-
     try:
         from ws.hub import hub
         await hub.disconnect_agent(agent_id, reason="deleted")
     except Exception:
         pass
+
+    if answer_count:
+        binding = (await db.execute(
+            select(AgentRuntimeBinding).where(AgentRuntimeBinding.agent_id == agent_id)
+        )).scalar_one_or_none()
+        if binding:
+            await db.delete(binding)
+        agent.status = "offline"
+        agent.is_public = False
+        agent.visibility = "archived"
+        agent.service_mode = "stopped"
+        agent.deleted_at = datetime.utcnow()
+        set_agent_readiness(agent, "unverified")
+        await db.commit()
+        return Response(status_code=204)
 
     await db.delete(agent)
     await db.commit()
@@ -989,7 +998,7 @@ async def reject_review_item(
 # ═══════════════════════════════════════════════════
 
 async def _get_owned_agent(db: AsyncSession, agent_id: str, user_id: str) -> Agent:
-    result = await db.execute(select(Agent).where(Agent.id == agent_id))
+    result = await db.execute(select(Agent).where(Agent.id == agent_id, Agent.deleted_at.is_(None)))
     agent = result.scalar_one_or_none()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent 不存在")
@@ -1117,6 +1126,7 @@ def _agent_to_dict(
         "service_rules": normalize_service_rules(getattr(agent, "service_rules", None)),
         "owner": {"nickname": owner_nickname},
         "created_at": agent.created_at.isoformat() if agent.created_at else None,
+        "deleted_at": agent.deleted_at.isoformat() if getattr(agent, "deleted_at", None) else None,
         "capability_profile": normalize_capability_profile((agent.review_rules or {}).get("capability_profile")),
         "permission_profile": normalize_permission_profile((agent.review_rules or {}).get(PERMISSIONS_KEY)),
         "learned_profile": get_agent_learned_profile(agent),

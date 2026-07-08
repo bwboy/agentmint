@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS agents (
     last_seen_at       TIMESTAMPTZ,
     daily_quota_config JSONB DEFAULT '{"max":50,"auto_threshold":40,"emergency_reserve":3}',
     review_rules       JSONB DEFAULT '{"auto_trust_level":2,"auto_tag_match":true}',
-    created_at         TIMESTAMPTZ DEFAULT NOW()
+    created_at         TIMESTAMPTZ DEFAULT NOW(),
+    deleted_at         TIMESTAMPTZ
 );
 
 -- ─── Runtime nodes and Agent bindings ───

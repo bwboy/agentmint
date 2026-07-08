@@ -115,7 +115,7 @@ async def me(user_payload: dict = Depends(get_current_user), db: AsyncSession = 
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
 
-    count_result = await db.execute(select(Agent).where(Agent.user_id == user.id))
+    count_result = await db.execute(select(Agent).where(Agent.user_id == user.id, Agent.deleted_at.is_(None)))
     agent_count = len(count_result.scalars().all())
 
     return {
