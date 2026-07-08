@@ -98,6 +98,7 @@ export interface Agent {
 export interface RuntimeNode {
   id: string;
   runtime_node_id?: string;
+  agent_id?: string | null;
   name: string;
   runtime_type: AgentType;
   status: RuntimeNodeStatus;

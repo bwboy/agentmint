@@ -80,6 +80,11 @@ class RefreshableDB:
     async def commit(self):
         self.commits += 1
 
+    async def flush(self):
+        for obj in self.added:
+            if type(obj).__name__ == "Agent" and getattr(obj, "id", None) is None:
+                obj.id = "a_generated"
+
     async def refresh(self, obj):
         self.refreshes += 1
         if type(obj).__name__ == "Agent" and getattr(obj, "id", None) is None:
@@ -186,6 +191,7 @@ async def test_create_agent_creates_runtime_node_token_without_profile_binding(m
     assert out["runtime_node"]["runtime_type"] == "hermes"
     assert out["runtime_node"]["token"] == "runtime-token"
     assert out["runtime_node"]["name"] == "Mac上的爱马仕 本机接入"
+    assert out["runtime_node"]["agent_id"] == out["id"]
 
 
 class AgentDetailDB(RelationshipDB):
@@ -728,7 +734,7 @@ async def test_my_social_lists_relationship_collections():
 
 
 @pytest.mark.asyncio
-async def test_readiness_check_marks_offline_agent_error():
+async def test_readiness_check_does_not_short_circuit_on_agent_status_offline():
     agent = SimpleNamespace(id="a_offline", user_id="u_owner", status="offline", review_rules={})
     db = RefreshableDB(agent)
 
@@ -739,6 +745,5 @@ async def test_readiness_check_marks_offline_agent_error():
     )
 
     assert out["delivered"] is False
-    assert out["readiness"]["state"] == "error"
-    assert "离线" in out["readiness"]["error"]
-    assert db.commits == 1
+    assert out["readiness"]["state"] == "unverified"
+    assert db.commits == 0

@@ -324,12 +324,7 @@ class Hub:
 
     async def push_readiness_probes_for_node(self, runtime_node_id: str) -> None:
         async with AsyncSessionLocal() as db:
-            rows = (await db.execute(
-                select(AgentRuntimeBinding.agent_id).where(
-                    AgentRuntimeBinding.runtime_node_id == runtime_node_id,
-                    AgentRuntimeBinding.status == "active",
-                )
-            )).scalars().all()
+            rows = await self._agent_ids_for_runtime_node(db, runtime_node_id)
         for agent_id in rows:
             await self.push_readiness_probe(agent_id)
 
@@ -342,12 +337,7 @@ class Hub:
         )).scalar_one_or_none()
 
     async def _mark_bound_agents(self, db, runtime_node_id: str, status: str) -> None:
-        agent_ids = (await db.execute(
-            select(AgentRuntimeBinding.agent_id).where(
-                AgentRuntimeBinding.runtime_node_id == runtime_node_id,
-                AgentRuntimeBinding.status == "active",
-            )
-        )).scalars().all()
+        agent_ids = await self._agent_ids_for_runtime_node(db, runtime_node_id)
         if agent_ids:
             await db.execute(
                 update(Agent)
@@ -357,14 +347,25 @@ class Hub:
 
     async def _refresh_agent_node_cache(self, runtime_node_id: str) -> None:
         async with AsyncSessionLocal() as db:
-            agent_ids = (await db.execute(
-                select(AgentRuntimeBinding.agent_id).where(
-                    AgentRuntimeBinding.runtime_node_id == runtime_node_id,
-                    AgentRuntimeBinding.status == "active",
-                )
-            )).scalars().all()
+            agent_ids = await self._agent_ids_for_runtime_node(db, runtime_node_id)
         for agent_id in agent_ids:
             self.agent_to_node[agent_id] = runtime_node_id
+
+    async def _agent_ids_for_runtime_node(self, db, runtime_node_id: str) -> list[str]:
+        binding_ids = (await db.execute(
+            select(AgentRuntimeBinding.agent_id).where(
+                AgentRuntimeBinding.runtime_node_id == runtime_node_id,
+                AgentRuntimeBinding.status == "active",
+            )
+        )).scalars().all()
+        owner_agent_id = (await db.execute(
+            select(RuntimeNode.agent_id).where(RuntimeNode.id == runtime_node_id)
+        )).scalar_one_or_none()
+        ids: list[str] = []
+        for agent_id in [owner_agent_id, *binding_ids]:
+            if agent_id and agent_id not in ids:
+                ids.append(agent_id)
+        return ids
 
     async def _set_readiness(self, agent_id: str, state: str, *, code: str | None = None, command: str | None = None, error: str | None = None):
         async with AsyncSessionLocal() as db:

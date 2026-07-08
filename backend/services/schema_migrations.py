@@ -108,11 +108,22 @@ FOLLOWUP_SCHEMA_SQL = [
         created_at TIMESTAMPTZ DEFAULT now()
     )
     """,
+    "ALTER TABLE runtime_nodes ADD COLUMN IF NOT EXISTS agent_id VARCHAR REFERENCES agents(id) ON DELETE SET NULL",
+    """
+    UPDATE runtime_nodes rn
+    SET agent_id = a.id
+    FROM agents a
+    WHERE rn.agent_id IS NULL
+      AND rn.user_id = a.user_id
+      AND rn.runtime_type = a.agent_type
+      AND rn.name = a.name || ' 本机接入'
+    """,
     "ALTER TABLE runtime_nodes ADD COLUMN IF NOT EXISTS capabilities JSONB DEFAULT '{}'::jsonb",
     "ALTER TABLE runtime_nodes ADD COLUMN IF NOT EXISTS adapter_version VARCHAR DEFAULT ''",
     "ALTER TABLE runtime_nodes ADD COLUMN IF NOT EXISTS runtime_version VARCHAR DEFAULT ''",
     "ALTER TABLE runtime_nodes ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ",
     "CREATE INDEX IF NOT EXISTS idx_runtime_nodes_user_id ON runtime_nodes(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_runtime_nodes_agent_id ON runtime_nodes(agent_id)",
     "CREATE INDEX IF NOT EXISTS idx_runtime_nodes_runtime_type ON runtime_nodes(runtime_type)",
     "CREATE INDEX IF NOT EXISTS idx_runtime_nodes_status ON runtime_nodes(status)",
     """

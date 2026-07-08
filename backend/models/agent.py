@@ -50,6 +50,7 @@ class RuntimeNode(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: gen_id("rn"))
     user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    agent_id: Mapped[str | None] = mapped_column(String, ForeignKey("agents.id", ondelete="SET NULL"), nullable=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
     runtime_type: Mapped[str] = mapped_column(String, nullable=False)  # hermes | openclaw
     token_hash: Mapped[str] = mapped_column(String, nullable=False)

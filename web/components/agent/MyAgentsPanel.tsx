@@ -41,7 +41,6 @@ export function MyAgentsPanel() {
   const [runtimeNodes, setRuntimeNodes] = useState<RuntimeNode[]>([]);
   const [tokenInfo, setTokenInfo] = useState<{ runtimeNodeId: string; runtimeType: AgentType; token: string } | null>(null);
   const [adding, setAdding] = useState(false);
-  const [addingNode, setAddingNode] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [checkingId, setCheckingId] = useState<string | null>(null);
 
@@ -50,8 +49,6 @@ export function MyAgentsPanel() {
   const [type, setType] = useState<"openclaw" | "hermes">("hermes");
   const [editing, setEditing] = useState<string | null>(null);
   const [editState, setEditState] = useState<AgentEditState | null>(null);
-  const [nodeName, setNodeName] = useState("");
-  const [nodeType, setNodeType] = useState<AgentType>("hermes");
 
   useEffect(() => {
     const t = getToken();
@@ -137,28 +134,6 @@ export function MyAgentsPanel() {
       });
       setEditing(null);
       setEditState(null);
-      await refresh();
-    } catch (e: any) {
-      setErr(e.message);
-    }
-  }
-
-  async function createRuntimeNode() {
-    const token = getToken();
-    if (!token) return;
-    try {
-      const r = await api<RuntimeNode & { token: string }>(
-        "/api/my/runtime-nodes",
-        {
-          method: "POST",
-          token,
-          json: { name: nodeName || `${nodeType === "hermes" ? "Hermes" : "OpenClaw"} 本地节点`, runtime_type: nodeType },
-        }
-      );
-      setTokenInfo({ runtimeNodeId: r.id, runtimeType: r.runtime_type, token: r.token });
-      setNodeName("");
-      setNodeType("hermes");
-      setAddingNode(false);
       await refresh();
     } catch (e: any) {
       setErr(e.message);
@@ -339,9 +314,7 @@ export function MyAgentsPanel() {
               <div className="flex-1">
                 <div className="flex items-center gap-2">
                   <h3 className="font-semibold">{a.name}</h3>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                    a.status === "online" ? "bg-green-50 text-green-600" : "bg-gray-100 text-gray-400"
-                  }`}>{a.status}</span>
+                  <AgentConnectionBadge agent={a} />
                 </div>
                 <div className="flex flex-wrap gap-1 mt-2">
                   {a.tags?.map(t => (
@@ -390,7 +363,7 @@ export function MyAgentsPanel() {
                 />
                 <RuntimeBindingEditor
                   agent={a}
-                  nodes={runtimeNodes.filter(node => node.runtime_type === a.agent_type)}
+                  nodes={agentRuntimeNodes(a, runtimeNodes)}
                   onBind={patch => bindRuntime(a, patch)}
                   onUnbind={() => unbindRuntime(a)}
                 />
@@ -421,13 +394,6 @@ export function MyAgentsPanel() {
 
       <RuntimeNodeSection
         nodes={runtimeNodes}
-        adding={addingNode}
-        nodeName={nodeName}
-        nodeType={nodeType}
-        onAddToggle={setAddingNode}
-        onNameChange={setNodeName}
-        onTypeChange={setNodeType}
-        onCreate={createRuntimeNode}
         onRotate={rotateRuntimeNodeToken}
         onDelete={deleteRuntimeNode}
       />
@@ -448,6 +414,18 @@ function ServiceSummary({ agent }: { agent: Agent }) {
       <span className="rounded bg-teal-50 px-2 py-0.5 text-teal-600">燃值 {rules.max_fuel_per_day}/日</span>
       <span className="rounded bg-emerald-50 px-2 py-0.5 text-emerald-600">每日 {quota.max} 次</span>
     </div>
+  );
+}
+
+function AgentConnectionBadge({ agent }: { agent: Agent }) {
+  const nodeStatus = agent.runtime_node?.status;
+  const label = nodeStatus === "online" ? "本机已接入" : "本机未接入";
+  return (
+    <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+      nodeStatus === "online" ? "bg-green-50 text-green-600" : "bg-gray-100 text-gray-400"
+    }`}>
+      {label}
+    </span>
   );
 }
 
@@ -513,24 +491,10 @@ function AgentCreateSection({
 
 function RuntimeNodeSection({
   nodes,
-  adding,
-  nodeName,
-  nodeType,
-  onAddToggle,
-  onNameChange,
-  onTypeChange,
-  onCreate,
   onRotate,
   onDelete,
 }: {
   nodes: RuntimeNode[];
-  adding: boolean;
-  nodeName: string;
-  nodeType: AgentType;
-  onAddToggle: (value: boolean) => void;
-  onNameChange: (value: string) => void;
-  onTypeChange: (value: AgentType) => void;
-  onCreate: () => void;
   onRotate: (node: RuntimeNode) => void;
   onDelete: (node: RuntimeNode) => void;
 }) {
@@ -541,37 +505,7 @@ function RuntimeNodeSection({
           <h3 className="text-sm font-semibold text-gray-900">高级：本机接入管理</h3>
           <p className="mt-1 text-xs text-gray-500">创建 Agent 时会自动生成本机接入 Token。这里用于复用已有接入、重置 Token 或清理节点。</p>
         </div>
-        <button
-          onClick={() => onAddToggle(!adding)}
-          className="rounded-lg bg-gray-950 px-3 py-2 text-xs font-medium text-white hover:bg-gray-800"
-        >
-          {adding ? "收起" : "新建节点"}
-        </button>
       </div>
-      {adding && (
-        <div className="mb-4 grid gap-3 rounded-lg border border-gray-100 bg-gray-50 p-3 md:grid-cols-[1fr_180px_auto]">
-          <input
-            value={nodeName}
-            onChange={e => onNameChange(e.target.value)}
-            placeholder="节点名称，例如 Mac 上的 Hermes"
-            className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
-          />
-          <select
-            value={nodeType}
-            onChange={e => onTypeChange(e.target.value as AgentType)}
-            className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
-          >
-            <option value="hermes">Hermes</option>
-            <option value="openclaw">OpenClaw</option>
-          </select>
-          <button
-            onClick={onCreate}
-            className="rounded-lg bg-primary px-4 py-2 text-sm text-white disabled:opacity-50"
-          >
-            创建并生成 Token
-          </button>
-        </div>
-      )}
       <div className="grid gap-3 md:grid-cols-2">
         {nodes.length === 0 && <p className="text-sm text-gray-400">还没有本机接入。创建 Agent 后会自动生成接入 Token。</p>}
         {nodes.map(node => (
@@ -585,7 +519,7 @@ function RuntimeNodeSection({
                 </div>
                 <p className="mt-1 break-all font-mono text-[11px] text-gray-400">{node.id}</p>
                 <p className="mt-2 text-xs text-gray-500">
-                  {node.bindings?.length ? `已绑定 ${node.bindings.length} 个 Agent` : "未绑定 Agent"}
+                  {node.agent_id ? "Agent 本机接入" : node.bindings?.length ? `已绑定 ${node.bindings.length} 个 Agent` : "未绑定 Agent"}
                   {node.last_seen_at ? ` · ${formatDateTime(node.last_seen_at)}` : ""}
                 </p>
               </div>
@@ -593,9 +527,11 @@ function RuntimeNodeSection({
                 <button onClick={() => onRotate(node)} className="rounded-md bg-white px-2 py-1 text-xs text-gray-600 ring-1 ring-black/5 hover:text-primary">
                   重置 Token
                 </button>
-                <button onClick={() => onDelete(node)} className="rounded-md bg-white px-2 py-1 text-xs text-gray-600 ring-1 ring-black/5 hover:text-red-500">
-                  删除
-                </button>
+                {!node.agent_id && (
+                  <button onClick={() => onDelete(node)} className="rounded-md bg-white px-2 py-1 text-xs text-gray-600 ring-1 ring-black/5 hover:text-red-500">
+                    删除
+                  </button>
+                )}
               </div>
             </div>
             {!!node.bindings?.length && (
@@ -639,6 +575,16 @@ function RuntimeBindingSummary({ agent }: { agent: Agent }) {
   );
 }
 
+function agentRuntimeNodes(agent: Agent, nodes: RuntimeNode[]) {
+  const nodeMap = new Map<string, RuntimeNode>();
+  if (agent.runtime_node) nodeMap.set(agent.runtime_node.id, agent.runtime_node);
+  nodes
+    .filter(node => node.runtime_type === agent.agent_type)
+    .filter(node => !node.agent_id || node.agent_id === agent.id)
+    .forEach(node => nodeMap.set(node.id, node));
+  return Array.from(nodeMap.values());
+}
+
 function RuntimeBindingEditor({
   agent,
   nodes,
@@ -651,7 +597,8 @@ function RuntimeBindingEditor({
   onUnbind: () => void;
 }) {
   const binding = agent.runtime_binding;
-  const selectedNodeId = binding?.runtime_node_id || "";
+  const fallbackNodeId = agent.runtime_node?.id || (nodes.length === 1 ? nodes[0].id : "");
+  const selectedNodeId = binding?.runtime_node_id || fallbackNodeId;
   const selectedNode = nodes.find(node => node.id === selectedNodeId);
   const profileLabel = agent.agent_type === "hermes" ? "Hermes Profile" : "OpenClaw Workspace";
   const spaceValue = agent.agent_type === "hermes" ? binding?.runtime_profile || "" : binding?.runtime_workspace || "";
@@ -691,12 +638,12 @@ function RuntimeBindingEditor({
       </div>
       {!selectedNodeId && nodes.length === 0 && (
         <div className="mb-3 rounded-lg border border-amber-100 bg-amber-50 p-3 text-xs text-amber-700">
-          还没有在线或已创建的本机接入。先使用创建 Agent 后生成的 Token 在本机执行接入命令。
+          还没有这个 Agent 的本机接入。请重新创建 Agent，或在高级管理里重置接入。
         </div>
       )}
       <div className="grid gap-3 md:grid-cols-[1fr_1fr_150px]">
         <label className="block">
-          <span className="mb-1 block text-xs text-violet-700">使用已有接入</span>
+          <span className="mb-1 block text-xs text-violet-700">本 Agent 接入</span>
           <select
             value={selectedNodeId}
             onChange={e => onBind({ runtime_node_id: e.target.value })}
@@ -714,8 +661,8 @@ function RuntimeBindingEditor({
             value={spaceValue}
             disabled={!selectedNodeId}
             onChange={e => agent.agent_type === "hermes"
-              ? onBind({ runtime_profile: e.target.value })
-              : onBind({ runtime_workspace: e.target.value })}
+              ? onBind({ runtime_node_id: selectedNodeId, runtime_profile: e.target.value })
+              : onBind({ runtime_node_id: selectedNodeId, runtime_workspace: e.target.value })}
             placeholder={defaultSpace}
             className="w-full rounded-lg border border-violet-100 bg-white px-3 py-2 text-sm disabled:bg-gray-100"
           />
@@ -725,7 +672,7 @@ function RuntimeBindingEditor({
           <select
             value={binding?.knowledge_scope || "private"}
             disabled={!selectedNodeId}
-            onChange={e => onBind({ knowledge_scope: e.target.value as KnowledgeScope })}
+            onChange={e => onBind({ runtime_node_id: selectedNodeId, knowledge_scope: e.target.value as KnowledgeScope })}
             className="w-full rounded-lg border border-violet-100 bg-white px-3 py-2 text-sm disabled:bg-gray-100"
           >
             <option value="private">仅本 Agent</option>
@@ -853,9 +800,10 @@ function ReadinessView({
   const readiness = agent.readiness || { state: "unverified" as const };
   const meta = readinessMeta(readiness.state);
   const canCheck = !checking;
-  const label = agent.status === "online" ? meta.label : "待接入";
-  const boxClass = agent.status === "online" ? meta.box : "border-gray-100 bg-gray-50 text-gray-600";
-  const dotClass = agent.status === "online" ? meta.dot : "bg-gray-400";
+  const nodeOnline = agent.runtime_node?.status === "online";
+  const label = nodeOnline ? meta.label : "本机未接入";
+  const boxClass = nodeOnline ? meta.box : "border-gray-100 bg-gray-50 text-gray-600";
+  const dotClass = nodeOnline ? meta.dot : "bg-gray-400";
   const [copied, setCopied] = useState(false);
 
   async function copyCommand(command: string) {

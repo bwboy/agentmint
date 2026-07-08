@@ -276,9 +276,23 @@ async def my_agents(user: dict = Depends(get_current_user), db: AsyncSession = D
         .order_by(Agent.created_at.desc())
     )
     rows = result.all()
+    agent_ids = [a.id for a, _, _ in rows]
+    default_nodes = []
+    if agent_ids:
+        default_nodes = (await db.execute(
+            select(RuntimeNode).where(RuntimeNode.agent_id.in_(agent_ids))
+        )).scalars().all()
+    default_node_by_agent = {node.agent_id: _runtime_node_to_dict(node) for node in default_nodes if node.agent_id}
     return {
         "data": [
-            _agent_to_dict(a, user.get("nickname", ""), full=True, runtime_binding=binding, runtime_node=node)
+            _agent_to_dict(
+                a,
+                user.get("nickname", ""),
+                full=True,
+                runtime_binding=binding,
+                runtime_node=node,
+                default_runtime_node=default_node_by_agent.get(a.id),
+            )
             for a, binding, node in rows
         ]
     }
@@ -377,6 +391,8 @@ async def delete_runtime_node(
     db: AsyncSession = Depends(get_db),
 ):
     node = await _get_owned_runtime_node(db, node_id, user["sub"])
+    if getattr(node, "agent_id", None):
+        raise HTTPException(status_code=409, detail="这是 Agent 的本机接入，请删除 Agent 或重置 Token")
     bindings = (await db.execute(
         select(func.count(AgentRuntimeBinding.agent_id)).where(AgentRuntimeBinding.runtime_node_id == node_id)
     )).scalar() or 0
@@ -501,9 +517,11 @@ async def create_agent(
         review_rules=merge_capability_profile(None, req.capability_profile),
     )
     db.add(agent)
+    await db.flush()
     runtime_token = secrets.token_urlsafe(32)
     binding_node = RuntimeNode(
         user_id=user["sub"],
+        agent_id=agent.id,
         name=f"{req.name} 本机接入",
         runtime_type=req.agent_type,
         token_hash=hash_token(runtime_token),
@@ -885,11 +903,6 @@ async def readiness_check(
     db: AsyncSession = Depends(get_db),
 ):
     agent = await _get_owned_agent(db, agent_id, user["sub"])
-    if agent.status != "online":
-        readiness = set_agent_readiness(agent, "error", error="Agent 当前离线，无法检测")
-        await db.commit()
-        return {"readiness": readiness, "delivered": False}
-
     try:
         from ws.hub import hub
         delivered = await hub.push_readiness_probe(agent_id)
@@ -1066,6 +1079,7 @@ def _runtime_node_to_dict(node: RuntimeNode, bindings: list[dict] | None = None)
     return {
         "id": node.id,
         "runtime_node_id": node.id,
+        "agent_id": getattr(node, "agent_id", None),
         "name": node.name,
         "runtime_type": normalize_runtime_type(node.runtime_type),
         "status": node.status or "offline",
@@ -1114,6 +1128,7 @@ def _agent_to_dict(
     runtime_binding: AgentRuntimeBinding | None = None,
     runtime_node: RuntimeNode | None = None,
     runtime_node_token: str | None = None,
+    default_runtime_node: dict | None = None,
 ) -> dict:
     out = {
         "id": agent.id,
@@ -1142,6 +1157,7 @@ def _agent_to_dict(
         "readiness": get_agent_readiness(agent),
         "service_status": service_status,
         "runtime_binding": _runtime_binding_to_dict(runtime_binding, runtime_node=runtime_node) if runtime_binding else None,
+        "runtime_node": default_runtime_node,
     }
     if runtime_node and runtime_node_token:
         runtime_node_dict = _runtime_node_to_dict(runtime_node)
