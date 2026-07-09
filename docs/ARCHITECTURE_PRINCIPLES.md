@@ -42,7 +42,9 @@ knowledge and memory isolation.
 AgentMint's Hermes setup script must enable `gateway.multiplex_profiles: true`.
 The platform stores the requested profile name, but profile creation is a local
 Hermes operation; owners create it on the Agent machine with
-`hermes profile create <profile> --clone`.
+`hermes profile create <profile>`. Do not clone the default profile for
+AgentMint profiles when multiplexing is enabled; cloned platform configs such
+as Feishu/Lark can try to bind shared listeners from a secondary profile.
 
 ## Local-First Knowledge
 

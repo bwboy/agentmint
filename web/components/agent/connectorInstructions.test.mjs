@@ -24,7 +24,8 @@ test("shows Hermes profile creation command for a bound agent", () => {
   });
 
   assert.equal(instructions.title, "Hermes Profile 初始化");
-  assert.match(instructions.command, /hermes profile create 'wow expert'\\''s profile' --clone/);
+  assert.match(instructions.command, /hermes profile create 'wow expert'\\''s profile'/);
+  assert.doesNotMatch(instructions.command, /--clone/);
   assert.match(instructions.command, /hermes config set gateway\.multiplex_profiles true/);
   assert.match(instructions.command, /hermes gateway/);
 });

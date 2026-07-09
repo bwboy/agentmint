@@ -98,12 +98,12 @@ agentmint ws client 2026-06-30.3 loaded from ...
 Hermes profile 创建命令在 Agent 的「运行绑定」区会自动生成，形式如下：
 
 ```bash
-hermes profile create '<profile-name>' --clone
+hermes profile create '<profile-name>'
 hermes config set gateway.multiplex_profiles true
 hermes gateway
 ```
 
-平台不能直接在你的本机创建 Hermes profile，所以这一步必须由 Agent 主人在 Hermes 机器上执行。`--clone` 会用当前 Hermes 默认配置初始化新 profile，后续该 Agent 的知识、记忆和运行上下文就能和其他 Agent 隔离。
+平台不能直接在你的本机创建 Hermes profile，所以这一步必须由 Agent 主人在 Hermes 机器上执行。不要给 AgentMint profile 使用 `--clone`：如果默认 profile 配了 Feishu/Lark 等平台，克隆后的子 profile 会在 `gateway.multiplex_profiles` 模式下尝试绑定共享监听器，导致 gateway 启动失败。后续该 Agent 的知识、记忆和运行上下文会和其他 Agent 隔离。
 
 ## Hermes 端配置
 

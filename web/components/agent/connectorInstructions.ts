@@ -54,7 +54,7 @@ export function getRuntimeProfileInstructions({
     return {
       title: "Hermes Profile 初始化",
       command: [
-        `hermes profile create ${shellQuote(profile)} --clone`,
+        `hermes profile create ${shellQuote(profile)}`,
         "hermes config set gateway.multiplex_profiles true",
         "hermes gateway",
       ].join("\n"),

@@ -148,5 +148,5 @@ Expected startup log:
   agentmint ws client loaded from ...
 
 For each Agent bound to this runtime node, create its Hermes profile on this machine:
-  hermes profile create <profile-name> --clone
+  hermes profile create <profile-name>
 EOF
